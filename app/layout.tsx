@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import "./carbon.scss";
+import "@carbon/charts-react/styles.css";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {

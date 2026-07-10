@@ -1,6 +1,36 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  Button as CarbonButton,
+  Header as CarbonHeader,
+  HeaderGlobalAction,
+  HeaderGlobalBar,
+  HeaderMenuButton,
+  HeaderName,
+  SideNav,
+  SideNavItems,
+  SideNavLink,
+  SkipToContent,
+  Tag,
+  Theme,
+} from "@carbon/react";
+import {
+  Add,
+  Analytics,
+  ArrowRight,
+  Dashboard,
+  DataBase,
+  DataVis_4,
+  Document,
+  Help,
+  Menu,
+  Close,
+  Notebook,
+  Security,
+  UserAvatar,
+} from "@carbon/icons-react";
+import { CarbonCapabilityChart, CarbonPortfolioCharts } from "./CarbonVisuals";
 
 type Score = {
   name: string;
@@ -43,13 +73,13 @@ type AuditEvent = { id: number; discoveryId: string; type: string; detail: strin
 type ApiData = { discoveries: Discovery[]; events: AuditEvent[] };
 
 const navItems = [
-  { id: "dashboard", label: "Visão geral", icon: "⌂" },
-  { id: "discoveries", label: "Descobertas", icon: "◎" },
-  { id: "workspace", label: "Workspace", icon: "◫" },
-  { id: "heatmap", label: "Heatmap", icon: "▦" },
-  { id: "insights", label: "Inteligência", icon: "◇" },
-  { id: "knowledge", label: "Conhecimento", icon: "≡" },
-  { id: "governance", label: "Governança", icon: "✓" },
+  { id: "dashboard", label: "Visão geral", icon: Dashboard },
+  { id: "discoveries", label: "Descobertas", icon: Document },
+  { id: "workspace", label: "Workspace", icon: Notebook },
+  { id: "heatmap", label: "Heatmap", icon: DataVis_4 },
+  { id: "insights", label: "Inteligência", icon: Analytics },
+  { id: "knowledge", label: "Conhecimento", icon: DataBase },
+  { id: "governance", label: "Governança", icon: Security },
 ] as const;
 
 const questions = [
@@ -117,6 +147,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(true);
   const [notice, setNotice] = useState("");
 
   const load = async () => {
@@ -129,6 +160,14 @@ export default function Home() {
 
   useEffect(() => {
     load().catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 901px)");
+    const syncViewport = () => setIsDesktop(media.matches);
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
   }, []);
 
   const selected = data.discoveries.find((item) => item.id === selectedId) || data.discoveries[0];
@@ -223,34 +262,60 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <button className="mobile-menu" onClick={() => setShowMobileNav(!showMobileNav)} aria-label="Abrir navegação">☰</button>
-        <button className="product-brand" onClick={() => setSection("dashboard")}>
-          <span className="brand-mark small">w</span>
-          <span><strong>watson</strong><em>Customer Discovery Intelligence</em></span>
-        </button>
-        <div className="topbar-actions">
-          <span className="environment"><i /> Ambiente seguro</span>
-          <button className="icon-button" aria-label="Ajuda">?</button>
-          <button className="profile-button" aria-label="Perfil de Mariana Costa"><span>MC</span><b>Mariana Costa</b></button>
-        </div>
-      </header>
+      <Theme theme="g100">
+        <CarbonHeader aria-label="watson Customer Discovery Intelligence" className="carbon-header">
+          <SkipToContent />
+          <HeaderMenuButton
+            aria-label={showMobileNav ? "Fechar navegação" : "Abrir navegação"}
+            isActive={showMobileNav}
+            isCollapsible
+            onClick={() => setShowMobileNav((value) => !value)}
+            renderMenuIcon={<Menu size={20} />}
+            renderCloseIcon={<Close size={20} />}
+          />
+          <HeaderName
+            href="#"
+            prefix="watson"
+            onClick={(event) => { event.preventDefault(); setSection("dashboard"); }}
+          >
+            {isDesktop ? "Customer Discovery Intelligence" : "CDI"}
+          </HeaderName>
+          <div className="carbon-header-status"><i /> Ambiente seguro</div>
+          <HeaderGlobalBar>
+            <HeaderGlobalAction aria-label="Ajuda" tooltipAlignment="end"><Help size={20} /></HeaderGlobalAction>
+            <HeaderGlobalAction aria-label="Perfil de Mariana Costa" tooltipAlignment="end"><UserAvatar size={20} /></HeaderGlobalAction>
+          </HeaderGlobalBar>
+        </CarbonHeader>
 
-      <aside className={`sidebar ${showMobileNav ? "open" : ""}`}>
-        <nav aria-label="Navegação principal">
-          <p className="nav-label">Workspace</p>
-          {navItems.map((item) => (
-            <button key={item.id} className={active === item.id ? "active" : ""} onClick={() => setSection(item.id)}>
-              <span aria-hidden="true">{item.icon}</span>{item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <span>CDI Engine</span>
-          <div><i /> 7 agentes disponíveis</div>
-          <small>v1.0 · MVP Challenge</small>
-        </div>
-      </aside>
+        <SideNav
+          aria-label="Navegação principal"
+          className="cdi-side-nav"
+          expanded={isDesktop || showMobileNav}
+          isPersistent={isDesktop}
+          isFixedNav
+          onOverlayClick={() => setShowMobileNav(false)}
+        >
+          <SideNavItems>
+            <p className="nav-label">Workspace</p>
+            {navItems.map((item) => (
+              <SideNavLink
+                key={item.id}
+                href="#"
+                renderIcon={item.icon}
+                isActive={active === item.id}
+                onClick={(event) => { event.preventDefault(); setSection(item.id); }}
+              >
+                {item.label}
+              </SideNavLink>
+            ))}
+          </SideNavItems>
+          <div className="sidebar-foot">
+            <span>CDI Engine</span>
+            <div><i /> 7 agentes disponíveis</div>
+            <small>Carbon Design System · v2</small>
+          </div>
+        </SideNav>
+      </Theme>
 
       <main className="main-content">
         {notice && <div className="toast" role="status">✓ {notice}</div>}
@@ -263,8 +328,8 @@ export default function Home() {
                 <h1>Entenda primeiro.<br />Recomende depois.</h1>
                 <p>Transforme conversas com clientes em inteligência explicável, prioridades claras e próximos engajamentos de alto valor.</p>
                 <div className="hero-actions">
-                  <button className="button primary inverse" onClick={() => setShowNew(true)}>Iniciar nova descoberta <span>→</span></button>
-                  <button className="button ghost inverse" onClick={() => setSection("discoveries")}>Ver pipeline</button>
+                  <CarbonButton kind="tertiary" size="lg" renderIcon={Add} onClick={() => setShowNew(true)}>Iniciar nova descoberta</CarbonButton>
+                  <CarbonButton kind="ghost" size="lg" renderIcon={ArrowRight} onClick={() => setSection("discoveries")}>Ver pipeline</CarbonButton>
                 </div>
               </div>
               <div className="reasoning-visual" aria-label="Fluxo de raciocínio do CDI Engine">
@@ -282,6 +347,17 @@ export default function Home() {
               <article><span>Prontas para engajar</span><strong>{metrics.ready}</strong><small>Revisão humana concluída</small></article>
               <article><span>Alta prioridade</span><strong>{metrics.high}</strong><small>Alinhamento acima de 75%</small></article>
               <article><span>Progresso médio</span><strong>{metrics.avg}%</strong><small>das evidências coletadas</small></article>
+            </div>
+
+            <div className="content-grid carbon-overview-grid">
+              <section className="panel span-2 carbon-chart-panel">
+                <div className="panel-heading"><div><span className="eyebrow">Carbon Charts</span><h2>Inteligência de capacidade</h2></div><Tag type="blue">Dados explicáveis</Tag></div>
+                {selected && <CarbonCapabilityChart scores={selected.scores} />}
+              </section>
+              <section className="panel carbon-chart-panel portfolio-chart-panel">
+                <div className="panel-heading"><div><span className="eyebrow">Portfólio</span><h2>Prioridades</h2></div></div>
+                <CarbonPortfolioCharts discoveries={data.discoveries} />
+              </section>
             </div>
 
             <div className="content-grid dashboard-grid">
@@ -312,7 +388,7 @@ export default function Home() {
 
         {active === "discoveries" && (
           <section className="page">
-            <PageTitle eyebrow="Pipeline de inteligência" title="Descobertas" description="Acompanhe o contexto, a qualidade das evidências e o próximo passo de cada cliente." action={<button className="button primary" onClick={() => setShowNew(true)}>＋ Nova descoberta</button>} />
+            <PageTitle eyebrow="Pipeline de inteligência" title="Descobertas" description="Acompanhe o contexto, a qualidade das evidências e o próximo passo de cada cliente." action={<CarbonButton renderIcon={Add} onClick={() => setShowNew(true)}>Nova descoberta</CarbonButton>} />
             <div className="toolbar"><label className="search-box"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cliente, setor ou responsável" /></label><span>{filteredDiscoveries.length} registros</span></div>
             <div className="discovery-cards">
               {filteredDiscoveries.map((item) => (
@@ -369,6 +445,10 @@ export default function Home() {
           <section className="page">
             <PageTitle eyebrow="Inteligência explicável" title="Customer Capability Heatmap" description={`${selected.customerName} · Atualizado ${formatDate(selected.updatedAt)}`} action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />} />
             <div className="heatmap-summary"><div><span>Maior alinhamento</span><strong>{selected.scores[0]?.name}</strong></div><div><span>Prontidão média</span><strong>{Math.round(selected.scores.reduce((sum, score) => sum + score.readiness, 0) / selected.scores.length)}%</strong></div><div><span>Qualidade da evidência</span><strong>{selected.scores[0]?.confidence >= 75 ? "Alta" : "Em evolução"}</strong></div><p>O heatmap prioriza valor de negócio — não produtos. Selecione uma capacidade para entender as evidências.</p></div>
+            <section className="panel carbon-chart-panel heatmap-carbon-chart">
+              <div className="panel-heading"><div><span className="eyebrow">Carbon Charts</span><h2>Alinhamento, valor e prontidão</h2></div><Tag type="purple">0–100</Tag></div>
+              <CarbonCapabilityChart scores={selected.scores} />
+            </section>
             <div className="heatmap-table">
               <div className="heatmap-row header"><span>Capacidade</span><span>Alinhamento</span><span>Valor</span><span>Prontidão</span><span>Confiança</span></div>
               {selected.scores.map((score) => (
