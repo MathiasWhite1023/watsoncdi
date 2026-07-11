@@ -1,98 +1,104 @@
-# vinext-starter
+# IBM Opportunity Heatmap
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Functional web prototype for customer discovery, opportunity qualification, and IBM portfolio recommendation.
 
-## Prerequisites
+Live demo: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
-- Node.js `>=22.13.0`
+## Overview
 
-## Quick Start
+IBM Opportunity Heatmap helps business partners and sales teams structure customer discovery evidence, identify high-potential opportunities, and turn early conversations into explainable next steps.
+
+The app captures customer answers in a persistent discovery workspace, scores opportunity fit across IBM-aligned capability areas, renders a capability heatmap, and produces CRM-ready recommendations with audit history.
+
+This is a portfolio/challenge project. It is not an official IBM product.
+
+## Product Capabilities
+
+- Guided customer discovery workspace
+- Persistent customer records and answer history
+- Explainable opportunity scoring by alignment, value, readiness, and confidence
+- Capability heatmap for portfolio prioritization
+- Recommendations for IBM software, consulting, and follow-up workshops
+- Executive brief and CRM handoff summary
+- Knowledge catalog for IBM-aligned capabilities
+- Governance view with audit events and human validation controls
+- Responsive IBM Carbon-inspired interface
+- Carbon Charts visualizations for portfolio and capability analysis
+
+## Agentic Workflow
+
+The current version demonstrates an agentic product experience with a deterministic scoring engine.
+
+When a user submits discovery evidence, the backend:
+
+1. Saves the answer in the discovery record.
+2. Rebuilds the customer context from all submitted answers.
+3. Detects business signals across domains such as FinOps, trusted data, AI governance, hybrid cloud, automation, and application modernization.
+4. Recalculates scores, confidence, priority, recommendations, and audit events.
+5. Updates the dashboard, heatmap, and executive brief.
+
+The visible agents in the UI represent specialized analysis roles such as Discovery Agent, FinOps Intelligence, Trusted Data Agent, and Explainability Agent. In this prototype they are implemented through rule-based backend logic, and the architecture is ready to evolve into model-backed agents using watsonx.ai, Granite, OpenAI, or another LLM provider.
+
+## Tech Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Cloudflare Workers / vinext
+- Cloudflare D1-style persistence
+- Drizzle migrations
+- IBM Carbon React
+- Carbon Charts React
+- Sass
+- OpenAI Sites hosting
+
+## Architecture
+
+```text
+User discovery input
+  -> Next.js client workspace
+  -> /api/discoveries server route
+  -> D1 discoveries and audit_events tables
+  -> deterministic scoring engine
+  -> heatmap, recommendations, CRM summary, and governance views
+```
+
+The main scoring logic lives in `app/api/discoveries/route.ts`. The primary product UI is implemented in `app/page.tsx`, with chart components in `app/CarbonVisuals.tsx`.
+
+## Getting Started
+
+Requirements:
+
+- Node.js 22.13 or newer
+
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Run locally:
+
+```bash
 npm run dev
+```
+
+Build:
+
+```bash
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+Validate:
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm test
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## Project Status
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+The application is deployed and usable as an initial MVP. The next natural evolution is to replace the deterministic analysis layer with real model-backed agents and structured tool calls for semantic discovery analysis, evidence extraction, and recommendation generation.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+## Suggested Repository Topics
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+`nextjs` `react` `typescript` `ibm-carbon` `carbon-charts` `ai` `sales-intelligence` `customer-discovery` `serverless` `cloudflare-workers`
