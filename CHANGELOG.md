@@ -2,8 +2,11 @@
 
 ## v3-stakeholder-intelligence
 
-Status: ready for publication
+Status: published
 Branch: `codex/stakeholder-intelligence-v3`
+Deploy commit: `a8b94f44b2f86cd966179815c38edffd90da78ba`
+OpenAI Sites version: `4`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
 ### Added
 
