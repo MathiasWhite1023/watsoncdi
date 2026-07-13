@@ -1,43 +1,31 @@
-# IBM Opportunity Heatmap
+# Watson CDI Account Intelligence
 
-Functional web prototype for customer discovery, opportunity qualification, and IBM portfolio recommendation.
+Account Intelligence before CRM: a functional web platform to understand client context, register meeting notes, map account relationships, identify IBM portfolio themes, and qualify next steps before creating a formal CRM opportunity.
 
 Live demo: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
-## Overview
-
-IBM Opportunity Heatmap helps business partners and sales teams structure customer discovery evidence, identify high-potential opportunities, and turn early conversations into explainable next steps.
-
-The app captures customer answers in a persistent discovery workspace, scores opportunity fit across IBM-aligned capability areas, renders a capability heatmap, and produces CRM-ready recommendations with audit history.
-
 This is a portfolio/challenge project. It is not an official IBM product.
 
-## Product Capabilities
+## What It Does
 
-- Guided customer discovery workspace
-- Persistent customer records and answer history
-- Explainable opportunity scoring by alignment, value, readiness, and confidence
-- Capability heatmap for portfolio prioritization
-- Recommendations for IBM software, consulting, and follow-up workshops
-- Executive brief and CRM handoff summary
-- Knowledge catalog for IBM-aligned capabilities
-- Governance view with audit events and human validation controls
-- Responsive IBM Carbon-inspired interface
-- Carbon Charts visualizations for portfolio and capability analysis
+- Tracks a portfolio of client accounts before they become CRM opportunities.
+- Captures free-form meeting notes and turns them into account intelligence.
+- Generates summaries, business signals, IBM themes, next questions, next actions, risks, stakeholders, systems, and pain points.
+- Builds an account map with connected nodes for people, systems, pains, risks, initiatives, and IBM capabilities.
+- Shows a portfolio heatmap and account-level capability heatmap.
+- Produces a pre-CRM handoff that can be copied into Salesforce, Dynamics, HubSpot, or another CRM.
+- Keeps audit history, human validation, and clear AI/fallback status.
 
-## Agentic Workflow
+## AI Behavior
 
-The current version demonstrates an agentic product experience with a deterministic scoring engine.
+The platform is prepared for real IBM watsonx analysis using these runtime variables:
 
-When a user submits discovery evidence, the backend:
+- `WATSONX_API_KEY`
+- `WATSONX_PROJECT_ID`
+- `WATSONX_URL`
+- `WATSONX_MODEL_ID`
 
-1. Saves the answer in the discovery record.
-2. Rebuilds the customer context from all submitted answers.
-3. Detects business signals across domains such as FinOps, trusted data, AI governance, hybrid cloud, automation, and application modernization.
-4. Recalculates scores, confidence, priority, recommendations, and audit events.
-5. Updates the dashboard, heatmap, and executive brief.
-
-The visible agents in the UI represent specialized analysis roles such as Discovery Agent, FinOps Intelligence, Trusted Data Agent, and Explainability Agent. In this prototype they are implemented through rule-based backend logic, and the architecture is ready to evolve into model-backed agents using watsonx.ai, Granite, OpenAI, or another LLM provider.
+When those values are present, meeting notes are sent to IBM watsonx.ai for structured account-intelligence extraction. When they are missing or the call fails, the app keeps working with a deterministic fallback engine and clearly marks the analysis as fallback.
 
 ## Tech Stack
 
@@ -55,15 +43,14 @@ The visible agents in the UI represent specialized analysis roles such as Discov
 ## Architecture
 
 ```text
-User discovery input
-  -> Next.js client workspace
-  -> /api/discoveries server route
-  -> D1 discoveries and audit_events tables
-  -> deterministic scoring engine
-  -> heatmap, recommendations, CRM summary, and governance views
+Meeting notes / discovery signals
+  -> /api/discoveries
+  -> IBM watsonx adapter or deterministic fallback
+  -> D1 discoveries, meetings, account_maps, audit_events
+  -> Client 360, account map, heatmap, recommendations, governance
 ```
 
-The main scoring logic lives in `app/api/discoveries/route.ts`. The primary product UI is implemented in `app/page.tsx`, with chart components in `app/CarbonVisuals.tsx`.
+The main product UI lives in `app/page.tsx`. The account-intelligence API and watsonx/fallback logic live in `app/api/discoveries/route.ts`. Carbon chart components live in `app/CarbonVisuals.tsx`.
 
 ## Getting Started
 
@@ -95,10 +82,43 @@ Validate:
 npm test
 ```
 
-## Project Status
+## Versioning And Rollback
 
-The application is deployed and usable as an initial MVP. The next natural evolution is to replace the deterministic analysis layer with real model-backed agents and structured tool calls for semantic discovery analysis, evidence extraction, and recommendation generation.
+The current production baseline is tagged as:
 
-## Suggested Repository Topics
+```bash
+v1-current-production
+```
 
-`nextjs` `react` `typescript` `ibm-carbon` `carbon-charts` `ai` `sales-intelligence` `customer-discovery` `serverless` `cloudflare-workers`
+The Account Intelligence version is developed on:
+
+```bash
+feature/account-intelligence-v2
+```
+
+After validation, tag the new version:
+
+```bash
+v2-account-intelligence
+```
+
+Application rollback:
+
+```bash
+git switch main
+git checkout v1-current-production
+npm run build
+```
+
+Then republish that validated source through OpenAI Sites.
+
+Data rollback policy:
+
+- V2 migrations are additive only.
+- Existing `discoveries` data remains compatible.
+- New `meetings` and `account_maps` tables can be ignored safely by V1.
+- No destructive migration is included in this release.
+
+## Repository Topics
+
+`nextjs` `react` `typescript` `ibm-carbon` `carbon-charts` `watsonx` `account-intelligence` `sales-intelligence` `customer-discovery` `serverless`
