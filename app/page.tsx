@@ -30,8 +30,11 @@ import {
   Security,
   UserAvatar,
 } from "@carbon/icons-react";
-import { CarbonCapabilityChart, CarbonPortfolioCharts } from "./CarbonVisuals";
+import { CarbonCapabilityChart } from "./CarbonVisuals";
 
+type Priority = "Alta" | "Média" | "Baixa";
+type Recommendation = { type: "Capacidade" | "Software" | "Consultoria"; name: string; rationale: string };
+type Answer = { key: string; question: string; answer: string; at: string };
 type Score = {
   name: string;
   short: string;
@@ -39,18 +42,35 @@ type Score = {
   value: number;
   readiness: number;
   confidence: number;
-  level: "Alta" | "Média" | "Baixa";
+  level: Priority;
   evidence: string[];
+  action: string;
 };
-
-type Recommendation = {
-  type: "Capacidade" | "Software" | "Consultoria";
-  name: string;
-  rationale: string;
+type MeetingInsight = {
+  summary: string;
+  signals: string[];
+  ibmThemes: string[];
+  nextQuestions: string[];
+  nextActions: string[];
+  risks: string[];
+  stakeholders: string[];
+  systems: string[];
+  painPoints: string[];
+  aiStatus: "watsonx" | "fallback" | "error";
 };
-
-type Answer = { key: string; question: string; answer: string; at: string };
-
+type Meeting = {
+  id: string;
+  discoveryId: string;
+  title: string;
+  notes: string;
+  summary: string;
+  insights: MeetingInsight;
+  aiStatus: "watsonx" | "fallback" | "error";
+  createdAt: string;
+};
+type AccountNode = { id: string; type: "area" | "person" | "system" | "pain" | "initiative" | "capability" | "risk"; label: string; detail: string; strength: number };
+type AccountEdge = { source: string; target: string; label: string };
+type AccountMap = { nodes: AccountNode[]; edges: AccountEdge[]; updatedAt: string };
 type Discovery = {
   id: string;
   customerName: string;
@@ -59,92 +79,75 @@ type Discovery = {
   owner: string;
   stage: string;
   progress: number;
-  priority: "Alta" | "Média" | "Baixa";
+  priority: Priority;
   challengeSummary: string;
   answers: Answer[];
+  meetings: Meeting[];
+  accountMap: AccountMap;
+  aiMode: "watsonx" | "fallback" | "error";
   scores: Score[];
   recommendations: Recommendation[];
   nextEngagement: string;
   updatedAt: string;
 };
-
 type AuditEvent = { id: number; discoveryId: string; type: string; detail: string; createdAt: string };
-
-type ApiData = { discoveries: Discovery[]; events: AuditEvent[] };
+type ApiData = { discoveries: Discovery[]; meetings: Meeting[]; events: AuditEvent[] };
 
 const navItems = [
-  { id: "dashboard", label: "Visão geral", icon: Dashboard },
-  { id: "discoveries", label: "Descobertas", icon: Document },
-  { id: "workspace", label: "Workspace", icon: Notebook },
-  { id: "heatmap", label: "Heatmap", icon: DataVis_4 },
-  { id: "insights", label: "Inteligência", icon: Analytics },
+  { id: "dashboard", label: "Visão 360", icon: Dashboard },
+  { id: "accounts", label: "Contas", icon: Document },
+  { id: "meetings", label: "Reuniões", icon: Notebook },
+  { id: "accountMap", label: "Mapa da Conta", icon: DataVis_4 },
+  { id: "heatmap", label: "Heatmap", icon: Analytics },
+  { id: "recommendations", label: "Recomendações", icon: ArrowRight },
   { id: "knowledge", label: "Conhecimento", icon: DataBase },
   { id: "governance", label: "Governança", icon: Security },
 ] as const;
 
 const questions = [
-  {
-    key: "context",
-    eyebrow: "Contexto do cliente",
-    text: "Qual é o principal objetivo de negócio para os próximos 12 meses?",
-    hint: "Considere crescimento, eficiência, risco, experiência do cliente ou transformação.",
-  },
-  {
-    key: "landscape",
-    eyebrow: "Cenário tecnológico",
-    text: "Como está organizado o ambiente de tecnologia e nuvem hoje?",
-    hint: "Inclua provedores, ambientes híbridos, aplicações críticas e principais restrições.",
-  },
-  {
-    key: "finops",
-    eyebrow: "FinOps e gestão financeira",
-    text: "Quais desafios existem em custos, previsibilidade e governança dos investimentos de tecnologia?",
-    hint: "Ex.: crescimento de cloud, rateio, orçamento, desperdício, forecast ou accountability.",
-  },
-  {
-    key: "data",
-    eyebrow: "Dados confiáveis",
-    text: "O que impede a organização de descobrir, governar e consumir dados com confiança?",
-    hint: "Ex.: qualidade, silos, linhagem, integração, acesso, catálogo ou prontidão para IA.",
-  },
-  {
-    key: "security",
-    eyebrow: "Segurança e conformidade",
-    text: "Quais riscos de dados, identidade ou conformidade mais preocupam a liderança?",
-    hint: "Inclua dados sensíveis, LGPD, segredos, auditoria e políticas de acesso.",
-  },
-  {
-    key: "readiness",
-    eyebrow: "Prontidão organizacional",
-    text: "Existe patrocínio executivo, time responsável e urgência para iniciar uma iniciativa?",
-    hint: "Descreva patrocinadores, prazo, capacidade de mudança e decisões já tomadas.",
-  },
+  { key: "trigger", eyebrow: "Evento gatilho", text: "O que abriu essa conversa agora e qual pressão de negócio existe por trás?", hint: "Inclua metas, incidentes, mudança regulatória, redução de custo, crescimento ou transformação." },
+  { key: "stakeholders", eyebrow: "Mapa político", text: "Quem participa da decisão e quem sente a dor no dia a dia?", hint: "Liste sponsor, usuários impactados, time técnico, financeiro, risco, dados e operações." },
+  { key: "landscape", eyebrow: "Ambiente atual", text: "Quais sistemas, clouds, dados ou aplicações críticas apareceram na conversa?", hint: "Ex.: AWS, Azure, mainframe, SAP, datacenter, lakehouse, integrações, aplicações legadas." },
+  { key: "pain", eyebrow: "Dores e impacto", text: "Onde existe perda de dinheiro, risco, produtividade, confiança ou velocidade?", hint: "Tente conectar cada dor a impacto mensurável ou consequência executiva." },
+  { key: "data-ai", eyebrow: "Dados e IA", text: "A conta tem iniciativas de IA, analytics ou dados confiáveis em andamento?", hint: "Inclua qualidade, catálogo, governança, modelos, LGPD, segurança e casos de uso." },
+  { key: "readiness", eyebrow: "Prontidão", text: "Existe sponsor, orçamento, timeline e critério claro para avançar?", hint: "Descreva urgência, janela de decisão, maturidade do time e próximos fóruns." },
+  { key: "crm-fit", eyebrow: "Antes do CRM", text: "O que ainda falta validar antes de criar uma oportunidade no CRM?", hint: "Liste lacunas, riscos, stakeholders ausentes e evidências que precisam ser confirmadas." },
 ];
 
 const knowledgeItems = [
-  { tag: "FinOps", title: "IBM Cloudability", desc: "Visibilidade, alocação e otimização de custos em ambientes multicloud.", status: "Verificado" },
-  { tag: "FinOps", title: "IBM Turbonomic", desc: "Otimização contínua de recursos e performance de aplicações.", status: "Verificado" },
-  { tag: "TBM", title: "IBM Apptio", desc: "Planejamento e transparência financeira para investimentos de tecnologia.", status: "Verificado" },
-  { tag: "Trusted data", title: "watsonx.data", desc: "Base governada e aberta de dados para analytics e IA empresarial.", status: "Verificado" },
-  { tag: "Security", title: "IBM Guardium", desc: "Descoberta, monitoramento e proteção de dados sensíveis.", status: "Verificado" },
-  { tag: "Security", title: "HashiCorp Vault", desc: "Gestão de segredos, identidades de máquina e credenciais.", status: "Verificado" },
-  { tag: "Integration", title: "Confluent", desc: "Data streaming em tempo real para dados empresariais conectados.", status: "Verificado" },
-  { tag: "Consulting", title: "Trusted Data Workshop", desc: "Engajamento consultivo para priorizar fundações de dados confiáveis.", status: "Playbook" },
+  { tag: "FinOps", title: "IBM Cloudability + Turbonomic", signals: "Custos cloud, forecast, desperdício, performance", questions: "Como custos são alocados por produto? Quem aprova otimização?", pitch: "Une transparência financeira e otimização contínua para reduzir desperdício sem degradar experiência.", workshop: "FinOps Discovery Workshop" },
+  { tag: "Trusted Data", title: "watsonx.data + IBM Guardium", signals: "Silos, qualidade, linhagem, dados sensíveis, LGPD", questions: "Quais fontes são críticas? Quem confia nos dados? Onde há dados sensíveis?", pitch: "Cria fundação governada para analytics e IA com proteção de dados sensíveis.", workshop: "Trusted Data Workshop" },
+  { tag: "AI Governance", title: "watsonx.governance + watsonx.ai", signals: "GenAI, modelos, risco, auditoria, compliance", questions: "Quais modelos entram em produção? Como riscos são aprovados?", pitch: "Ajuda a controlar ciclo de vida, evidências, políticas e riscos de IA empresarial.", workshop: "AI Readiness & Governance Workshop" },
+  { tag: "Hybrid Cloud", title: "Red Hat OpenShift + HashiCorp Terraform", signals: "Multicloud, datacenter, legado, containers", questions: "Quais workloads precisam de portabilidade? Onde provisionamento trava?", pitch: "Padroniza plataforma, automação e governança para ambientes híbridos.", workshop: "Hybrid Cloud Architecture Review" },
+  { tag: "Automation", title: "watsonx Orchestrate + IBM Concert", signals: "Processo manual, handoff, produtividade, operação", questions: "Quais tarefas repetem toda semana? Onde há decisões manuais?", pitch: "Transforma trabalho repetitivo em fluxos orquestrados e conectados a insights operacionais.", workshop: "Automation Discovery Workshop" },
+  { tag: "Modernization", title: "OpenShift + Instana", signals: "Aplicações legadas, mainframe, DevOps, observabilidade", questions: "Quais aplicações seguram roadmap? Onde falta visibilidade?", pitch: "Prioriza modernização por valor, risco e esforço com observabilidade ponta a ponta.", workshop: "Application Modernization Assessment" },
 ];
+
+const nodeLabels: Record<AccountNode["type"], string> = {
+  area: "Conta",
+  person: "Stakeholder",
+  system: "Sistema",
+  pain: "Dor",
+  initiative: "Iniciativa",
+  capability: "Capacidade IBM",
+  risk: "Risco",
+};
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
-
 const scoreClass = (value: number) => (value >= 75 ? "high" : value >= 50 ? "medium" : "low");
 
 export default function Home() {
   const [active, setActive] = useState("dashboard");
-  const [data, setData] = useState<ApiData>({ discoveries: [], events: [] });
+  const [data, setData] = useState<ApiData>({ discoveries: [], meetings: [], events: [] });
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [answer, setAnswer] = useState("");
+  const [meetingNotes, setMeetingNotes] = useState("");
+  const [meetingTitle, setMeetingTitle] = useState("");
   const [search, setSearch] = useState("");
+  const [mapFilter, setMapFilter] = useState<AccountNode["type"] | "all">("all");
   const [showNew, setShowNew] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
@@ -153,15 +156,27 @@ export default function Home() {
   const load = async () => {
     const response = await fetch("/api/discoveries", { cache: "no-store" });
     const payload = (await response.json()) as ApiData;
-    setData(payload);
-    setSelectedId((current) => current || payload.discoveries[0]?.id || "");
+    setData({ discoveries: payload.discoveries || [], meetings: payload.meetings || [], events: payload.events || [] });
+    setSelectedId((current) => current || payload.discoveries?.[0]?.id || "");
     setLoading(false);
   };
 
   useEffect(() => {
-    load().catch(() => setLoading(false));
+    let activeRequest = true;
+    const loadInitialData = async () => {
+      try {
+        const response = await fetch("/api/discoveries", { cache: "no-store" });
+        const payload = (await response.json()) as ApiData;
+        if (!activeRequest) return;
+        setData({ discoveries: payload.discoveries || [], meetings: payload.meetings || [], events: payload.events || [] });
+        setSelectedId((current) => current || payload.discoveries?.[0]?.id || "");
+      } finally {
+        if (activeRequest) setLoading(false);
+      }
+    };
+    void loadInitialData();
+    return () => { activeRequest = false; };
   }, []);
-
   useEffect(() => {
     const media = window.matchMedia("(min-width: 901px)");
     const syncViewport = () => setIsDesktop(media.matches);
@@ -171,25 +186,44 @@ export default function Home() {
   }, []);
 
   const selected = data.discoveries.find((item) => item.id === selectedId) || data.discoveries[0];
+  const selectedMeetings = selected?.meetings || [];
+  const latestMeeting = selectedMeetings[0];
   const currentQuestion = questions[Math.min(selected?.answers.length || 0, questions.length - 1)];
   const completed = selected ? selected.answers.length >= questions.length : false;
 
   const metrics = useMemo(() => {
     const total = data.discoveries.length;
-    const ready = data.discoveries.filter((item) => item.progress >= 85).length;
-    const high = data.discoveries.filter((item) => item.priority === "Alta").length;
+    const hot = data.discoveries.filter((item) => item.priority === "Alta").length;
+    const noNextStep = data.discoveries.filter((item) => !item.meetings?.length || item.progress < 45).length;
+    const watsonx = data.meetings.filter((meeting) => meeting.aiStatus === "watsonx").length;
     const avg = total ? Math.round(data.discoveries.reduce((sum, item) => sum + item.progress, 0) / total) : 0;
-    return { total, ready, high, avg };
-  }, [data.discoveries]);
+    return { total, hot, noNextStep, watsonx, avg };
+  }, [data.discoveries, data.meetings]);
 
   const filteredDiscoveries = data.discoveries.filter((item) =>
-    `${item.customerName} ${item.industry} ${item.owner}`.toLowerCase().includes(search.toLowerCase()),
+    `${item.customerName} ${item.industry} ${item.owner} ${item.stage}`.toLowerCase().includes(search.toLowerCase()),
   );
+
+  const portfolioThemes = useMemo(() => {
+    const counts = new Map<string, number>();
+    data.discoveries.forEach((item) => item.scores.slice(0, 2).forEach((score) => counts.set(score.short, (counts.get(score.short) || 0) + 1)));
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [data.discoveries]);
+
+  const visibleNodes = (selected?.accountMap.nodes || []).filter((node) => mapFilter === "all" || node.type === mapFilter || node.type === "area");
+  const visibleIds = new Set(visibleNodes.map((node) => node.id));
+  const visibleEdges = (selected?.accountMap.edges || []).filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+  const nodeById = new Map((selected?.accountMap.nodes || []).map((node) => [node.id, node]));
 
   const setSection = (id: string) => {
     setActive(id);
     setShowMobileNav(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const notify = (message: string) => {
+    setNotice(message);
+    setTimeout(() => setNotice(""), 3200);
   };
 
   const submitAnswer = async (event: FormEvent) => {
@@ -204,8 +238,24 @@ export default function Home() {
     setAnswer("");
     await load();
     setSaving(false);
-    setNotice("Resposta analisada. O contexto e os scores foram atualizados.");
-    setTimeout(() => setNotice(""), 3200);
+    notify("Sinal de discovery atualizado. O mapa e o heatmap foram recalculados.");
+  };
+
+  const submitMeeting = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected || !meetingNotes.trim()) return;
+    setSaving(true);
+    const response = await fetch("/api/discoveries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "meeting", id: selected.id, title: meetingTitle || "Reunião de account intelligence", notes: meetingNotes }),
+    });
+    const payload = await response.json() as { meeting?: Meeting; error?: string };
+    setMeetingNotes("");
+    setMeetingTitle("");
+    await load();
+    setSaving(false);
+    notify(payload.meeting?.aiStatus === "watsonx" ? "Reunião analisada com IBM watsonx." : "Reunião analisada com fallback determinístico.");
   };
 
   const createDiscovery = async (event: FormEvent<HTMLFormElement>) => {
@@ -215,18 +265,13 @@ export default function Home() {
     const response = await fetch("/api/discoveries", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "create",
-        customerName: form.get("customerName"),
-        industry: form.get("industry"),
-        companySize: form.get("companySize"),
-      }),
+      body: JSON.stringify({ action: "create", customerName: form.get("customerName"), industry: form.get("industry"), companySize: form.get("companySize") }),
     });
     const created = (await response.json()) as Discovery;
     await load();
     setSelectedId(created.id);
     setShowNew(false);
-    setActive("workspace");
+    setActive("meetings");
     setSaving(false);
   };
 
@@ -238,32 +283,36 @@ export default function Home() {
       body: JSON.stringify({ action: "feedback", id: selected.id, accepted }),
     });
     await load();
-    setNotice(accepted ? "Recomendação validada por você." : "Feedback registrado para revisão humana.");
-    setTimeout(() => setNotice(""), 3200);
+    notify(accepted ? "Handoff pré-CRM validado." : "Recomendação registrada para revisão humana.");
   };
 
   const copySummary = async () => {
     if (!selected) return;
     const top = selected.scores[0];
-    const text = `${selected.customerName}\nDesafio: ${selected.challengeSummary}\nPrioridade: ${selected.priority}\nCapacidade líder: ${top?.name} (${top?.alignment}% de alinhamento)\nPróximo engajamento: ${selected.nextEngagement}`;
+    const text = `${selected.customerName}
+Account intelligence antes do CRM
+Contexto: ${selected.challengeSummary}
+Prioridade: ${selected.priority}
+Capacidade líder: ${top?.name} (${top?.alignment}%)
+Última reunião: ${latestMeeting?.summary || "Sem reunião registrada"}
+Próximo passo: ${selected.nextEngagement}`;
     await navigator.clipboard.writeText(text);
-    setNotice("Resumo CRM copiado para a área de transferência.");
-    setTimeout(() => setNotice(""), 3200);
+    notify("Handoff pré-CRM copiado para a área de transferência.");
   };
 
   if (loading) {
     return (
       <main className="loading-screen">
         <div className="brand-mark">w</div>
-        <p>Preparando o Customer Discovery Intelligence…</p>
+        <p>Preparando Account Intelligence…</p>
       </main>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell account-intelligence">
       <Theme theme="g100">
-        <CarbonHeader aria-label="watson Customer Discovery Intelligence" className="carbon-header">
+        <CarbonHeader aria-label="watson Account Intelligence" className="carbon-header">
           <SkipToContent />
           <HeaderMenuButton
             aria-label={showMobileNav ? "Fechar navegação" : "Abrir navegação"}
@@ -273,46 +322,29 @@ export default function Home() {
             renderMenuIcon={<Menu size={20} />}
             renderCloseIcon={<Close size={20} />}
           />
-          <HeaderName
-            href="#"
-            prefix="watson"
-            onClick={(event) => { event.preventDefault(); setSection("dashboard"); }}
-          >
-            {isDesktop ? "Customer Discovery Intelligence" : "CDI"}
+          <HeaderName href="#" prefix="watson" onClick={(event) => { event.preventDefault(); setSection("dashboard"); }}>
+            {isDesktop ? "Account Intelligence" : "AI"}
           </HeaderName>
-          <div className="carbon-header-status"><i /> Ambiente seguro</div>
+          <div className="carbon-header-status"><i /> Antes do CRM</div>
           <HeaderGlobalBar>
             <HeaderGlobalAction aria-label="Ajuda" tooltipAlignment="end"><Help size={20} /></HeaderGlobalAction>
             <HeaderGlobalAction aria-label="Perfil de Mariana Costa" tooltipAlignment="end"><UserAvatar size={20} /></HeaderGlobalAction>
           </HeaderGlobalBar>
         </CarbonHeader>
 
-        <SideNav
-          aria-label="Navegação principal"
-          className="cdi-side-nav"
-          expanded={isDesktop || showMobileNav}
-          isPersistent={isDesktop}
-          isFixedNav
-          onOverlayClick={() => setShowMobileNav(false)}
-        >
+        <SideNav aria-label="Navegação principal" className="cdi-side-nav" expanded={isDesktop || showMobileNav} isPersistent={isDesktop} isFixedNav onOverlayClick={() => setShowMobileNav(false)}>
           <SideNavItems>
-            <p className="nav-label">Workspace</p>
+            <p className="nav-label">Account Intelligence</p>
             {navItems.map((item) => (
-              <SideNavLink
-                key={item.id}
-                href="#"
-                renderIcon={item.icon}
-                isActive={active === item.id}
-                onClick={(event) => { event.preventDefault(); setSection(item.id); }}
-              >
+              <SideNavLink key={item.id} href="#" renderIcon={item.icon} isActive={active === item.id} onClick={(event) => { event.preventDefault(); setSection(item.id); }}>
                 {item.label}
               </SideNavLink>
             ))}
           </SideNavItems>
           <div className="sidebar-foot">
-            <span>CDI Engine</span>
-            <div><i /> 7 agentes disponíveis</div>
-            <small>Carbon Design System · v2</small>
+            <span>CDI Engine v2</span>
+            <div><i /> IA real + fallback</div>
+            <small>Carbon Design System</small>
           </div>
         </SideNav>
       </Theme>
@@ -321,121 +353,168 @@ export default function Home() {
         {notice && <div className="toast" role="status">✓ {notice}</div>}
 
         {active === "dashboard" && (
-          <section className="page dashboard-page">
-            <div className="hero-panel">
-              <div>
-                <span className="eyebrow light">Customer discovery intelligence</span>
-                <h1>Entenda primeiro.<br />Recomende depois.</h1>
-                <p>Transforme conversas com clientes em inteligência explicável, prioridades claras e próximos engajamentos de alto valor.</p>
-                <div className="hero-actions">
-                  <CarbonButton kind="tertiary" size="lg" renderIcon={Add} onClick={() => setShowNew(true)}>Iniciar nova descoberta</CarbonButton>
-                  <CarbonButton kind="ghost" size="lg" renderIcon={ArrowRight} onClick={() => setSection("discoveries")}>Ver pipeline</CarbonButton>
-                </div>
-              </div>
-              <div className="reasoning-visual" aria-label="Fluxo de raciocínio do CDI Engine">
-                <div className="core-orbit"><span>CDI</span><small>Engine</small></div>
-                <div className="orbit-item o1">Entender</div>
-                <div className="orbit-item o2">Analisar</div>
-                <div className="orbit-item o3">Alinhar</div>
-                <div className="orbit-item o4">Priorizar</div>
-                <div className="orbit-item o5">Recomendar</div>
-              </div>
+          <section className="page ai-dashboard">
+            <PageTitle
+              eyebrow="Account intelligence antes do CRM"
+              title="Visão 360 da carteira"
+              description="Entenda clientes, reuniões, dores, temas IBM e próximos passos antes de criar uma oportunidade formal."
+              action={<CarbonButton renderIcon={Add} onClick={() => setShowNew(true)}>Nova conta</CarbonButton>}
+            />
+            <div className="command-strip">
+              <div><span>Conta em foco</span><strong>{selected?.customerName}</strong><small>{selected?.stage} · {selected?.priority} prioridade</small></div>
+              <div><span>Próximo passo</span><strong>{selected?.nextEngagement}</strong><small>{selected?.aiMode === "watsonx" ? "Gerado com IBM watsonx" : "Fallback determinístico ativo"}</small></div>
+              <button onClick={() => setSection("meetings")}>Registrar reunião →</button>
             </div>
-
             <div className="metrics-grid">
-              <article><span>Descobertas ativas</span><strong>{metrics.total}</strong><small>+2 nesta semana</small></article>
-              <article><span>Prontas para engajar</span><strong>{metrics.ready}</strong><small>Revisão humana concluída</small></article>
-              <article><span>Alta prioridade</span><strong>{metrics.high}</strong><small>Alinhamento acima de 75%</small></article>
-              <article><span>Progresso médio</span><strong>{metrics.avg}%</strong><small>das evidências coletadas</small></article>
+              <article><span>Contas mapeadas</span><strong>{metrics.total}</strong><small>Account intelligence ativa</small></article>
+              <article><span>Alta prioridade</span><strong>{metrics.hot}</strong><small>Possível handoff em maturação</small></article>
+              <article><span>Sem próximo passo claro</span><strong>{metrics.noNextStep}</strong><small>Requer reunião ou validação</small></article>
+              <article><span>Análises watsonx</span><strong>{metrics.watsonx}</strong><small>Fallback cobre ausência de credenciais</small></article>
             </div>
-
-            <div className="content-grid carbon-overview-grid">
-              <section className="panel span-2 carbon-chart-panel">
-                <div className="panel-heading"><div><span className="eyebrow">Carbon Charts</span><h2>Inteligência de capacidade</h2></div><Tag type="blue">Dados explicáveis</Tag></div>
-                {selected && <CarbonCapabilityChart scores={selected.scores} />}
-              </section>
-              <section className="panel carbon-chart-panel portfolio-chart-panel">
-                <div className="panel-heading"><div><span className="eyebrow">Portfólio</span><h2>Prioridades</h2></div></div>
-                <CarbonPortfolioCharts discoveries={data.discoveries} />
-              </section>
-            </div>
-
-            <div className="content-grid dashboard-grid">
+            <div className="content-grid cockpit-grid">
               <section className="panel span-2">
-                <div className="panel-heading"><div><span className="eyebrow">Trabalho em andamento</span><h2>Descobertas recentes</h2></div><button className="text-button" onClick={() => setSection("discoveries")}>Ver todas →</button></div>
-                <div className="discovery-list compact">
-                  {data.discoveries.slice(0, 4).map((item) => (
-                    <button key={item.id} onClick={() => { setSelectedId(item.id); setSection("workspace"); }}>
-                      <span className={`priority-dot ${item.priority.toLowerCase()}`} />
-                      <span className="customer-cell"><strong>{item.customerName}</strong><small>{item.industry} · Atualizado {formatDate(item.updatedAt)}</small></span>
-                      <span className="stage-cell">{item.stage}</span>
-                      <span className="progress-cell"><i><b style={{ width: `${item.progress}%` }} /></i><small>{item.progress}%</small></span>
-                      <span className="row-arrow">→</span>
+                <div className="panel-heading"><div><span className="eyebrow">Carteira</span><h2>Contas que pedem atenção</h2></div><button className="text-button" onClick={() => setSection("accounts")}>Ver contas →</button></div>
+                <div className="account-table">
+                  <div className="account-table-head"><span>Conta</span><span>Tema líder</span><span>Próximo passo</span><span>Prontidão</span></div>
+                  {filteredDiscoveries.slice(0, 5).map((item) => (
+                    <button key={item.id} onClick={() => { setSelectedId(item.id); setSection("accounts"); }}>
+                      <span><i className={`priority-dot ${item.priority.toLowerCase()}`} /><strong>{item.customerName}</strong><small>{item.industry}</small></span>
+                      <span>{item.scores[0]?.short}</span>
+                      <span>{item.nextEngagement}</span>
+                      <span><b style={{ width: `${item.progress}%` }} /><em>{item.progress}%</em></span>
                     </button>
                   ))}
                 </div>
               </section>
               <section className="panel action-panel">
-                <span className="eyebrow">Próxima melhor ação</span>
-                <h2>{selected?.customerName}</h2>
-                <div className="signal-score"><strong>{selected?.scores[0]?.alignment || 0}</strong><span>%<small>alinhamento líder</small></span></div>
-                <p>{selected?.nextEngagement}</p>
-                <button className="button secondary full" onClick={() => setSection("insights")}>Revisar recomendação →</button>
+                <span className="eyebrow">Última reunião</span>
+                <h2>{latestMeeting?.title || "Sem reunião registrada"}</h2>
+                <p>{latestMeeting?.summary || "Registre notas livres para gerar temas, perguntas e próximos passos."}</p>
+                <div className="mini-tags">{(latestMeeting?.insights.ibmThemes || selected?.scores.slice(0, 3).map((score) => score.short) || []).slice(0, 4).map((theme) => <Tag key={theme} type="blue">{theme}</Tag>)}</div>
+                <button className="button secondary full" onClick={() => setSection("meetings")}>Abrir reuniões →</button>
+              </section>
+              <section className="panel span-2 carbon-chart-panel">
+                <div className="panel-heading"><div><span className="eyebrow">Heatmap de carteira</span><h2>Capacidades mais recorrentes</h2></div><Tag type="cyan">Portfolio IBM</Tag></div>
+                {selected && <CarbonCapabilityChart scores={selected.scores} />}
+              </section>
+              <section className="panel">
+                <div className="panel-heading"><div><span className="eyebrow">Temas</span><h2>Sinais na carteira</h2></div></div>
+                <div className="theme-stack">{portfolioThemes.map(([theme, count]) => <div key={theme}><span>{theme}</span><strong>{count}</strong></div>)}</div>
               </section>
             </div>
           </section>
         )}
 
-        {active === "discoveries" && (
+        {active === "accounts" && selected && (
           <section className="page">
-            <PageTitle eyebrow="Pipeline de inteligência" title="Descobertas" description="Acompanhe o contexto, a qualidade das evidências e o próximo passo de cada cliente." action={<CarbonButton renderIcon={Add} onClick={() => setShowNew(true)}>Nova descoberta</CarbonButton>} />
-            <div className="toolbar"><label className="search-box"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cliente, setor ou responsável" /></label><span>{filteredDiscoveries.length} registros</span></div>
-            <div className="discovery-cards">
-              {filteredDiscoveries.map((item) => (
-                <article key={item.id} className="discovery-card">
-                  <div className="card-top"><span className={`status-pill ${item.priority.toLowerCase()}`}>{item.priority} prioridade</span><button aria-label="Mais opções">•••</button></div>
-                  <h3>{item.customerName}</h3><p>{item.industry} · {item.companySize}</p>
-                  <div className="card-progress"><span><b>{item.stage}</b><em>{item.progress}%</em></span><i><b style={{ width: `${item.progress}%` }} /></i></div>
-                  <div className="card-signal"><span>Capacidade líder</span><strong>{item.scores[0]?.short || "Em análise"} <em>{item.scores[0]?.alignment || 0}%</em></strong></div>
-                  <footer><span><i className="avatar">MC</i>{item.owner}</span><button className="text-button" onClick={() => { setSelectedId(item.id); setSection("workspace"); }}>Continuar →</button></footer>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {active === "workspace" && selected && (
-          <section className="page workspace-page">
-            <PageTitle eyebrow="Discovery workspace" title={selected.customerName} description={`${selected.industry} · ${selected.companySize}`} action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />} />
-            <div className="workflow-steps">
-              {["Contexto", "Desafios", "Capacidades", "Heatmap", "Inteligência", "Validação"].map((step, index) => <div key={step} className={index <= selected.answers.length ? "done" : ""}><i>{index < selected.answers.length ? "✓" : index + 1}</i><span>{step}</span></div>)}
-            </div>
-            <div className="workspace-grid">
-              <section className="conversation-panel">
-                <div className="agent-heading"><div className="agent-avatar">w</div><div><strong>Customer Discovery Agent</strong><span><i /> Orquestrado pelo CDI Engine</span></div><button className="icon-button" title="A conversa é registrada na trilha de auditoria">i</button></div>
-                {!completed ? (
-                  <div className="question-block">
-                    <span className="eyebrow">{currentQuestion.eyebrow} · Questão {selected.answers.length + 1} de {questions.length}</span>
-                    <h2>{currentQuestion.text}</h2><p>{currentQuestion.hint}</p>
-                    <form onSubmit={submitAnswer}>
-                      <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Registre a resposta do cliente com suas próprias palavras…" rows={6} />
-                      <div><small>O agente usará esta evidência para escolher a próxima pergunta.</small><button className="button primary" disabled={saving || !answer.trim()}>{saving ? "Analisando…" : "Analisar e continuar →"}</button></div>
-                    </form>
-                  </div>
-                ) : (
-                  <div className="completion-block"><span>✓</span><h2>Descoberta pronta para revisão</h2><p>As evidências foram consolidadas em um heatmap e em recomendações explicáveis. A decisão final continua com você.</p><button className="button primary" onClick={() => setSection("heatmap")}>Explorar heatmap →</button></div>
-                )}
-                <div className="answer-history">
-                  <div className="section-title"><span>Histórico da descoberta</span><small>{selected.answers.length} evidências</small></div>
-                  {[...selected.answers].reverse().map((item) => <details key={item.key}><summary><span>{item.question}</span><small>{formatDate(item.at)}</small></summary><p>{item.answer}</p></details>)}
-                  {!selected.answers.length && <div className="empty-state">A primeira resposta iniciará o Customer Knowledge Graph deste cliente.</div>}
+            <PageTitle
+              eyebrow="Cliente 360"
+              title={selected.customerName}
+              description={`${selected.industry} · ${selected.companySize} · ${selected.stage}`}
+              action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />}
+            />
+            <div className="account-360-grid">
+              <section className="panel span-2 account-context-panel">
+                <div className="panel-heading"><div><span className="eyebrow">Contexto conhecido</span><h2>{selected.challengeSummary}</h2></div><Tag type={selected.aiMode === "watsonx" ? "green" : "gray"}>{selected.aiMode === "watsonx" ? "watsonx" : "fallback"}</Tag></div>
+                <div className="signal-columns">
+                  <SignalList title="Stakeholders" items={latestMeeting?.insights.stakeholders || []} empty="Ainda não identificados" />
+                  <SignalList title="Dores" items={latestMeeting?.insights.painPoints || []} empty="Registre uma reunião" />
+                  <SignalList title="Sistemas" items={latestMeeting?.insights.systems || []} empty="Sem sistemas citados" />
                 </div>
               </section>
-              <aside className="context-panel">
-                <div className="context-head"><span className="eyebrow">Contexto compartilhado</span><h3>Sinais em tempo real</h3></div>
-                <div className="confidence-ring" style={{ "--score": `${selected.scores[0]?.confidence || 30}%` } as React.CSSProperties}><strong>{selected.scores[0]?.confidence || 30}%</strong><span>confiança geral</span></div>
-                <div className="live-scores">{selected.scores.slice(0, 3).map((score) => <div key={score.name}><span>{score.short}<i className={scoreClass(score.alignment)}>{score.level}</i></span><b>{score.alignment}%</b></div>)}</div>
-                <div className="agent-stack"><span className="eyebrow">Agentes ativos</span>{["Discovery Agent", "FinOps Intelligence", "Trusted Data Agent", "Explainability Agent"].map((agent, index) => <div key={agent}><i>{index === 0 ? "●" : "○"}</i><span>{agent}</span><small>{index <= selected.answers.length / 2 ? "Analisando" : "Em espera"}</small></div>)}</div>
+              <section className="panel account-score-panel">
+                <span className="eyebrow">Maturidade pré-CRM</span>
+                <div className="signal-score"><strong>{selected.progress}</strong><span>%<small>pronto para handoff</small></span></div>
+                <p>{selected.nextEngagement}</p>
+                <button className="button secondary full" onClick={() => setSection("recommendations")}>Ver handoff →</button>
+              </section>
+              <section className="panel span-2">
+                <div className="panel-heading"><div><span className="eyebrow">Discovery guiado</span><h2>{completed ? "Perguntas principais concluídas" : currentQuestion.text}</h2></div></div>
+                {!completed && (
+                  <form className="compact-form" onSubmit={submitAnswer}>
+                    <p>{currentQuestion.hint}</p>
+                    <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Registre a evidência validada sobre esta conta..." rows={5} />
+                    <button className="button primary" disabled={saving || !answer.trim()}>{saving ? "Analisando..." : "Salvar sinal e recalcular →"}</button>
+                  </form>
+                )}
+                <div className="answer-history compact-history">
+                  {[...selected.answers].reverse().map((item) => <details key={item.key}><summary><span>{item.question}</span><small>{formatDate(item.at)}</small></summary><p>{item.answer}</p></details>)}
+                  {!selected.answers.length && <div className="empty-state">Nenhuma evidência guiada registrada.</div>}
+                </div>
+              </section>
+              <section className="panel">
+                <div className="panel-heading"><div><span className="eyebrow">Perguntas sugeridas</span><h2>Próxima reunião</h2></div></div>
+                <ul className="action-list">{(latestMeeting?.insights.nextQuestions || questions.slice(0, 4).map((q) => q.text)).map((item) => <li key={item}>{item}</li>)}</ul>
+              </section>
+            </div>
+          </section>
+        )}
+
+        {active === "meetings" && selected && (
+          <section className="page meetings-page">
+            <PageTitle
+              eyebrow="Notas livres de reunião"
+              title="Transforme conversa em inteligência"
+              description={`${selected.customerName} · cole o contexto da reunião e gere temas, ações e mapa da conta.`}
+              action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />}
+            />
+            <div className="meeting-grid">
+              <section className="panel span-2 meeting-input-panel">
+                <form onSubmit={submitMeeting}>
+                  <label>Título da reunião<input value={meetingTitle} onChange={(event) => setMeetingTitle(event.target.value)} placeholder="Ex.: Reunião com CFO e arquitetura" /></label>
+                  <label>Notas livres<textarea value={meetingNotes} onChange={(event) => setMeetingNotes(event.target.value)} placeholder="Cole aqui o que você sabe: contexto do cliente, pessoas na reunião, dores, sistemas citados, iniciativas, riscos, próximos passos..." rows={10} /></label>
+                  <div><small>{selected.aiMode === "watsonx" ? "A próxima análise tentará usar IBM watsonx." : "Sem credenciais watsonx, o fallback determinístico mantém a demo funcional."}</small><button className="button primary" disabled={saving || !meetingNotes.trim()}>{saving ? "Analisando..." : "Analisar reunião →"}</button></div>
+                </form>
+              </section>
+              <section className="panel">
+                <span className="eyebrow">O que a IA extrai</span>
+                <div className="extraction-list">
+                  {["Resumo executivo", "Sinais de negócio", "Temas IBM", "Stakeholders", "Sistemas", "Dores", "Riscos", "Próximas perguntas"].map((item) => <div key={item}><i>✓</i>{item}</div>)}
+                </div>
+              </section>
+              <section className="panel span-3">
+                <div className="panel-heading"><div><span className="eyebrow">Histórico</span><h2>Reuniões analisadas</h2></div><Tag type="blue">{selectedMeetings.length} registros</Tag></div>
+                <div className="meeting-list">
+                  {selectedMeetings.map((meeting) => (
+                    <article key={meeting.id}>
+                      <div><strong>{meeting.title}</strong><small>{formatDate(meeting.createdAt)} · {meeting.aiStatus === "watsonx" ? "IBM watsonx" : meeting.aiStatus === "error" ? "Fallback após erro" : "Fallback determinístico"}</small></div>
+                      <p>{meeting.summary}</p>
+                      <div className="mini-tags">{meeting.insights.ibmThemes.map((theme) => <Tag key={theme} type="blue">{theme}</Tag>)}</div>
+                    </article>
+                  ))}
+                  {!selectedMeetings.length && <div className="empty-state">Registre a primeira reunião para iniciar o mapa da conta.</div>}
+                </div>
+              </section>
+            </div>
+          </section>
+        )}
+
+        {active === "accountMap" && selected && (
+          <section className="page">
+            <PageTitle
+              eyebrow="Fluxograma da conta"
+              title={`Mapa da conta: ${selected.customerName}`}
+              description="Áreas, stakeholders, dores, sistemas, riscos e capacidades IBM conectadas por evidências de reunião."
+              action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />}
+            />
+            <div className="map-toolbar">
+              {(["all", "person", "system", "pain", "capability", "risk"] as const).map((type) => <button key={type} className={mapFilter === type ? "active" : ""} onClick={() => setMapFilter(type)}>{type === "all" ? "Todos" : nodeLabels[type]}</button>)}
+            </div>
+            <div className="account-map-board">
+              <section className="map-nodes">
+                {visibleNodes.map((node) => (
+                  <article key={node.id} className={`map-node ${node.type}`}>
+                    <span>{nodeLabels[node.type]}</span>
+                    <strong>{node.label}</strong>
+                    <p>{node.detail}</p>
+                    <i style={{ width: `${node.strength}%` }} />
+                  </article>
+                ))}
+              </section>
+              <aside className="map-relationships">
+                <span className="eyebrow">Conexões</span>
+                {visibleEdges.map((edge, index) => <div key={`${edge.source}-${edge.target}-${index}`}><strong>{nodeById.get(edge.source)?.label}</strong><span>{edge.label}</span><strong>{nodeById.get(edge.target)?.label}</strong></div>)}
+                {!visibleEdges.length && <p>Sem conexões suficientes para o filtro atual.</p>}
               </aside>
             </div>
           </section>
@@ -443,59 +522,66 @@ export default function Home() {
 
         {active === "heatmap" && selected && (
           <section className="page">
-            <PageTitle eyebrow="Inteligência explicável" title="Customer Capability Heatmap" description={`${selected.customerName} · Atualizado ${formatDate(selected.updatedAt)}`} action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />} />
-            <div className="heatmap-summary"><div><span>Maior alinhamento</span><strong>{selected.scores[0]?.name}</strong></div><div><span>Prontidão média</span><strong>{Math.round(selected.scores.reduce((sum, score) => sum + score.readiness, 0) / selected.scores.length)}%</strong></div><div><span>Qualidade da evidência</span><strong>{selected.scores[0]?.confidence >= 75 ? "Alta" : "Em evolução"}</strong></div><p>O heatmap prioriza valor de negócio — não produtos. Selecione uma capacidade para entender as evidências.</p></div>
-            <section className="panel carbon-chart-panel heatmap-carbon-chart">
-              <div className="panel-heading"><div><span className="eyebrow">Carbon Charts</span><h2>Alinhamento, valor e prontidão</h2></div><Tag type="purple">0–100</Tag></div>
-              <CarbonCapabilityChart scores={selected.scores} />
-            </section>
-            <div className="heatmap-table">
-              <div className="heatmap-row header"><span>Capacidade</span><span>Alinhamento</span><span>Valor</span><span>Prontidão</span><span>Confiança</span></div>
-              {selected.scores.map((score) => (
-                <details key={score.name} className={`heatmap-row ${scoreClass(score.alignment)}`}>
-                  <summary><span><i /> <strong>{score.name}</strong><small>{score.level}</small></span><span><b style={{ width: `${score.alignment}%` }} /><em>{score.alignment}</em></span><span>{score.value}</span><span>{score.readiness}</span><span>{score.confidence}</span></summary>
-                  <div className="evidence-drawer"><span className="eyebrow">Por que este score?</span><ul>{score.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}</ul><small>O score indica priorização relativa e não representa precisão matemática.</small></div>
-                </details>
+            <PageTitle
+              eyebrow="Heatmap de account intelligence"
+              title="Carteira e detalhe da conta"
+              description="Use a visão de carteira para priorizar contas e a visão de detalhe para explicar por que avançar."
+              action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />}
+            />
+            <div className="portfolio-heatmap">
+              <div className="portfolio-heatmap-head"><span>Conta</span>{knowledgeItems.slice(0, 6).map((item) => <span key={item.tag}>{item.tag}</span>)}</div>
+              {data.discoveries.map((item) => (
+                <button key={item.id} onClick={() => { setSelectedId(item.id); }}>
+                  <span>{item.customerName}</span>
+                  {knowledgeItems.slice(0, 6).map((cap) => {
+                    const score = item.scores.find((entry) => cap.tag.toLowerCase().includes(entry.short.toLowerCase().split(" ")[0]) || entry.short.toLowerCase().includes(cap.tag.toLowerCase().split(" ")[0])) || item.scores[5];
+                    return <i key={cap.tag} className={scoreClass(score?.alignment || 0)} title={`${cap.tag}: ${score?.alignment || 0}`} style={{ opacity: Math.max(.35, (score?.alignment || 20) / 100) }} />;
+                  })}
+                </button>
               ))}
             </div>
-            <div className="legend"><span><i className="high" />75–100 · Alto</span><span><i className="medium" />50–74 · Médio</span><span><i className="low" />0–49 · Baixo</span><small>Baseado em {selected.answers.length} evidências e validação humana pendente.</small></div>
+            <div className="heatmap-summary"><div><span>Maior alinhamento</span><strong>{selected.scores[0]?.name}</strong></div><div><span>Prontidão média</span><strong>{Math.round(selected.scores.reduce((sum, score) => sum + score.readiness, 0) / selected.scores.length)}%</strong></div><div><span>Qualidade da evidência</span><strong>{selected.scores[0]?.confidence >= 75 ? "Alta" : "Em evolução"}</strong></div><p>O heatmap prioriza valor de negócio antes do CRM. Abra uma capacidade para ver evidências e ação recomendada.</p></div>
+            <section className="panel carbon-chart-panel heatmap-carbon-chart">
+              <div className="panel-heading"><div><span className="eyebrow">Carbon Charts</span><h2>Alinhamento, valor e prontidão</h2></div><Tag type="purple">0-100</Tag></div>
+              <CarbonCapabilityChart scores={selected.scores} />
+            </section>
+            <CapabilityTable scores={selected.scores} />
           </section>
         )}
 
-        {active === "insights" && selected && (
+        {active === "recommendations" && selected && (
           <section className="page">
-            <PageTitle eyebrow="Lead intelligence" title="Brief executivo" description={`${selected.customerName} · Inteligência pronta para validação`} action={<button className="button secondary" onClick={copySummary}>Copiar resumo CRM</button>} />
-            <div className="insight-hero"><div><span className="eyebrow light">Síntese executiva</span><h2>{selected.challengeSummary}</h2><p>A análise indica maior potencial de valor em <strong>{selected.scores[0]?.name}</strong>, com {selected.scores[0]?.alignment}% de alinhamento e confiança de {selected.scores[0]?.confidence}%.</p></div><div><span>Prioridade recomendada</span><strong>{selected.priority}</strong><small>Decisão assistida por evidências</small></div></div>
+            <PageTitle eyebrow="Handoff pré-CRM" title="Recomendações e próximos passos" description={`${selected.customerName} · gere material só quando houver evidência suficiente.`} action={<button className="button secondary" onClick={copySummary}>Copiar handoff</button>} />
+            <div className="insight-hero"><div><span className="eyebrow light">Síntese da conta</span><h2>{selected.challengeSummary}</h2><p>Maior potencial em <strong>{selected.scores[0]?.name}</strong>, com {selected.scores[0]?.alignment}% de alinhamento e {selected.scores[0]?.confidence}% de confiança.</p></div><div><span>Status pré-CRM</span><strong>{selected.priority}</strong><small>{selected.stage}</small></div></div>
             <div className="content-grid insight-grid">
-              <section className="panel span-2"><div className="panel-heading"><div><span className="eyebrow">Recomendações</span><h2>Do desafio ao próximo engajamento</h2></div></div><div className="recommendation-list">{selected.recommendations.map((rec, index) => <article key={`${rec.name}-${index}`}><span>{index + 1}</span><div><small>{rec.type}</small><h3>{rec.name}</h3><p>{rec.rationale}</p></div></article>)}</div></section>
-              <section className="panel next-action"><span className="eyebrow">Próxima melhor ação</span><h2>{selected.nextEngagement}</h2><p>Recomendado por alinhamento, prontidão e potencial de valor. Exige validação do Business Partner.</p><div className="decision-actions"><button className="button primary full" onClick={() => sendFeedback(true)}>✓ Validar recomendação</button><button className="button ghost full" onClick={() => sendFeedback(false)}>Solicitar revisão</button></div></section>
-              <section className="panel span-3 crm-summary"><div><span className="eyebrow">CRM-ready lead summary</span><h2>Handoff estruturado</h2></div><dl><div><dt>Cliente</dt><dd>{selected.customerName}</dd></div><div><dt>Desafio</dt><dd>{selected.challengeSummary}</dd></div><div><dt>Capacidade líder</dt><dd>{selected.scores[0]?.name}</dd></div><div><dt>Confiança</dt><dd>{selected.scores[0]?.confidence}%</dd></div><div><dt>Próximo passo</dt><dd>{selected.nextEngagement}</dd></div></dl><button className="text-button" onClick={copySummary}>Copiar para Salesforce, Dynamics ou HubSpot →</button></section>
+              <section className="panel span-2"><div className="panel-heading"><div><span className="eyebrow">Recomendações</span><h2>Do contexto ao engajamento</h2></div></div><div className="recommendation-list">{selected.recommendations.map((rec, index) => <article key={`${rec.name}-${index}`}><span>{index + 1}</span><div><small>{rec.type}</small><h3>{rec.name}</h3><p>{rec.rationale}</p></div></article>)}</div></section>
+              <section className="panel next-action"><span className="eyebrow">Melhor próxima ação</span><h2>{selected.nextEngagement}</h2><p>Use isso antes do CRM: valide com sponsor, confirme dor e prepare o próximo workshop.</p><div className="decision-actions"><button className="button primary full" onClick={() => sendFeedback(true)}>✓ Validar handoff</button><button className="button ghost full" onClick={() => sendFeedback(false)}>Solicitar revisão</button></div></section>
+              <section className="panel span-3 crm-summary"><div><span className="eyebrow">CRM-ready quando validado</span><h2>Resumo estruturado</h2></div><dl><div><dt>Cliente</dt><dd>{selected.customerName}</dd></div><div><dt>Desafio</dt><dd>{selected.challengeSummary}</dd></div><div><dt>Capacidade líder</dt><dd>{selected.scores[0]?.name}</dd></div><div><dt>Confiança</dt><dd>{selected.scores[0]?.confidence}%</dd></div><div><dt>Próximo passo</dt><dd>{selected.nextEngagement}</dd></div></dl><button className="text-button" onClick={copySummary}>Copiar para Salesforce, Dynamics ou HubSpot →</button></section>
             </div>
           </section>
         )}
 
         {active === "knowledge" && (
           <section className="page">
-            <PageTitle eyebrow="Knowledge & RAG" title="Conhecimento empresarial" description="Catálogo governado que fundamenta recomendações de capacidade, software e consultoria." />
-            <div className="knowledge-banner"><div><span>Base de conhecimento</span><strong>8 fontes verificadas</strong><small>Última revisão: hoje, 08:20</small></div><div><span>Domínios ativos</span><strong>2 primários + 4 exploratórios</strong><small>Arquitetura modular</small></div><div><span>Grounding</span><strong>100% rastreável</strong><small>Evidência ligada ao raciocínio</small></div></div>
-            <div className="toolbar"><label className="search-box"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar capacidade, produto ou playbook" /></label><span>IBM Capability Repository</span></div>
-            <div className="knowledge-grid">{knowledgeItems.filter((item) => `${item.title} ${item.tag}`.toLowerCase().includes(search.toLowerCase())).map((item) => <article key={item.title}><span className="knowledge-tag">{item.tag}</span><h3>{item.title}</h3><p>{item.desc}</p><footer><span>✓ {item.status}</span><button aria-label={`Ver detalhes de ${item.title}`}>→</button></footer></article>)}</div>
+            <PageTitle eyebrow="Conhecimento acionável" title="IBM capability playbook" description="Use sinais de cliente para escolher perguntas, narrativa e workshop." />
+            <div className="toolbar"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar capacidade, produto, sinal ou workshop" /></label><span>Antes do CRM</span></div>
+            <div className="knowledge-grid actionable-knowledge">{knowledgeItems.filter((item) => `${item.title} ${item.tag} ${item.signals}`.toLowerCase().includes(search.toLowerCase())).map((item) => <article key={item.title}><span className="knowledge-tag">{item.tag}</span><h3>{item.title}</h3><p><b>Sinais:</b> {item.signals}</p><p><b>Perguntas:</b> {item.questions}</p><p><b>Pitch:</b> {item.pitch}</p><footer><span>Workshop</span><strong>{item.workshop}</strong></footer></article>)}</div>
           </section>
         )}
 
         {active === "governance" && (
           <section className="page">
-            <PageTitle eyebrow="Trust & governance" title="Governança e integrações" description="Supervisão humana, rastreabilidade e pontos de conexão preparados para o ecossistema empresarial." />
+            <PageTitle eyebrow="Governança e rollback" title="Confiança operacional" description="Rastreie origem das evidências, status de IA, validação humana e prontidão para rollback." />
             <div className="governance-grid">
-              <section className="panel"><span className="eyebrow">Controles ativos</span><h2>IA responsável por design</h2><div className="control-list">{[["Human-in-the-loop", "Toda recomendação exige decisão humana"], ["Explicabilidade", "Evidências e confiança visíveis"], ["Audit logging", "Ações registradas com data e contexto"], ["Data minimization", "Somente contexto necessário à descoberta"]].map(([title, desc]) => <div key={title}><i>✓</i><span><strong>{title}</strong><small>{desc}</small></span></div>)}</div></section>
-              <section className="panel"><span className="eyebrow">Enterprise integration</span><h2>Pontos de conexão</h2><div className="integration-list">{[["watsonx Orchestrate", "Orquestração multiagente"], ["watsonx.ai / Granite", "Raciocínio empresarial"], ["Salesforce / Dynamics / HubSpot", "Handoff de lead"], ["IBM Verify", "SSO e RBAC"]].map(([name, desc]) => <div key={name}><span><i /> <b>{name}</b><small>{desc}</small></span><em>Preparado</em></div>)}</div><p className="panel-note">As conexões dependem de credenciais e políticas do ambiente corporativo.</p></section>
-              <section className="panel span-2"><div className="panel-heading"><div><span className="eyebrow">Trilha de auditoria</span><h2>Decisões e sinais recentes</h2></div><span className="live-label"><i /> Ao vivo</span></div><div className="audit-list">{data.events.slice(0, 8).map((event) => <div key={event.id}><span>{event.type === "feedback" ? "✓" : event.type === "answer" ? "◇" : "+"}</span><div><strong>{event.detail}</strong><small>{data.discoveries.find((item) => item.id === event.discoveryId)?.customerName || "Sistema"}</small></div><time>{formatDate(event.createdAt)}</time></div>)}</div></section>
+              <section className="panel"><span className="eyebrow">Controles ativos</span><h2>IA responsável por design</h2><div className="control-list">{[["Human-in-the-loop", "Toda recomendação exige decisão humana"], ["Explicabilidade", "Evidências e confiança visíveis"], ["Fallback", "Sem watsonx, análise por regras permanece funcional"], ["Pré-CRM", "Oportunidade só nasce após validação"]].map(([title, desc]) => <div key={title}><i>✓</i><span><strong>{title}</strong><small>{desc}</small></span></div>)}</div></section>
+              <section className="panel"><span className="eyebrow">Enterprise integration</span><h2>Pontos de conexão</h2><div className="integration-list">{[["IBM watsonx.ai", "Análise de notas e mapa da conta"], ["Salesforce / Dynamics / HubSpot", "Handoff qualificado"], ["IBM Verify", "SSO e RBAC"], ["OpenAI Sites + D1", "Persistência e deployment"]].map(([name, desc]) => <div key={name}><span><i /> <b>{name}</b><small>{desc}</small></span><em>{name.includes("watsonx") ? "Config env" : "Preparado"}</em></div>)}</div><p className="panel-note">Credenciais devem ser configuradas como variáveis de runtime no Sites.</p></section>
+              <section className="panel span-2"><div className="panel-heading"><div><span className="eyebrow">Trilha de auditoria</span><h2>Decisões e sinais recentes</h2></div><span className="live-label"><i /> Ao vivo</span></div><div className="audit-list">{data.events.slice(0, 10).map((event) => <div key={event.id}><span>{event.type === "feedback" ? "✓" : event.type === "meeting" ? "◇" : "+"}</span><div><strong>{event.detail}</strong><small>{data.discoveries.find((item) => item.id === event.discoveryId)?.customerName || "Sistema"}</small></div><time>{formatDate(event.createdAt)}</time></div>)}</div></section>
             </div>
           </section>
         )}
       </main>
 
-      {showNew && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setShowNew(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-title"><button className="modal-close" onClick={() => setShowNew(false)} aria-label="Fechar">×</button><span className="eyebrow">Nova descoberta</span><h2 id="new-title">Comece pelo contexto do cliente</h2><p>Crie um workspace persistente para registrar evidências e construir a inteligência progressivamente.</p><form onSubmit={createDiscovery}><label>Empresa<input name="customerName" required placeholder="Ex.: Acme Brasil" /></label><label>Setor<select name="industry" required defaultValue=""><option value="" disabled>Selecione</option><option>Serviços financeiros</option><option>Varejo</option><option>Manufatura</option><option>Energia</option><option>Saúde</option><option>Tecnologia</option><option>Outro</option></select></label><label>Porte<select name="companySize" defaultValue="Enterprise"><option>Enterprise</option><option>Large</option><option>Mid-market</option></select></label><div><button type="button" className="button ghost" onClick={() => setShowNew(false)}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? "Criando…" : "Criar workspace →"}</button></div></form></div></div>}
+      {showNew && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowNew(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-title"><button className="modal-close" onClick={() => setShowNew(false)} aria-label="Fechar">×</button><span className="eyebrow">Nova conta</span><h2 id="new-title">Comece pelo contexto da conta</h2><p>Crie um workspace de account intelligence antes do CRM. A primeira reunião vai gerar o mapa da conta.</p><form onSubmit={createDiscovery}><label>Empresa<input name="customerName" required placeholder="Ex.: Acme Brasil" /></label><label>Setor<select name="industry" required defaultValue=""><option value="" disabled>Selecione</option><option>Serviços financeiros</option><option>Varejo</option><option>Manufatura</option><option>Energia</option><option>Saúde</option><option>Tecnologia</option><option>Outro</option></select></label><label>Porte<select name="companySize" defaultValue="Enterprise"><option>Enterprise</option><option>Large</option><option>Mid-market</option></select></label><div><button type="button" className="button ghost" onClick={() => setShowNew(false)}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? "Criando..." : "Criar conta →"}</button></div></form></div></div>}
     </div>
   );
 }
@@ -505,5 +591,30 @@ function PageTitle({ eyebrow, title, description, action }: { eyebrow: string; t
 }
 
 function CustomerSwitcher({ discoveries, selectedId, onChange }: { discoveries: Discovery[]; selectedId: string; onChange: (id: string) => void }) {
-  return <label className="customer-switcher"><span>Cliente</span><select value={selectedId} onChange={(e) => onChange(e.target.value)}>{discoveries.map((item) => <option value={item.id} key={item.id}>{item.customerName}</option>)}</select></label>;
+  return (
+    <label className="customer-switcher">
+      <span>Conta em foco</span>
+      <select value={selectedId} onChange={(event) => onChange(event.target.value)}>
+        {discoveries.map((item) => <option key={item.id} value={item.id}>{item.customerName}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function SignalList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return <div><span>{title}</span>{items.length ? items.slice(0, 5).map((item) => <strong key={item}>{item}</strong>) : <small>{empty}</small>}</div>;
+}
+
+function CapabilityTable({ scores }: { scores: Score[] }) {
+  return (
+    <div className="heatmap-table">
+      <div className="heatmap-row header"><span>Capacidade</span><span>Alinhamento</span><span>Valor</span><span>Prontidão</span><span>Confiança</span></div>
+      {scores.map((score) => (
+        <details key={score.name} className={`heatmap-row ${scoreClass(score.alignment)}`}>
+          <summary><span><i /> <strong>{score.name}</strong><small>{score.level}</small></span><span><b style={{ width: `${score.alignment}%` }} /><em>{score.alignment}</em></span><span>{score.value}</span><span>{score.readiness}</span><span>{score.confidence}</span></summary>
+          <div className="evidence-drawer"><span className="eyebrow">Por que este score?</span><ul>{score.evidence.map((evidence) => <li key={evidence}>{evidence}</li>)}<li>Ação recomendada: {score.action}</li></ul><small>Score relativo para priorização pré-CRM; decisão final continua humana.</small></div>
+        </details>
+      ))}
+    </div>
+  );
 }
