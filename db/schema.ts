@@ -25,3 +25,21 @@ export const auditEvents = sqliteTable("audit_events", {
   detail: text("detail").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+export const meetings = sqliteTable("meetings", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull(),
+  title: text("title").notNull(),
+  notes: text("notes").notNull(),
+  summary: text("summary").notNull(),
+  insightsJson: text("insights_json").notNull(),
+  aiStatus: text("ai_status").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const accountMaps = sqliteTable("account_maps", {
+  discoveryId: text("discovery_id").primaryKey(),
+  nodesJson: text("nodes_json").notNull(),
+  edgesJson: text("edges_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
