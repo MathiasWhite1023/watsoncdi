@@ -9,8 +9,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "watson Customer Discovery Intelligence";
-  const description = "Inteligência explicável para transformar conversas com clientes em próximos engajamentos de alto valor.";
+  const title = "watson Account Intelligence";
+  const description = "Account intelligence antes do CRM para mapear clientes, reuniões, temas IBM, heatmaps e próximos passos.";
   const image = `${origin}/og.png`;
 
   return {
