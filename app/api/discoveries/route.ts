@@ -319,7 +319,6 @@ async function ensureSchema(db: D1Database) {
 
 async function seed(db: D1Database) {
   const count = await db.prepare("SELECT COUNT(*) AS count FROM discoveries").first<{ count: number }>();
-  if ((count?.count || 0) > 0) return;
   const now = new Date();
   const examples = [
     { id: "aurora-retail", name: "Aurora Retail Group", industry: "Varejo", size: "Enterprise", answers: [
@@ -339,6 +338,48 @@ async function seed(db: D1Database) {
       { key: "data", question: "O que impede o uso confiável de dados?", answer: "Falta governança comum, catálogo e qualidade consistente entre dados industriais e corporativos.", at: new Date(now.getTime() - 2.4 * 864e5).toISOString() },
     ] as Answer[], meeting: "Dados OT e IT estão distribuídos entre plantas, cloud e sistemas de fornecedores. O sponsor quer analytics confiável e segurança para dados industriais." },
   ];
+
+  if ((count?.count || 0) > 0) {
+    const meetingCount = await db.prepare("SELECT COUNT(*) AS count FROM meetings").first<{ count: number }>();
+    if ((meetingCount?.count || 0) > 0) return;
+    const existing = await db.prepare("SELECT * FROM discoveries").all();
+    for (const row of existing.results as Record<string, unknown>[]) {
+      const id = String(row.id);
+      const customerName = String(row.customer_name);
+      const industry = String(row.industry || "Indústria não informada");
+      const answers = JSON.parse(String(row.answers_json || "[]")) as Answer[];
+      const currentScores = JSON.parse(String(row.scores_json || "[]")) as Score[];
+      const notes = [
+        `Contexto legado de ${customerName}.`,
+        String(row.challenge_summary || ""),
+        ...answers.map((item) => `${item.question}: ${item.answer}`),
+      ].filter(Boolean).join(" ");
+      const insight = fallbackMeetingInsights(notes, customerName);
+      const createdAt = String(row.updated_at || row.created_at || now.toISOString());
+      const meeting: Meeting = {
+        id: `${id}-legacy-intelligence`,
+        discoveryId: id,
+        title: "Contexto migrado para Account Intelligence",
+        notes,
+        summary: insight.summary,
+        insights: insight,
+        aiStatus: "fallback",
+        createdAt,
+      };
+      const result = analyze(answers, [meeting]);
+      const accountMap = buildAccountMap({ customerName, industry, scores: currentScores.length ? currentScores : result.scores }, answers, [meeting]);
+      await db.prepare("INSERT OR IGNORE INTO meetings VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(meeting.id, meeting.discoveryId, meeting.title, meeting.notes, meeting.summary, JSON.stringify(meeting.insights), meeting.aiStatus, meeting.createdAt).run();
+      await db.prepare("INSERT OR REPLACE INTO account_maps VALUES (?, ?, ?, ?)")
+        .bind(id, JSON.stringify(accountMap.nodes), JSON.stringify(accountMap.edges), accountMap.updatedAt).run();
+      await db.prepare("UPDATE discoveries SET challenge_summary = ?, scores_json = ?, recommendations_json = ?, next_engagement = ?, updated_at = ? WHERE id = ?")
+        .bind(result.challengeSummary, JSON.stringify(result.scores), JSON.stringify(result.recommendations), result.nextEngagement, createdAt, id).run();
+      await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, ?, ?, ?)")
+        .bind(id, "migration", "Registro legado enriquecido para Account Intelligence v2 com fallback determinístico", createdAt).run();
+    }
+    return;
+  }
+
   for (const example of examples) {
     const insight = fallbackMeetingInsights(example.meeting, example.name);
     const meeting: Meeting = {
