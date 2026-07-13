@@ -2,8 +2,10 @@
 
 ## v2-account-intelligence
 
-Status: in validation  
+Status: published  
 Branch: `feature/account-intelligence-v2`  
+Deploy commit: `1ef8a30ed55c5193a70aedf47df02a13b545cb91`  
+OpenAI Sites version: `3`  
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
 ### Added
