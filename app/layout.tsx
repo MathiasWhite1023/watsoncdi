@@ -10,14 +10,14 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
   const title = "watson Account Intelligence";
-  const description = "Account intelligence antes do CRM para mapear clientes, reuniões, temas IBM, heatmaps e próximos passos.";
-  const image = `${origin}/og.png`;
+  const description = "Account intelligence antes do CRM para mapear clientes, stakeholders, reuniões, temas IBM, heatmaps e próximos passos.";
+  const image = `${origin}/og-v3.png`;
 
   return {
     title,
     description,
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-    openGraph: { title, description, type: "website", url: origin, images: [{ url: image, width: 1736, height: 907, alt: title }] },
+    openGraph: { title, description, type: "website", url: origin, images: [{ url: image, width: 1731, height: 909, alt: title }] },
     twitter: { card: "summary_large_image", title, description, images: [image] },
   };
 }

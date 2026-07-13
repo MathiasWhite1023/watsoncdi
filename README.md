@@ -11,7 +11,9 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Tracks a portfolio of client accounts before they become CRM opportunities.
 - Captures free-form meeting notes and turns them into account intelligence.
 - Generates summaries, business signals, IBM themes, next questions, next actions, risks, stakeholders, systems, and pain points.
-- Builds an account map with connected nodes for people, systems, pains, risks, initiatives, and IBM capabilities.
+- Provides a persistent, editable stakeholder organogram for every account, with reporting lines, influence, stance, priorities, and notes.
+- Crosses stakeholder profiles with meeting evidence, pains, and IBM capability scores to suggest who to approach, what to discuss, and which question to ask.
+- Keeps the broader account map for systems, pains, risks, initiatives, and IBM capabilities.
 - Shows a portfolio heatmap and account-level capability heatmap.
 - Produces a pre-CRM handoff that can be copied into Salesforce, Dynamics, HubSpot, or another CRM.
 - Keeps audit history, human validation, and clear AI/fallback status.
@@ -46,8 +48,8 @@ When those values are present, meeting notes are sent to IBM watsonx.ai for stru
 Meeting notes / discovery signals
   -> /api/discoveries
   -> IBM watsonx adapter or deterministic fallback
-  -> D1 discoveries, meetings, account_maps, audit_events
-  -> Client 360, account map, heatmap, recommendations, governance
+  -> D1 discoveries, meetings, stakeholders, account_maps, audit_events
+  -> Home, account intelligence, organogram, heatmap, recommendations, governance
 ```
 
 The main product UI lives in `app/page.tsx`. The account-intelligence API and watsonx/fallback logic live in `app/api/discoveries/route.ts`. Carbon chart components live in `app/CarbonVisuals.tsx`.
@@ -90,7 +92,7 @@ The current production baseline is tagged as:
 v1-current-production
 ```
 
-The Account Intelligence version is developed on:
+The Account Intelligence v2 version was developed on:
 
 ```bash
 feature/account-intelligence-v2
@@ -100,6 +102,12 @@ After validation, tag the new version:
 
 ```bash
 v2-account-intelligence
+```
+
+The stakeholder intelligence evolution is developed on:
+
+```bash
+codex/stakeholder-intelligence-v3
 ```
 
 Application rollback:
@@ -117,6 +125,7 @@ Data rollback policy:
 - V2 migrations are additive only.
 - Existing `discoveries` data remains compatible.
 - New `meetings` and `account_maps` tables can be ignored safely by V1.
+- The V3 `stakeholders` table is also additive and can be ignored by earlier application versions.
 - No destructive migration is included in this release.
 
 ## Repository Topics

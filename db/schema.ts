@@ -43,3 +43,19 @@ export const accountMaps = sqliteTable("account_maps", {
   edgesJson: text("edges_json").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const stakeholders = sqliteTable("stakeholders", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  area: text("area").notNull(),
+  reportsToId: text("reports_to_id"),
+  influence: text("influence").notNull(),
+  stance: text("stance").notNull(),
+  prioritiesJson: text("priorities_json").notNull(),
+  notes: text("notes").notNull(),
+  source: text("source").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

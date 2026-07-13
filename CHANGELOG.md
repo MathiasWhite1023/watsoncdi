@@ -1,5 +1,24 @@
 # Changelog
 
+## v3-stakeholder-intelligence
+
+Status: ready for publication
+Branch: `codex/stakeholder-intelligence-v3`
+
+### Added
+
+- Simplified navigation with `Início`, `Inteligência de contas`, and `Organograma`.
+- Dynamic stakeholder tree for every account with expandable reporting lines.
+- Create, edit, annotate, reparent, and remove stakeholder records.
+- Persistent stakeholder profiles with role, area, influence, stance, priorities, notes, and source.
+- Context panel that crosses each stakeholder with account evidence and IBM capability scores.
+- Suggested person, conversation theme, and next question inside Account Intelligence.
+- Additive `stakeholders` D1 migration and audit events.
+
+### Rollback
+
+Use tag `v2-account-intelligence` to rebuild and republish the current production version. The V2 application safely ignores the additive `stakeholders` table.
+
 ## v2-account-intelligence
 
 Status: published  

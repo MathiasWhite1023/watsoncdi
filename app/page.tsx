@@ -71,6 +71,21 @@ type Meeting = {
 type AccountNode = { id: string; type: "area" | "person" | "system" | "pain" | "initiative" | "capability" | "risk"; label: string; detail: string; strength: number };
 type AccountEdge = { source: string; target: string; label: string };
 type AccountMap = { nodes: AccountNode[]; edges: AccountEdge[]; updatedAt: string };
+type Stakeholder = {
+  id: string;
+  discoveryId: string;
+  name: string;
+  role: string;
+  area: string;
+  reportsToId: string | null;
+  influence: "Alta" | "Média" | "Baixa";
+  stance: "Aliado" | "Neutro" | "Resistente" | "Desconhecido";
+  priorities: string[];
+  notes: string;
+  source: "manual" | "suggested";
+  createdAt: string;
+  updatedAt: string;
+};
 type Discovery = {
   id: string;
   customerName: string;
@@ -91,13 +106,13 @@ type Discovery = {
   updatedAt: string;
 };
 type AuditEvent = { id: number; discoveryId: string; type: string; detail: string; createdAt: string };
-type ApiData = { discoveries: Discovery[]; meetings: Meeting[]; events: AuditEvent[] };
+type ApiData = { discoveries: Discovery[]; meetings: Meeting[]; stakeholders: Stakeholder[]; events: AuditEvent[] };
 
 const navItems = [
-  { id: "dashboard", label: "Visão 360", icon: Dashboard },
-  { id: "accounts", label: "Contas", icon: Document },
+  { id: "dashboard", label: "Início", icon: Dashboard },
+  { id: "accounts", label: "Inteligência de contas", icon: Document },
   { id: "meetings", label: "Reuniões", icon: Notebook },
-  { id: "accountMap", label: "Mapa da Conta", icon: DataVis_4 },
+  { id: "accountMap", label: "Organograma", icon: DataVis_4 },
   { id: "heatmap", label: "Heatmap", icon: Analytics },
   { id: "recommendations", label: "Recomendações", icon: ArrowRight },
   { id: "knowledge", label: "Conhecimento", icon: DataBase },
@@ -123,23 +138,13 @@ const knowledgeItems = [
   { tag: "Modernization", title: "OpenShift + Instana", signals: "Aplicações legadas, mainframe, DevOps, observabilidade", questions: "Quais aplicações seguram roadmap? Onde falta visibilidade?", pitch: "Prioriza modernização por valor, risco e esforço com observabilidade ponta a ponta.", workshop: "Application Modernization Assessment" },
 ];
 
-const nodeLabels: Record<AccountNode["type"], string> = {
-  area: "Conta",
-  person: "Stakeholder",
-  system: "Sistema",
-  pain: "Dor",
-  initiative: "Iniciativa",
-  capability: "Capacidade IBM",
-  risk: "Risco",
-};
-
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 const scoreClass = (value: number) => (value >= 75 ? "high" : value >= 50 ? "medium" : "low");
 
 export default function Home() {
   const [active, setActive] = useState("dashboard");
-  const [data, setData] = useState<ApiData>({ discoveries: [], meetings: [], events: [] });
+  const [data, setData] = useState<ApiData>({ discoveries: [], meetings: [], stakeholders: [], events: [] });
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -147,16 +152,20 @@ export default function Home() {
   const [meetingNotes, setMeetingNotes] = useState("");
   const [meetingTitle, setMeetingTitle] = useState("");
   const [search, setSearch] = useState("");
-  const [mapFilter, setMapFilter] = useState<AccountNode["type"] | "all">("all");
   const [showNew, setShowNew] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
   const [notice, setNotice] = useState("");
+  const [selectedStakeholderId, setSelectedStakeholderId] = useState("");
+  const [editingStakeholder, setEditingStakeholder] = useState<Stakeholder | null>(null);
+  const [stakeholderManagerId, setStakeholderManagerId] = useState<string | null>(null);
+  const [showStakeholderForm, setShowStakeholderForm] = useState(false);
+  const [collapsedStakeholders, setCollapsedStakeholders] = useState<Set<string>>(new Set());
 
   const load = async () => {
     const response = await fetch("/api/discoveries", { cache: "no-store" });
     const payload = (await response.json()) as ApiData;
-    setData({ discoveries: payload.discoveries || [], meetings: payload.meetings || [], events: payload.events || [] });
+    setData({ discoveries: payload.discoveries || [], meetings: payload.meetings || [], stakeholders: payload.stakeholders || [], events: payload.events || [] });
     setSelectedId((current) => current || payload.discoveries?.[0]?.id || "");
     setLoading(false);
   };
@@ -168,7 +177,7 @@ export default function Home() {
         const response = await fetch("/api/discoveries", { cache: "no-store" });
         const payload = (await response.json()) as ApiData;
         if (!activeRequest) return;
-        setData({ discoveries: payload.discoveries || [], meetings: payload.meetings || [], events: payload.events || [] });
+        setData({ discoveries: payload.discoveries || [], meetings: payload.meetings || [], stakeholders: payload.stakeholders || [], events: payload.events || [] });
         setSelectedId((current) => current || payload.discoveries?.[0]?.id || "");
       } finally {
         if (activeRequest) setLoading(false);
@@ -187,6 +196,8 @@ export default function Home() {
 
   const selected = data.discoveries.find((item) => item.id === selectedId) || data.discoveries[0];
   const selectedMeetings = selected?.meetings || [];
+  const selectedStakeholders = useMemo(() => data.stakeholders.filter((item) => item.discoveryId === selected?.id), [data.stakeholders, selected?.id]);
+  const selectedStakeholder = selectedStakeholders.find((item) => item.id === selectedStakeholderId) || selectedStakeholders[0];
   const latestMeeting = selectedMeetings[0];
   const currentQuestion = questions[Math.min(selected?.answers.length || 0, questions.length - 1)];
   const completed = selected ? selected.answers.length >= questions.length : false;
@@ -210,10 +221,26 @@ export default function Home() {
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [data.discoveries]);
 
-  const visibleNodes = (selected?.accountMap.nodes || []).filter((node) => mapFilter === "all" || node.type === mapFilter || node.type === "area");
-  const visibleIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = (selected?.accountMap.edges || []).filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
-  const nodeById = new Map((selected?.accountMap.nodes || []).map((node) => [node.id, node]));
+  const stakeholderMatches = useMemo(() => {
+    if (!selected) return [];
+    return selectedStakeholders.map((person) => {
+      const profile = `${person.role} ${person.area} ${person.priorities.join(" ")} ${person.notes}`.toLowerCase();
+      const ranked = selected.scores.map((score) => {
+        const theme = knowledgeItems.find((item) => item.tag.toLowerCase().includes(score.short.toLowerCase().split(" ")[0]) || score.short.toLowerCase().includes(item.tag.toLowerCase().split(" ")[0]));
+        const vocabulary = `${score.name} ${score.short} ${theme?.signals || ""} ${theme?.title || ""}`.toLowerCase().split(/[^a-zà-ú0-9]+/).filter((word) => word.length > 4);
+        const matches = vocabulary.filter((word) => profile.includes(word)).length;
+        return { score, theme, relevance: score.alignment + matches * 14 };
+      }).sort((a, b) => b.relevance - a.relevance)[0];
+      return {
+        person,
+        capability: ranked?.score,
+        question: ranked?.theme ? `${ranked.theme.questions.split("?")[0]}?` : "Qual prioridade executiva deve ser validada com esta pessoa?",
+        relevance: ranked?.relevance || 0,
+      };
+    }).sort((a, b) => b.relevance - a.relevance);
+  }, [selected, selectedStakeholders]);
+
+  const activeStakeholderMatch = stakeholderMatches.find((item) => item.person.id === selectedStakeholder?.id);
 
   const setSection = (id: string) => {
     setActive(id);
@@ -225,6 +252,67 @@ export default function Home() {
     setNotice(message);
     setTimeout(() => setNotice(""), 3200);
   };
+
+  const openStakeholderForm = (stakeholder?: Stakeholder, managerId?: string | null) => {
+    setEditingStakeholder(stakeholder || null);
+    setStakeholderManagerId(managerId ?? stakeholder?.reportsToId ?? null);
+    setShowStakeholderForm(true);
+  };
+
+  const submitStakeholder = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    setSaving(true);
+    const response = await fetch("/api/discoveries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "stakeholder_upsert",
+        id: selected.id,
+        stakeholderId: editingStakeholder?.id,
+        name: form.get("name"),
+        role: form.get("role"),
+        area: form.get("area"),
+        reportsToId: form.get("reportsToId") || null,
+        influence: form.get("influence"),
+        stance: form.get("stance"),
+        priorities: String(form.get("priorities") || "").split(","),
+        notes: form.get("notes"),
+      }),
+    });
+    const payload = await response.json() as { stakeholder?: Stakeholder; error?: string };
+    if (!response.ok) {
+      setSaving(false);
+      notify(payload.error || "Não foi possível salvar o stakeholder.");
+      return;
+    }
+    await load();
+    setSelectedStakeholderId(payload.stakeholder?.id || "");
+    setShowStakeholderForm(false);
+    setSaving(false);
+    notify(editingStakeholder ? "Stakeholder atualizado e insights recalculados." : "Stakeholder adicionado ao organograma.");
+  };
+
+  const deleteStakeholder = async () => {
+    if (!selected || !selectedStakeholder || !window.confirm(`Remover ${selectedStakeholder.name} do organograma? Os reports ficarão sem gestor.`)) return;
+    setSaving(true);
+    await fetch("/api/discoveries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "stakeholder_delete", id: selected.id, stakeholderId: selectedStakeholder.id }),
+    });
+    setSelectedStakeholderId("");
+    await load();
+    setSaving(false);
+    notify("Stakeholder removido. Os reports diretos foram preservados.");
+  };
+
+  const toggleStakeholder = (id: string) => setCollapsedStakeholders((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const submitAnswer = async (event: FormEvent) => {
     event.preventDefault();
@@ -356,7 +444,7 @@ Próximo passo: ${selected.nextEngagement}`;
           <section className="page ai-dashboard">
             <PageTitle
               eyebrow="Account intelligence antes do CRM"
-              title="Visão 360 da carteira"
+              title="Início"
               description="Entenda clientes, reuniões, dores, temas IBM e próximos passos antes de criar uma oportunidade formal."
               action={<CarbonButton renderIcon={Add} onClick={() => setShowNew(true)}>Nova conta</CarbonButton>}
             />
@@ -408,7 +496,7 @@ Próximo passo: ${selected.nextEngagement}`;
         {active === "accounts" && selected && (
           <section className="page">
             <PageTitle
-              eyebrow="Cliente 360"
+              eyebrow="Inteligência de conta"
               title={selected.customerName}
               description={`${selected.industry} · ${selected.companySize} · ${selected.stage}`}
               action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />}
@@ -445,6 +533,18 @@ Próximo passo: ${selected.nextEngagement}`;
               <section className="panel">
                 <div className="panel-heading"><div><span className="eyebrow">Perguntas sugeridas</span><h2>Próxima reunião</h2></div></div>
                 <ul className="action-list">{(latestMeeting?.insights.nextQuestions || questions.slice(0, 4).map((q) => q.text)).map((item) => <li key={item}>{item}</li>)}</ul>
+              </section>
+              <section className="panel span-3 stakeholder-guidance">
+                <div className="panel-heading"><div><span className="eyebrow">Inteligência de stakeholders</span><h2>Quem acionar para cada tema</h2></div><button className="text-button" onClick={() => setSection("accountMap")}>Explorar organograma →</button></div>
+                <div className="stakeholder-match-grid">
+                  {stakeholderMatches.slice(0, 3).map(({ person, capability, question }) => (
+                    <button key={person.id} onClick={() => { setSelectedStakeholderId(person.id); setSection("accountMap"); }}>
+                      <span className={`stance-marker ${person.stance.toLowerCase()}`} />
+                      <div><small>{person.role}</small><strong>{person.name}</strong><p>{capability ? `Conversa recomendada: ${capability.short}` : "Contexto em construção"}</p><em>{question}</em></div>
+                      <b>{person.influence}</b>
+                    </button>
+                  ))}
+                </div>
               </section>
             </div>
           </section>
@@ -490,31 +590,52 @@ Próximo passo: ${selected.nextEngagement}`;
         )}
 
         {active === "accountMap" && selected && (
-          <section className="page">
+          <section className="page organogram-page">
             <PageTitle
-              eyebrow="Fluxograma da conta"
-              title={`Mapa da conta: ${selected.customerName}`}
-              description="Áreas, stakeholders, dores, sistemas, riscos e capacidades IBM conectadas por evidências de reunião."
+              eyebrow="Stakeholder intelligence"
+              title={`Organograma: ${selected.customerName}`}
+              description="Monte a árvore de decisão da conta, explore relações e conecte cada pessoa às dores e aos temas IBM mais relevantes."
               action={<CustomerSwitcher discoveries={data.discoveries} selectedId={selected.id} onChange={setSelectedId} />}
             />
-            <div className="map-toolbar">
-              {(["all", "person", "system", "pain", "capability", "risk"] as const).map((type) => <button key={type} className={mapFilter === type ? "active" : ""} onClick={() => setMapFilter(type)}>{type === "all" ? "Todos" : nodeLabels[type]}</button>)}
+            <div className="organogram-stats">
+              <div><span>Pessoas mapeadas</span><strong>{selectedStakeholders.length}</strong></div>
+              <div><span>Alta influência</span><strong>{selectedStakeholders.filter((item) => item.influence === "Alta").length}</strong></div>
+              <div><span>Aliados</span><strong>{selectedStakeholders.filter((item) => item.stance === "Aliado").length}</strong></div>
+              <div><span>Lacunas</span><strong>{selectedStakeholders.filter((item) => item.name.includes("identificar") || item.stance === "Desconhecido").length}</strong></div>
             </div>
-            <div className="account-map-board">
-              <section className="map-nodes">
-                {visibleNodes.map((node) => (
-                  <article key={node.id} className={`map-node ${node.type}`}>
-                    <span>{nodeLabels[node.type]}</span>
-                    <strong>{node.label}</strong>
-                    <p>{node.detail}</p>
-                    <i style={{ width: `${node.strength}%` }} />
-                  </article>
-                ))}
+            <div className="organogram-shell">
+              <section className="organogram-canvas">
+                <header><div><span className="eyebrow">Árvore da conta</span><h2>Estrutura de decisão e influência</h2></div><CarbonButton size="sm" renderIcon={Add} onClick={() => openStakeholderForm()}>Adicionar pessoa</CarbonButton></header>
+                <div className="organogram-scroll" aria-label="Organograma interativo">
+                  <div className="org-tree-roots">
+                    {selectedStakeholders.filter((person) => !person.reportsToId || !selectedStakeholders.some((candidate) => candidate.id === person.reportsToId)).map((person) => (
+                      <StakeholderBranch
+                        key={person.id}
+                        person={person}
+                        people={selectedStakeholders}
+                        selectedId={selectedStakeholder?.id}
+                        collapsed={collapsedStakeholders}
+                        onSelect={setSelectedStakeholderId}
+                        onToggle={toggleStakeholder}
+                        onAddReport={(managerId) => openStakeholderForm(undefined, managerId)}
+                      />
+                    ))}
+                    {!selectedStakeholders.length && <div className="empty-state">Adicione o primeiro stakeholder para começar a árvore.</div>}
+                  </div>
+                </div>
+                <footer><span><i className="legend-dot aliado" /> Aliado</span><span><i className="legend-dot neutro" /> Neutro</span><span><i className="legend-dot resistente" /> Resistente</span><small>Clique em uma pessoa para explorar contexto e recomendações.</small></footer>
               </section>
-              <aside className="map-relationships">
-                <span className="eyebrow">Conexões</span>
-                {visibleEdges.map((edge, index) => <div key={`${edge.source}-${edge.target}-${index}`}><strong>{nodeById.get(edge.source)?.label}</strong><span>{edge.label}</span><strong>{nodeById.get(edge.target)?.label}</strong></div>)}
-                {!visibleEdges.length && <p>Sem conexões suficientes para o filtro atual.</p>}
+              <aside className="stakeholder-inspector">
+                {selectedStakeholder ? (
+                  <>
+                    <header><div className="person-avatar">{selectedStakeholder.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><span>{selectedStakeholder.role}</span><h2>{selectedStakeholder.name}</h2><p>{selectedStakeholder.area}</p></div></header>
+                    <div className="stakeholder-badges"><Tag type={selectedStakeholder.influence === "Alta" ? "red" : "gray"}>Influência {selectedStakeholder.influence}</Tag><Tag type={selectedStakeholder.stance === "Aliado" ? "green" : selectedStakeholder.stance === "Resistente" ? "magenta" : "blue"}>{selectedStakeholder.stance}</Tag></div>
+                    <section><span className="eyebrow">Prioridades conhecidas</span><div className="priority-chips">{selectedStakeholder.priorities.map((item) => <span key={item}>{item}</span>)}{!selectedStakeholder.priorities.length && <small>Adicione prioridades para melhorar os insights.</small>}</div></section>
+                    <section><span className="eyebrow">Contexto da pessoa</span><p>{selectedStakeholder.notes || "Nenhuma anotação registrada."}</p></section>
+                    <section className="crossed-insight"><span className="eyebrow">Insight cruzado</span><h3>{activeStakeholderMatch?.capability ? `Converse sobre ${activeStakeholderMatch.capability.short}` : "Contexto em construção"}</h3><p>{activeStakeholderMatch?.capability ? `${activeStakeholderMatch.capability.evidence[0] || selected.challengeSummary} Este tema tem ${activeStakeholderMatch.capability.alignment}% de aderência na conta.` : "Adicione prioridades e notas para conectar esta pessoa aos sinais da conta."}</p><strong>Pergunta sugerida</strong><blockquote>{activeStakeholderMatch?.question}</blockquote></section>
+                    <div className="inspector-actions"><button className="button primary" onClick={() => openStakeholderForm(undefined, selectedStakeholder.id)}>+ Adicionar report</button><button className="button secondary" onClick={() => openStakeholderForm(selectedStakeholder)}>Editar perfil</button><button className="button danger-ghost" onClick={deleteStakeholder} disabled={saving}>Remover</button></div>
+                  </>
+                ) : <div className="empty-state">Selecione uma pessoa no organograma.</div>}
               </aside>
             </div>
           </section>
@@ -582,6 +703,37 @@ Próximo passo: ${selected.nextEngagement}`;
       </main>
 
       {showNew && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowNew(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-title"><button className="modal-close" onClick={() => setShowNew(false)} aria-label="Fechar">×</button><span className="eyebrow">Nova conta</span><h2 id="new-title">Comece pelo contexto da conta</h2><p>Crie um workspace de account intelligence antes do CRM. A primeira reunião vai gerar o mapa da conta.</p><form onSubmit={createDiscovery}><label>Empresa<input name="customerName" required placeholder="Ex.: Acme Brasil" /></label><label>Setor<select name="industry" required defaultValue=""><option value="" disabled>Selecione</option><option>Serviços financeiros</option><option>Varejo</option><option>Manufatura</option><option>Energia</option><option>Saúde</option><option>Tecnologia</option><option>Outro</option></select></label><label>Porte<select name="companySize" defaultValue="Enterprise"><option>Enterprise</option><option>Large</option><option>Mid-market</option></select></label><div><button type="button" className="button ghost" onClick={() => setShowNew(false)}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? "Criando..." : "Criar conta →"}</button></div></form></div></div>}
+      {showStakeholderForm && selected && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowStakeholderForm(false)}><div className="modal stakeholder-modal" role="dialog" aria-modal="true" aria-labelledby="stakeholder-title"><button className="modal-close" onClick={() => setShowStakeholderForm(false)} aria-label="Fechar">×</button><span className="eyebrow">Organograma · {selected.customerName}</span><h2 id="stakeholder-title">{editingStakeholder ? "Editar stakeholder" : stakeholderManagerId ? "Adicionar report direto" : "Adicionar stakeholder"}</h2><p>Registre o que você sabe. Prioridades e contexto serão cruzados com os sinais, reuniões e capacidades IBM da conta.</p><form key={`${editingStakeholder?.id || "new"}-${stakeholderManagerId || "root"}`} onSubmit={submitStakeholder}>
+        <div className="form-row"><label>Nome<input name="name" required defaultValue={editingStakeholder?.name || ""} placeholder="Ex.: Ana Souza" /></label><label>Cargo<input name="role" required defaultValue={editingStakeholder?.role || ""} placeholder="Ex.: Chief Information Officer" /></label></div>
+        <div className="form-row"><label>Área<input name="area" defaultValue={editingStakeholder?.area || ""} placeholder="Ex.: Tecnologia" /></label><label>Reporta para<select name="reportsToId" defaultValue={stakeholderManagerId || ""}><option value="">Sem gestor mapeado</option>{selectedStakeholders.filter((person) => person.id !== editingStakeholder?.id).map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role}</option>)}</select></label></div>
+        <div className="form-row"><label>Influência<select name="influence" defaultValue={editingStakeholder?.influence || "Média"}><option>Alta</option><option>Média</option><option>Baixa</option></select></label><label>Postura<select name="stance" defaultValue={editingStakeholder?.stance || "Desconhecido"}><option>Aliado</option><option>Neutro</option><option>Resistente</option><option>Desconhecido</option></select></label></div>
+        <label>Prioridades <small>separe por vírgulas</small><input name="priorities" defaultValue={editingStakeholder?.priorities.join(", ") || ""} placeholder="FinOps, redução de custos, governança de dados" /></label>
+        <label>Contexto e anotações<textarea name="notes" rows={4} defaultValue={editingStakeholder?.notes || ""} placeholder="O que essa pessoa valoriza? Quais dores, objeções, métricas e relações são importantes?" /></label>
+        <div><button type="button" className="button ghost" onClick={() => setShowStakeholderForm(false)}>Cancelar</button><button className="button primary" disabled={saving}>{saving ? "Salvando..." : "Salvar e cruzar insights →"}</button></div>
+      </form></div></div>}
+    </div>
+  );
+}
+
+function StakeholderBranch({ person, people, selectedId, collapsed, onSelect, onToggle, onAddReport }: {
+  person: Stakeholder;
+  people: Stakeholder[];
+  selectedId?: string;
+  collapsed: Set<string>;
+  onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
+  onAddReport: (id: string) => void;
+}) {
+  const reports = people.filter((candidate) => candidate.reportsToId === person.id);
+  const isCollapsed = collapsed.has(person.id);
+  return (
+    <div className="org-branch">
+      <div className={`org-person ${selectedId === person.id ? "selected" : ""}`} role="button" tabIndex={0} onClick={() => onSelect(person.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(person.id); }}>
+        <div className="org-person-top"><span className={`stance-marker ${person.stance.toLowerCase()}`} /><small>{person.area}</small><em>{person.influence}</em></div>
+        <div className="org-identity"><span className="org-avatar">{person.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span><div><strong>{person.name}</strong><p>{person.role}</p></div></div>
+        <div className="org-person-actions">{reports.length > 0 && <button aria-label={isCollapsed ? "Expandir reports" : "Recolher reports"} onClick={(event) => { event.stopPropagation(); onToggle(person.id); }}>{isCollapsed ? "+" : "−"} {reports.length}</button>}<button onClick={(event) => { event.stopPropagation(); onAddReport(person.id); }}>+ report</button></div>
+      </div>
+      {reports.length > 0 && !isCollapsed && <div className="org-children">{reports.map((report) => <StakeholderBranch key={report.id} person={report} people={people} selectedId={selectedId} collapsed={collapsed} onSelect={onSelect} onToggle={onToggle} onAddReport={onAddReport} />)}</div>}
     </div>
   );
 }

@@ -41,6 +41,21 @@ type Meeting = {
 type AccountNode = { id: string; type: "area" | "person" | "system" | "pain" | "initiative" | "capability" | "risk"; label: string; detail: string; strength: number };
 type AccountEdge = { source: string; target: string; label: "impacta" | "depende de" | "decisor de" | "possível aderência" | "risco associado" };
 type AccountMap = { nodes: AccountNode[]; edges: AccountEdge[]; updatedAt: string };
+type Stakeholder = {
+  id: string;
+  discoveryId: string;
+  name: string;
+  role: string;
+  area: string;
+  reportsToId: string | null;
+  influence: "Alta" | "Média" | "Baixa";
+  stance: "Aliado" | "Neutro" | "Resistente" | "Desconhecido";
+  priorities: string[];
+  notes: string;
+  source: "manual" | "suggested";
+  createdAt: string;
+  updatedAt: string;
+};
 
 const capabilityCatalog = [
   { name: "FinOps & Technology Financial Management", short: "FinOps", type: "capability", keywords: ["custo", "cloud", "nuvem", "orçamento", "budget", "desperd", "forecast", "rateio", "finops", "otimiza", "multicloud"], action: "Mapear baseline de gastos, owners e desperdícios antes de propor Cloudability/Turbonomic." },
@@ -311,10 +326,53 @@ async function ensureSchema(db: D1Database) {
     db.prepare("CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, discovery_id TEXT NOT NULL, type TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, title TEXT NOT NULL, notes TEXT NOT NULL, summary TEXT NOT NULL, insights_json TEXT NOT NULL, ai_status TEXT NOT NULL, created_at TEXT NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS account_maps (discovery_id TEXT PRIMARY KEY, nodes_json TEXT NOT NULL, edges_json TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS stakeholders (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL, area TEXT NOT NULL, reports_to_id TEXT, influence TEXT NOT NULL, stance TEXT NOT NULL, priorities_json TEXT NOT NULL, notes TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     db.prepare("CREATE INDEX IF NOT EXISTS discoveries_updated_idx ON discoveries(updated_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS audit_events_created_idx ON audit_events(created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS meetings_discovery_created_idx ON meetings(discovery_id, created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS stakeholders_discovery_idx ON stakeholders(discovery_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS stakeholders_reports_to_idx ON stakeholders(reports_to_id)"),
   ]);
+}
+
+function mapStakeholder(row: Record<string, unknown>): Stakeholder {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    name: String(row.name),
+    role: String(row.role),
+    area: String(row.area),
+    reportsToId: row.reports_to_id ? String(row.reports_to_id) : null,
+    influence: String(row.influence) as Stakeholder["influence"],
+    stance: String(row.stance) as Stakeholder["stance"],
+    priorities: JSON.parse(String(row.priorities_json || "[]")),
+    notes: String(row.notes || ""),
+    source: String(row.source || "manual") as Stakeholder["source"],
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+async function seedStakeholderTrees(db: D1Database) {
+  const discoveries = await db.prepare("SELECT id, industry, created_at FROM discoveries").all<Record<string, unknown>>();
+  for (const discovery of discoveries.results) {
+    const discoveryId = String(discovery.id);
+    const existing = await db.prepare("SELECT COUNT(*) AS count FROM stakeholders WHERE discovery_id = ?").bind(discoveryId).first<{ count: number }>();
+    if ((existing?.count || 0) > 0) continue;
+    const createdAt = String(discovery.created_at || new Date().toISOString());
+    const industry = String(discovery.industry || "negócio").toLowerCase();
+    const people = [
+      { id: `${discoveryId}-ceo`, name: "CEO (a identificar)", role: "Chief Executive Officer", area: "Diretoria executiva", parent: null, influence: "Alta", stance: "Desconhecido", priorities: ["Crescimento", "Eficiência operacional", `Estratégia de ${industry}`], notes: "Mapeie prioridades executivas, métricas e patrocinadores da transformação." },
+      { id: `${discoveryId}-cio`, name: "CIO (a identificar)", role: "Chief Information Officer", area: "Tecnologia", parent: `${discoveryId}-ceo`, influence: "Alta", stance: "Neutro", priorities: ["FinOps", "Trusted Data", "Hybrid Cloud"], notes: "Validar agenda de dados, cloud, governança e investimento tecnológico." },
+      { id: `${discoveryId}-cto`, name: "CTO (a identificar)", role: "Chief Technology Officer", area: "Arquitetura e engenharia", parent: `${discoveryId}-ceo`, influence: "Alta", stance: "Neutro", priorities: ["App Modernization", "Automation", "Arquitetura híbrida"], notes: "Entender dependências técnicas, plataformas e capacidade de execução." },
+    ] as const;
+    for (const person of people) {
+      await db.prepare("INSERT OR IGNORE INTO stakeholders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(person.id, discoveryId, person.name, person.role, person.area, person.parent, person.influence, person.stance, JSON.stringify(person.priorities), person.notes, "suggested", createdAt, createdAt).run();
+    }
+    await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, ?, ?, ?)")
+      .bind(discoveryId, "stakeholder", "Organograma inicial sugerido para validação humana", createdAt).run();
+  }
 }
 
 async function seed(db: D1Database) {
@@ -448,11 +506,13 @@ export async function GET() {
   const db = env.DB as D1Database;
   await ensureSchema(db);
   await seed(db);
-  const [discoveriesResult, eventsResult, meetingsResult, mapsResult] = await Promise.all([
+  await seedStakeholderTrees(db);
+  const [discoveriesResult, eventsResult, meetingsResult, mapsResult, stakeholdersResult] = await Promise.all([
     db.prepare("SELECT * FROM discoveries ORDER BY updated_at DESC").all(),
     db.prepare("SELECT id, discovery_id, type, detail, created_at FROM audit_events ORDER BY created_at DESC LIMIT 50").all(),
     db.prepare("SELECT * FROM meetings ORDER BY created_at DESC").all(),
     db.prepare("SELECT * FROM account_maps").all(),
+    db.prepare("SELECT * FROM stakeholders ORDER BY created_at ASC").all(),
   ]);
   const meetings = meetingsResult.results.map((row) => mapMeeting(row as Record<string, unknown>));
   const maps = new Map((mapsResult.results as Record<string, unknown>[]).map((row) => [String(row.discovery_id), { nodes: JSON.parse(String(row.nodes_json)), edges: JSON.parse(String(row.edges_json)), updatedAt: String(row.updated_at) } as AccountMap]));
@@ -462,6 +522,7 @@ export async function GET() {
       return mapDiscovery(record, meetings.filter((meeting) => meeting.discoveryId === record.id), maps.get(String(record.id)));
     }),
     meetings,
+    stakeholders: stakeholdersResult.results.map((row) => mapStakeholder(row as Record<string, unknown>)),
     events: eventsResult.results.map((row) => ({ id: row.id, discoveryId: row.discovery_id, type: row.type, detail: row.detail, createdAt: row.created_at })),
   });
 }
@@ -546,6 +607,48 @@ export async function POST(request: Request) {
 
   if (body.action === "feedback") {
     await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, ?, ?, ?)").bind(id, "feedback", body.accepted ? "Handoff pré-CRM validado pelo Business Partner" : "Recomendação enviada para revisão humana", now).run();
+    return Response.json({ ok: true });
+  }
+
+  if (body.action === "stakeholder_upsert") {
+    const stakeholderId = String(body.stakeholderId || `stk-${Date.now()}`);
+    const name = String(body.name || "").trim();
+    const role = String(body.role || "").trim();
+    if (!name || !role) return Response.json({ error: "Nome e cargo são obrigatórios" }, { status: 400 });
+    const reportsToId = body.reportsToId ? String(body.reportsToId) : null;
+    if (reportsToId === stakeholderId) return Response.json({ error: "Uma pessoa não pode reportar a si mesma" }, { status: 400 });
+    if (reportsToId) {
+      const parent = await db.prepare("SELECT id FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(reportsToId, id).first();
+      if (!parent) return Response.json({ error: "Gestor inválido para esta conta" }, { status: 400 });
+      let ancestorId: string | null = reportsToId;
+      for (let depth = 0; ancestorId && depth < 50; depth += 1) {
+        if (ancestorId === stakeholderId) return Response.json({ error: "Essa relação criaria um ciclo no organograma" }, { status: 400 });
+        const ancestor = await db.prepare("SELECT reports_to_id FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(ancestorId, id).first<Record<string, unknown>>();
+        ancestorId = ancestor?.reports_to_id ? String(ancestor.reports_to_id) : null;
+      }
+    }
+    const existing = await db.prepare("SELECT created_at FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(stakeholderId, id).first<Record<string, unknown>>();
+    const priorities = Array.isArray(body.priorities)
+      ? body.priorities.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 8)
+      : String(body.priorities || "").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 8);
+    await db.prepare("INSERT OR REPLACE INTO stakeholders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(stakeholderId, id, name, role, String(body.area || "Não informada"), reportsToId, String(body.influence || "Média"), String(body.stance || "Desconhecido"), JSON.stringify(priorities), String(body.notes || ""), "manual", String(existing?.created_at || now), now).run();
+    await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, ?, ?, ?)")
+      .bind(id, "stakeholder", existing ? `Stakeholder atualizado: ${name}` : `Stakeholder adicionado: ${name}`, now).run();
+    const saved = await db.prepare("SELECT * FROM stakeholders WHERE id = ?").bind(stakeholderId).first<Record<string, unknown>>();
+    return Response.json({ ok: true, stakeholder: mapStakeholder(saved || {}) });
+  }
+
+  if (body.action === "stakeholder_delete") {
+    const stakeholderId = String(body.stakeholderId || "");
+    const stakeholder = await db.prepare("SELECT name FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(stakeholderId, id).first<Record<string, unknown>>();
+    if (!stakeholder) return Response.json({ error: "Stakeholder não encontrado" }, { status: 404 });
+    await db.batch([
+      db.prepare("UPDATE stakeholders SET reports_to_id = NULL, updated_at = ? WHERE reports_to_id = ? AND discovery_id = ?").bind(now, stakeholderId, id),
+      db.prepare("DELETE FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(stakeholderId, id),
+    ]);
+    await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, ?, ?, ?)")
+      .bind(id, "stakeholder", `Stakeholder removido: ${String(stakeholder.name)}`, now).run();
     return Response.json({ ok: true });
   }
 

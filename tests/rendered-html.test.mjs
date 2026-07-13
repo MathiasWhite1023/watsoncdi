@@ -27,15 +27,19 @@ test("documents the account intelligence product and rollback path", async () =>
 });
 
 test("keeps the account intelligence surfaces wired", async () => {
-  const [page, api, visuals, migration] = await Promise.all([
+  const [page, api, visuals, migration, stakeholderMigration] = await Promise.all([
     readProjectFile("app/page.tsx"),
     readProjectFile("app/api/discoveries/route.ts"),
     readProjectFile("app/CarbonVisuals.tsx"),
     readProjectFile("drizzle/0001_high_skaar.sql"),
+    readProjectFile("drizzle/0002_calm_miek.sql"),
   ]);
 
-  assert.match(page, /Visão 360/);
-  assert.match(page, /Mapa da Conta/);
+  assert.match(page, /label: "Início"/);
+  assert.match(page, /Inteligência de contas/);
+  assert.match(page, /Stakeholder intelligence/);
+  assert.match(page, /StakeholderBranch/);
+  assert.match(page, /Adicionar report/);
   assert.match(page, /Notas livres de reunião/);
   assert.match(page, /Handoff pré-CRM/);
   assert.match(page, /IBM capability playbook/);
@@ -48,9 +52,13 @@ test("keeps the account intelligence surfaces wired", async () => {
   assert.match(api, /AI Governance/);
   assert.match(api, /meetings/);
   assert.match(api, /audit_events/);
+  assert.match(api, /stakeholder_upsert/);
+  assert.match(api, /stakeholder_delete/);
+  assert.match(api, /seedStakeholderTrees/);
 
   assert.match(migration, /CREATE TABLE `meetings`/);
   assert.match(migration, /CREATE TABLE `account_maps`/);
+  assert.match(stakeholderMigration, /CREATE TABLE `stakeholders`/);
 
   assert.match(visuals, /@carbon\/charts-react/);
   assert.match(visuals, /DonutChart/);
