@@ -155,6 +155,23 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
   assert.match(charts, /LineChart/);
 });
 
+test("keeps public reads isolated and the private workspace fail-closed", async () => {
+  const [api, documents, aiStatus] = await Promise.all([
+    readProjectFile("app/api/discoveries/route.ts"),
+    readProjectFile("app/api/accounts/[id]/documents/route.ts"),
+    readProjectFile("app/api/ai/status/route.ts"),
+  ]);
+
+  assert.match(api, /seedStakeholderTrees\(db: D1Database, discoveryIds: string\[\]\)/);
+  assert.doesNotMatch(api, /SELECT id, industry, created_at FROM discoveries"/);
+  assert.match(api, /backfillV4\(db: D1Database, discoveryRows: Record<string, unknown>\[\]\)/);
+  assert.match(api, /skipGenerative: true, skipEmbeddings: true/);
+  assert.match(api, /allowlistConfigured: allowed\.length > 0/);
+  assert.match(api, /if \(!identity\.allowlistConfigured\)/);
+  assert.match(documents, /if \(!allowlist\.length\)/);
+  assert.match(aiStatus, /if \(!allowlist\.length\)/);
+});
+
 test("keeps Gemini behind the server-side provider boundary and policy gates", async () => {
   const [provider, api, statusRoute, page] = await Promise.all([
     readProjectFile("lib/ai-provider.ts"),

@@ -11,7 +11,8 @@ async function authorize(request: Request, id: string) {
   if (!email) return { error: Response.json({ error: "Autenticação necessária." }, { status: 401 }) };
   const runtime = env as unknown as Record<string, unknown>;
   const allowlist = String(runtime.PRIVATE_ALLOWED_EMAILS || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
-  if (allowlist.length && !allowlist.includes(email)) return { error: Response.json({ error: "E-mail não autorizado." }, { status: 403 }) };
+  if (!allowlist.length) return { error: Response.json({ error: "A allowlist do workspace privado ainda não foi configurada." }, { status: 503 }) };
+  if (!allowlist.includes(email)) return { error: Response.json({ error: "E-mail não autorizado." }, { status: 403 }) };
   const db = (env as unknown as { DB: D1Database }).DB;
   const account = await db.prepare("SELECT id FROM discoveries WHERE id = ? AND visibility = 'private' AND owner_email = ?").bind(id, email).first();
   if (!account) return { error: Response.json({ error: "Conta não encontrada ou acesso não autorizado." }, { status: 404 }) };

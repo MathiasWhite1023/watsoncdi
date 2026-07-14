@@ -375,8 +375,10 @@ function mapStakeholder(row: Record<string, unknown>): Stakeholder {
   };
 }
 
-async function seedStakeholderTrees(db: D1Database) {
-  const discoveries = await db.prepare("SELECT id, industry, created_at FROM discoveries").all<Record<string, unknown>>();
+async function seedStakeholderTrees(db: D1Database, discoveryIds: string[]) {
+  if (!discoveryIds.length) return;
+  const placeholders = discoveryIds.map(() => "?").join(",");
+  const discoveries = await db.prepare(`SELECT id, industry, created_at FROM discoveries WHERE id IN (${placeholders})`).bind(...discoveryIds).all<Record<string, unknown>>();
   for (const discovery of discoveries.results) {
     const discoveryId = String(discovery.id);
     const existing = await db.prepare("SELECT COUNT(*) AS count FROM stakeholders WHERE discovery_id = ?").bind(discoveryId).first<{ count: number }>();
@@ -530,7 +532,7 @@ function mapDiscovery(row: Record<string, unknown>, meetings: Meeting[], account
 function requestIdentity(request: Request) {
   const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() || "";
   const allowed = String((env as unknown as Record<string, unknown>).PRIVATE_ALLOWED_EMAILS || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
-  return { email, allowed: !allowed.length || allowed.includes(email) };
+  return { email, allowed: allowed.length > 0 && allowed.includes(email), allowlistConfigured: allowed.length > 0 };
 }
 
 function scopeFor(request: Request, body?: Record<string, unknown>) {
@@ -557,6 +559,7 @@ function normalizeCompanyDomain(value: unknown): string | null {
 function privateGate(request: Request) {
   const identity = requestIdentity(request);
   if (!identity.email) return Response.json({ error: "Faça login com ChatGPT para acessar o workspace privado." }, { status: 401 });
+  if (!identity.allowlistConfigured) return Response.json({ error: "A allowlist do workspace privado ainda não foi configurada." }, { status: 503 });
   if (!identity.allowed) return Response.json({ error: "Este e-mail não está autorizado para o workspace." }, { status: 403 });
   return null;
 }
@@ -656,7 +659,7 @@ async function refreshAccountEmbeddings(db: D1Database, row: Record<string, unkn
   }
 }
 
-export async function recomputeAccount(db: D1Database, id: string, recomputeOptions: { skipGenerative?: boolean } = {}) {
+export async function recomputeAccount(db: D1Database, id: string, recomputeOptions: { skipGenerative?: boolean; skipEmbeddings?: boolean } = {}) {
   const row = await db.prepare("SELECT * FROM discoveries WHERE id = ?").bind(id).first<Record<string, unknown>>();
   if (!row) return;
   const [eventRows, stakeholderRows, previousMemory] = await Promise.all([
@@ -696,12 +699,11 @@ export async function recomputeAccount(db: D1Database, id: string, recomputeOpti
   await db.prepare("INSERT OR IGNORE INTO account_snapshots (id, discovery_id, reason, snapshot_json, confidence, source_fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`snap-${id}-${snapshotFingerprint.slice(0, 14)}`, id, "analysis", JSON.stringify({ progress: row.progress, topScores: scores.slice(0, 3), hypothesisConfidence: hypotheses.map((item) => ({ key: item.capabilityKey, confidence: item.confidence })), memoryVersion: memory.version }), scores[0]?.confidence || 0, snapshotFingerprint, memory.updatedAt).run();
   await recordAIRun(db, id, "account-orchestrator", generatedMemory, events.slice(0, 10).map((item) => item.id), generatedMemory.ok ? 82 : 72, "Memória, hipóteses e fila recalculadas; revisão humana necessária.");
   await db.prepare("UPDATE discoveries SET last_analyzed_at = ? WHERE id = ?").bind(memory.updatedAt, id).run();
-  await refreshAccountEmbeddings(db, row).catch(() => undefined);
+  if (!recomputeOptions.skipEmbeddings) await refreshAccountEmbeddings(db, row).catch(() => undefined);
 }
 
-async function backfillV4(db: D1Database) {
-  const rows = await db.prepare("SELECT * FROM discoveries").all<Record<string, unknown>>();
-  for (const row of rows.results) {
+async function backfillV4(db: D1Database, discoveryRows: Record<string, unknown>[]) {
+  for (const row of discoveryRows) {
     const id = String(row.id); const existing = await db.prepare("SELECT COUNT(*) AS count FROM account_events WHERE discovery_id = ?").bind(id).first<{ count: number }>();
     if ((existing?.count || 0) === 0) {
       for (const answer of json<Answer[]>(row.answers_json, [])) await addEvent(db, { id: `evt-${id}-answer-${answer.key}`, discoveryId: id, type: answer.key === "pain" ? "pain" : "discovery_answer", title: answer.question, content: answer.answer, sourceType: "answer", sourceId: answer.key, evidenceStatus: "confirmed", confidence: 82, occurredAt: answer.at || String(row.updated_at) });
@@ -713,7 +715,7 @@ async function backfillV4(db: D1Database) {
     const hierarchy = await db.prepare("SELECT id, reports_to_id, created_at, updated_at FROM stakeholders WHERE discovery_id = ? AND reports_to_id IS NOT NULL").bind(id).all<Record<string, unknown>>();
     for (const person of hierarchy.results) await db.prepare("INSERT OR IGNORE INTO account_relationships (id, discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type, label, confidence, evidence_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`rel-${id}-${String(person.id)}-reports`, id, String(person.id), String(person.reports_to_id), "reporta_para", "Reporta para", 88, "[]", "confirmed", String(person.created_at), String(person.updated_at)).run();
     const memory = await db.prepare("SELECT discovery_id FROM account_memory WHERE discovery_id = ?").bind(id).first();
-    if (!memory) await recomputeAccount(db, id);
+    if (!memory) await recomputeAccount(db, id, { skipGenerative: true, skipEmbeddings: true });
   }
 }
 
@@ -747,13 +749,19 @@ async function accountPayload(db: D1Database, discoveryRows: Record<string, unkn
 }
 
 export async function GET(request: Request) {
-  const db = (env as unknown as { DB: D1Database }).DB; await ensureSchema(db); await seed(db); await seedStakeholderTrees(db); await backfillV4(db);
+  const db = (env as unknown as { DB: D1Database }).DB; await ensureSchema(db); await seed(db);
   const scope = scopeFor(request); let rows;
   if (scope === "private") {
     const denied = privateGate(request); if (denied) return denied; const { email } = requestIdentity(request);
     rows = await db.prepare("SELECT * FROM discoveries WHERE visibility = 'private' AND owner_email = ? ORDER BY updated_at DESC").bind(email).all<Record<string, unknown>>();
-    for (const row of rows.results) { const last = row.last_analyzed_at ? new Date(String(row.last_analyzed_at)).getTime() : 0; if (Date.now() - last > 12 * 3600000) await recomputeAccount(db, String(row.id)); }
-  } else rows = await db.prepare("SELECT * FROM discoveries WHERE visibility = 'demo' OR visibility IS NULL ORDER BY updated_at DESC").all<Record<string, unknown>>();
+    const accountIds = rows.results.map((row) => String(row.id));
+    await seedStakeholderTrees(db, accountIds); await backfillV4(db, rows.results);
+    for (const row of rows.results) { const last = row.last_analyzed_at ? new Date(String(row.last_analyzed_at)).getTime() : 0; if (Date.now() - last > 12 * 3600000) await recomputeAccount(db, String(row.id), { skipGenerative: true, skipEmbeddings: true }); }
+  } else {
+    rows = await db.prepare("SELECT * FROM discoveries WHERE visibility = 'demo' OR visibility IS NULL ORDER BY updated_at DESC").all<Record<string, unknown>>();
+    const accountIds = rows.results.map((row) => String(row.id));
+    await seedStakeholderTrees(db, accountIds); await backfillV4(db, rows.results);
+  }
   const accountId = new URL(request.url).searchParams.get("accountId");
   return Response.json(await accountPayload(db, accountId ? rows.results.filter((row) => String(row.id) === accountId) : rows.results));
 }
@@ -773,7 +781,7 @@ export async function POST(request: Request) {
     if (rawDomain && !domain) return Response.json({ error: "Informe um domínio corporativo válido, como empresa.com.br." }, { status: 400 });
     await db.prepare("INSERT INTO discoveries (id, customer_name, industry, company_size, owner, stage, progress, priority, challenge_summary, answers_json, scores_json, recommendations_json, next_engagement, created_at, updated_at, owner_email, visibility, data_classification, company_domain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, name, String(body.industry || "Não informado"), String(body.companySize || "Enterprise"), identity.email.split("@")[0], "Account intelligence", 8, "Baixa", "Conta criada. Adicione uma informação para iniciar a memória.", "[]", JSON.stringify(scores), "[]", "Registrar primeira informação", now, now, identity.email, "private", classification, domain).run();
     await db.prepare("INSERT INTO account_maps VALUES (?, ?, ?, ?)").bind(id, JSON.stringify(accountMap.nodes), JSON.stringify(accountMap.edges), now).run();
-    await addEvent(db, { id: `evt-${id}-created`, discoveryId: id, type: "account_created", title: "Conta adicionada ao workspace", content: `Conta ${name} criada para inteligência antes do CRM.`, sourceType: "system", sourceId: id, evidenceStatus: "confirmed", confidence: 100, occurredAt: now }); await seedStakeholderTrees(db); await recomputeAccount(db, id);
+    await addEvent(db, { id: `evt-${id}-created`, discoveryId: id, type: "account_created", title: "Conta adicionada ao workspace", content: `Conta ${name} criada para inteligência antes do CRM.`, sourceType: "system", sourceId: id, evidenceStatus: "confirmed", confidence: 100, occurredAt: now }); await seedStakeholderTrees(db, [id]); await recomputeAccount(db, id);
     return Response.json({ ok: true, id }, { status: 201 });
   }
   if (body.action === "briefing") {

@@ -10,7 +10,8 @@ export async function GET(request: Request) {
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  if (allowlist.length && !allowlist.includes(email)) return Response.json({ error: "E-mail não autorizado." }, { status: 403 });
+  if (!allowlist.length) return Response.json({ error: "A allowlist do workspace privado ainda não foi configurada." }, { status: 503 });
+  if (!allowlist.includes(email)) return Response.json({ error: "E-mail não autorizado." }, { status: 403 });
   const watsonxConfigured = Boolean(
     runtime.WATSONX_API_KEY && runtime.WATSONX_PROJECT_ID && runtime.WATSONX_URL && runtime.WATSONX_MODEL_ID,
   );
