@@ -1,5 +1,29 @@
 # Changelog
 
+## v4-proactive-account-intelligence
+
+Status: implementation validated; production deployment pending
+Branch: `codex/account-intelligence-v4`
+Deploy commit: pending
+OpenAI Sites version: pending
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Added
+
+- Four-destination IBM Carbon shell: `Início`, `Inteligência de contas`, `Radar da carteira` and `Configurações`.
+- Role-oriented daily briefing and proactive action queue with human-controlled states.
+- Unified account memory with known facts, assumptions, gaps, stale information and normalized sources.
+- Grounded account copilot with citations and no direct data mutation.
+- Meeting scheduling, preparation and post-meeting extraction.
+- Opportunity hypotheses, qualification gates and editable 30/60/90 Account Plan.
+- Private `/workspace` with Sign in with ChatGPT, email allowlist and server-side account ownership checks.
+- PDF, DOCX, TXT and Markdown ingestion with R2 originals and D1 chunks.
+- Additive D1 tables for events, entities, memory, actions, hypotheses, plans, documents, chat and AI runs.
+
+### Rollback
+
+Use tag `v3-stakeholder-intelligence` to rebuild and republish the previous application. V4 migrations are additive only; V3 safely ignores all new tables and optional columns.
+
 ## v3-stakeholder-intelligence
 
 Status: published
