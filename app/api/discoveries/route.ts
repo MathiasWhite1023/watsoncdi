@@ -2,6 +2,26 @@ import { env } from "cloudflare:workers";
 import { answerFromEvidence, buildActions, buildHypotheses, buildMemory, suggestAccountPlan, type AccountEvent, type AccountMemory, type EvidenceRef } from "../../../lib/account-intelligence";
 import { createAIProviderFromEnv, type AccountDataClassification, type AIResult } from "../../../lib/ai-provider";
 import { collectAccountSources, evidenceFingerprint, persistEmbeddings, retrieveAccountSources, type RetrievalSource } from "../../../lib/account-retrieval";
+import {
+  GUIDED_DISCOVERY_CATALOG,
+  GUIDED_DISCOVERY_CATALOG_VERSION,
+  GUIDED_DISCOVERY_PILLAR_META,
+  GuidedDiscoveryAnswerPayloadSchema,
+  GuidedDiscoveryStartPayloadSchema,
+  calculateDeterministicDeltas,
+  calculateDiscoveryMetrics,
+  checkpointForRoute,
+  getQuestionById,
+  humanizeStructuredAnswer,
+  isGuidedDiscoveryPillar,
+  legacyQuestionId,
+  materializeQuestionRoute,
+  questionsForPillar,
+  rankNextQuestion,
+  rankPillarsFromAnswers,
+  type GuidedDiscoveryAnswerLike,
+  type GuidedDiscoveryPillarKey,
+} from "../../../lib/guided-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +83,9 @@ type AccountAction = { id: string; discoveryId: string; stakeholderId: string | 
 type Hypothesis = { id: string; discoveryId: string; capabilityKey: string; title: string; problem: string; products: string[]; stakeholderIds: string[]; evidence: EvidenceRef[]; gaps: string[]; confidence: number; stage: string; nextStep: string; createdAt: string; updatedAt: string };
 type AccountPlan = { discoveryId: string; priorities: string[]; initiatives: string[]; objectives: string[]; risks: string[]; ecosystem: string[]; relationship: string[]; plan30: string[]; plan60: string[]; plan90: string[]; approvalStatus: string; suggestion: Record<string, string[]>; updatedAt: string };
 type AccountDocument = { id: string; discoveryId: string; name: string; contentType: string; sizeBytes: number; status: string; summary: string; createdAt: string };
+type GuidedDiscoverySession = { id: string; discoveryId: string; ownerEmail: string; mode: "adaptive" | "direct"; catalogVersion: string; selectedPillars: string[]; status: "in_progress" | "paused" | "completed"; progressPercent: number; coveragePercent: number; currentQuestionId: string | null; checkpointCount: number; aiStatus: string | null; startedAt: string; completedAt: string | null; createdAt: string; updatedAt: string };
+type GuidedDiscoveryQuestionRow = { id: string; sessionId: string; discoveryId: string; catalogQuestionId: string | null; pillar: string; prompt: string; hint: string | null; inputSchema: Record<string, unknown>; source: "catalog" | "ai"; rationale: string | null; citations: EvidenceRef[]; sequence: number; status: "proposed" | "accepted" | "active" | "answered" | "dismissed"; createdAt: string; updatedAt: string };
+type GuidedDiscoveryAnswerRow = { id: string; sessionId: string; questionId: string; discoveryId: string; structured: Record<string, unknown>; answerText: string; evidenceStatus: "confirmed" | "reported" | "hypothesis" | "unknown"; stakeholderId: string | null; sourceType: string | null; sourceId: string | null; sourceDate: string | null; confidence: number; status: "draft" | "confirmed" | "unknown"; supersedesId: string | null; isCurrent: boolean; answeredAt: string | null; createdAt: string; updatedAt: string };
 
 const capabilityCatalog = [
   { name: "FinOps & Technology Financial Management", short: "FinOps", type: "capability", keywords: ["custo", "cloud", "nuvem", "orçamento", "budget", "desperd", "forecast", "rateio", "finops", "otimiza", "multicloud"], action: "Mapear baseline de gastos, owners e desperdícios antes de propor Cloudability/Turbonomic." },
@@ -308,6 +331,9 @@ async function ensureSchema(db: D1Database) {
     db.prepare("CREATE TABLE IF NOT EXISTS account_graph_layouts (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, mode TEXT NOT NULL, nodes_json TEXT NOT NULL DEFAULT '[]', viewport_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS external_signals (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, query_fingerprint TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL, source_url TEXT NOT NULL, publisher TEXT NOT NULL DEFAULT '', published_at TEXT, citation_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'proposed', confidence INTEGER NOT NULL DEFAULT 0, approved_at TEXT, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS action_feedback (id TEXT PRIMARY KEY, action_id TEXT NOT NULL, discovery_id TEXT NOT NULL, feedback_type TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', adjustment INTEGER NOT NULL DEFAULT 0, previous_status TEXT NOT NULL DEFAULT '', new_status TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS guided_discovery_sessions (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, owner_email TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'adaptive' CHECK(mode IN ('adaptive','direct')), catalog_version TEXT NOT NULL, selected_pillars_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'in_progress' CHECK(status IN ('in_progress','paused','completed')), progress_percent INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100), coverage_percent INTEGER NOT NULL DEFAULT 0 CHECK(coverage_percent BETWEEN 0 AND 100), current_question_id TEXT, checkpoint_count INTEGER NOT NULL DEFAULT 0 CHECK(checkpoint_count >= 0), ai_status TEXT, started_at TEXT NOT NULL, completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS guided_discovery_questions (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES guided_discovery_sessions(id) ON DELETE CASCADE, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, catalog_question_id TEXT, pillar TEXT NOT NULL, prompt TEXT NOT NULL, hint TEXT, input_schema_json TEXT NOT NULL DEFAULT '{}', source TEXT NOT NULL DEFAULT 'catalog' CHECK(source IN ('catalog','ai')), rationale TEXT, citations_json TEXT NOT NULL DEFAULT '[]', sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0), status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','accepted','active','answered','dismissed')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS guided_discovery_answers (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES guided_discovery_sessions(id) ON DELETE CASCADE, question_id TEXT NOT NULL REFERENCES guided_discovery_questions(id) ON DELETE CASCADE, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, structured_json TEXT NOT NULL DEFAULT '{}', answer_text TEXT NOT NULL DEFAULT '', evidence_status TEXT NOT NULL DEFAULT 'reported' CHECK(evidence_status IN ('confirmed','reported','hypothesis','unknown')), stakeholder_id TEXT REFERENCES stakeholders(id) ON DELETE SET NULL, source_type TEXT, source_id TEXT, source_date TEXT, confidence INTEGER NOT NULL DEFAULT 0 CHECK(confidence BETWEEN 0 AND 100), status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','confirmed','unknown')), supersedes_id TEXT REFERENCES guided_discovery_answers(id) ON DELETE SET NULL, is_current INTEGER NOT NULL DEFAULT 1 CHECK(is_current IN (0,1)), answered_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
     db.prepare("CREATE INDEX IF NOT EXISTS discoveries_updated_idx ON discoveries(updated_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS audit_events_created_idx ON audit_events(created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS meetings_discovery_created_idx ON meetings(discovery_id, created_at)"),
@@ -326,6 +352,14 @@ async function ensureSchema(db: D1Database) {
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS account_graph_layouts_account_mode_idx ON account_graph_layouts(discovery_id, mode)"),
     db.prepare("CREATE INDEX IF NOT EXISTS external_signals_account_status_idx ON external_signals(discovery_id, status)"),
     db.prepare("CREATE INDEX IF NOT EXISTS action_feedback_account_time_idx ON action_feedback(discovery_id, created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_sessions_account_status_idx ON guided_discovery_sessions(discovery_id, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_sessions_owner_idx ON guided_discovery_sessions(owner_email)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS guided_discovery_questions_catalog_idx ON guided_discovery_questions(session_id, catalog_question_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_questions_session_sequence_idx ON guided_discovery_questions(session_id, sequence)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_questions_account_pillar_idx ON guided_discovery_questions(discovery_id, pillar)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_questions_session_status_idx ON guided_discovery_questions(session_id, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_answers_session_question_current_idx ON guided_discovery_answers(session_id, question_id, is_current)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS guided_discovery_answers_account_idx ON guided_discovery_answers(discovery_id)"),
   ]);
   await ensureColumn(db, "discoveries", "owner_email", "TEXT");
   await ensureColumn(db, "discoveries", "visibility", "TEXT NOT NULL DEFAULT 'demo'");
@@ -524,6 +558,107 @@ function mapPlan(row?: Record<string, unknown> | null): AccountPlan | null {
   return { discoveryId: String(row.discovery_id), priorities: json<string[]>(row.priorities_json, []), initiatives: json<string[]>(row.initiatives_json, []), objectives: json<string[]>(row.objectives_json, []), risks: json<string[]>(row.risks_json, []), ecosystem: json<string[]>(row.ecosystem_json, []), relationship: json<string[]>(row.relationship_json, []), plan30: json<string[]>(row.plan_30_json, []), plan60: json<string[]>(row.plan_60_json, []), plan90: json<string[]>(row.plan_90_json, []), approvalStatus: String(row.approval_status), suggestion: json<Record<string, string[]>>(row.suggestion_json, {}), updatedAt: String(row.updated_at) };
 }
 
+function mapGuidedSession(row: Record<string, unknown>): GuidedDiscoverySession {
+  return { id: String(row.id), discoveryId: String(row.discovery_id), ownerEmail: String(row.owner_email), mode: String(row.mode) === "direct" ? "direct" : "adaptive", catalogVersion: String(row.catalog_version), selectedPillars: json<string[]>(row.selected_pillars_json, []), status: String(row.status) as GuidedDiscoverySession["status"], progressPercent: Number(row.progress_percent || 0), coveragePercent: Number(row.coverage_percent || 0), currentQuestionId: row.current_question_id ? String(row.current_question_id) : null, checkpointCount: Number(row.checkpoint_count || 0), aiStatus: row.ai_status ? String(row.ai_status) : null, startedAt: String(row.started_at), completedAt: row.completed_at ? String(row.completed_at) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+}
+
+function mapGuidedQuestion(row: Record<string, unknown>): GuidedDiscoveryQuestionRow {
+  return { id: String(row.id), sessionId: String(row.session_id), discoveryId: String(row.discovery_id), catalogQuestionId: row.catalog_question_id ? String(row.catalog_question_id) : null, pillar: String(row.pillar), prompt: String(row.prompt), hint: row.hint ? String(row.hint) : null, inputSchema: json<Record<string, unknown>>(row.input_schema_json, {}), source: String(row.source) === "ai" ? "ai" : "catalog", rationale: row.rationale ? String(row.rationale) : null, citations: json<EvidenceRef[]>(row.citations_json, []), sequence: Number(row.sequence || 0), status: String(row.status) as GuidedDiscoveryQuestionRow["status"], createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+}
+
+function mapGuidedAnswer(row: Record<string, unknown>): GuidedDiscoveryAnswerRow {
+  return { id: String(row.id), sessionId: String(row.session_id), questionId: String(row.question_id), discoveryId: String(row.discovery_id), structured: json<Record<string, unknown>>(row.structured_json, {}), answerText: String(row.answer_text || ""), evidenceStatus: String(row.evidence_status) as GuidedDiscoveryAnswerRow["evidenceStatus"], stakeholderId: row.stakeholder_id ? String(row.stakeholder_id) : null, sourceType: row.source_type ? String(row.source_type) : null, sourceId: row.source_id ? String(row.source_id) : null, sourceDate: row.source_date ? String(row.source_date) : null, confidence: Number(row.confidence || 0), status: String(row.status) as GuidedDiscoveryAnswerRow["status"], supersedesId: row.supersedes_id ? String(row.supersedes_id) : null, isCurrent: Boolean(row.is_current), answeredAt: row.answered_at ? String(row.answered_at) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+}
+
+const scoreHintsForGuidedDiscovery = (row: Record<string, unknown>) => {
+  const keyByShort: Record<string, GuidedDiscoveryPillarKey> = { FinOps: "finops", "Trusted Data": "trusted-data", "AI Governance": "ai-governance", "Hybrid Cloud": "hybrid-cloud", Automation: "automation", "App Modernization": "app-modernization" };
+  return Object.fromEntries(json<Score[]>(row.scores_json, []).map((score) => [keyByShort[score.short], score.alignment]).filter(([key]) => Boolean(key))) as Partial<Record<GuidedDiscoveryPillarKey, number>>;
+};
+
+function guidedSnapshot(input: {
+  row: Record<string, unknown>;
+  sessions: GuidedDiscoverySession[];
+  questions: GuidedDiscoveryQuestionRow[];
+  answers: GuidedDiscoveryAnswerRow[];
+  stakeholders: Stakeholder[];
+}) {
+  const discoveryId = String(input.row.id);
+  const session = input.sessions.filter((item) => item.discoveryId === discoveryId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null;
+  const legacy = json<Answer[]>(input.row.answers_json, []);
+  let questions = session ? input.questions.filter((item) => item.sessionId === session.id).sort((a, b) => a.sequence - b.sequence) : [];
+  let answers = session ? input.answers.filter((item) => item.sessionId === session.id && item.isCurrent) : [];
+  let effectiveSession = session;
+
+  if (!session) {
+    const legacyByCatalog = new Map(legacy.map((item) => [legacyQuestionId(item.key), item]).filter(([key]) => Boolean(key)) as Array<[string, Answer]>);
+    const catalogIds = Array.from(new Set([...questionsForPillar("base").map((item) => item.id), ...legacyByCatalog.keys()]));
+    const virtualSessionId = `virtual-${discoveryId}`;
+    questions = catalogIds.map((catalogId, sequence) => {
+      const catalog = getQuestionById(catalogId)!;
+      const virtualId = `${virtualSessionId}-${catalogId}`;
+      return { id: virtualId, sessionId: virtualSessionId, discoveryId, catalogQuestionId: catalogId, pillar: catalog.pillar, prompt: catalog.question, hint: catalog.hint, inputSchema: catalog.input as unknown as Record<string, unknown>, source: "catalog" as const, rationale: catalog.rationale, citations: [], sequence, status: legacyByCatalog.has(catalogId) ? "answered" as const : sequence === 0 ? "active" as const : "accepted" as const, createdAt: String(input.row.created_at), updatedAt: String(input.row.updated_at) };
+    });
+    if (!questions.some((question) => question.status === "active")) {
+      const firstUnanswered = questions.find((question) => question.status === "accepted");
+      if (firstUnanswered) firstUnanswered.status = "active";
+    }
+    answers = questions.flatMap((question) => {
+      const item = question.catalogQuestionId ? legacyByCatalog.get(question.catalogQuestionId) : null;
+      return item ? [{ id: `${virtualSessionId}-answer-${question.catalogQuestionId}`, sessionId: virtualSessionId, questionId: question.id, discoveryId, structured: {}, answerText: item.answer, evidenceStatus: "confirmed" as const, stakeholderId: null, sourceType: "legacy", sourceId: item.key, sourceDate: item.at, confidence: 82, status: "confirmed" as const, supersedesId: null, isCurrent: true, answeredAt: item.at, createdAt: item.at, updatedAt: item.at }] : [];
+    });
+    const virtualMetrics = calculateDiscoveryMetrics(questions.map((item) => item.id), answers);
+    effectiveSession = { id: virtualSessionId, discoveryId, ownerEmail: "", mode: "adaptive", catalogVersion: GUIDED_DISCOVERY_CATALOG_VERSION, selectedPillars: [], status: "paused", progressPercent: virtualMetrics.progressPercent, coveragePercent: virtualMetrics.coveragePercent, currentQuestionId: questions.find((item) => item.status === "active")?.id || null, checkpointCount: 0, aiStatus: "deterministic", startedAt: String(input.row.created_at), completedAt: null, createdAt: String(input.row.created_at), updatedAt: String(input.row.updated_at) };
+  }
+
+  const routeQuestions = questions.filter((item) => item.status !== "dismissed" && item.status !== "proposed");
+  const answerLikes: GuidedDiscoveryAnswerLike[] = answers.map((answer) => ({ ...answer, questionId: answer.questionId }));
+  const metrics = calculateDiscoveryMetrics(routeQuestions.map((item) => item.id), answerLikes);
+  const scoreHints = scoreHintsForGuidedDiscovery(input.row);
+  const pillarRanking = rankPillarsFromAnswers(answers.map((answer) => {
+    const question = questions.find((item) => item.id === answer.questionId);
+    return { ...answer, questionId: question?.catalogQuestionId || answer.questionId };
+  }), scoreHints as Record<string, number>);
+  const ranked = rankNextQuestion({
+    questions: routeQuestions.flatMap((question) => {
+      const catalog = question.catalogQuestionId ? getQuestionById(question.catalogQuestionId) : null;
+      return catalog ? [{ ...catalog, id: question.id }] : [];
+    }),
+    answers: answerLikes,
+    hypothesisImpactByPillar: scoreHints,
+    stakeholderCoverageByPillar: Object.fromEntries(GUIDED_DISCOVERY_CATALOG.map((question) => [question.pillar, input.stakeholders.some((person) => person.discoveryId === discoveryId && person.source === "manual") ? 75 : 15])),
+  });
+  const nextRanked = ranked[0];
+  const currentQuestion = routeQuestions.find((item) => item.id === effectiveSession?.currentQuestionId) || routeQuestions.find((item) => item.id === nextRanked?.question.id) || routeQuestions.find((item) => item.status === "active") || null;
+  const checkpoint = checkpointForRoute(routeQuestions.map((item) => item.catalogQuestionId || item.id), answers.map((answer) => {
+    const question = questions.find((item) => item.id === answer.questionId);
+    return { ...answer, questionId: question?.catalogQuestionId || answer.questionId };
+  }));
+  const proposedFollowUp = questions.find((item) => item.source === "ai" && item.status === "proposed") || null;
+  const checkpointAlreadyUsed = checkpoint ? checkpoint.kind === "base" ? (effectiveSession?.checkpointCount || 0) > 0 : questions.some((item) => item.source === "ai" && item.pillar === checkpoint.pillar) : false;
+
+  return {
+    discoveryId,
+    catalogVersion: GUIDED_DISCOVERY_CATALOG_VERSION,
+    readonly: String(input.row.visibility || "demo") !== "private",
+    session: effectiveSession,
+    questions,
+    answers,
+    currentQuestion,
+    nextQuestion: currentQuestion ? { ...currentQuestion, rankingScore: nextRanked?.rankingScore || 0, factors: nextRanked?.factors || null } : null,
+    metrics,
+    pillars: Object.entries(GUIDED_DISCOVERY_PILLAR_META).map(([key, meta]) => {
+      const pillarQuestions = routeQuestions.filter((item) => item.pillar === key);
+      const pillarMetrics = calculateDiscoveryMetrics(pillarQuestions.map((item) => item.id), answerLikes);
+      const ranking = pillarRanking.find((item) => item.pillar === key);
+      return { key, ...meta, ...pillarMetrics, relevance: key === "base" ? 100 : ranking?.score || Number(scoreHints[key as GuidedDiscoveryPillarKey] || 0), rationale: key === "base" ? "Diagnóstico obrigatório no modo adaptativo." : ranking?.rationale || "Ainda sem evidência suficiente.", selected: key === "base" || effectiveSession?.selectedPillars.includes(key) || pillarQuestions.length > 0 };
+    }),
+    checkpoint: checkpoint && (effectiveSession?.checkpointCount || 0) < 3 ? { ...checkpoint, available: !proposedFollowUp && !checkpointAlreadyUsed } : null,
+    proposedFollowUp,
+    history: input.answers.filter((item) => item.discoveryId === discoveryId && (!session || item.sessionId === session.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    scoreHints,
+  };
+}
+
 function mapDiscovery(row: Record<string, unknown>, meetings: Meeting[], accountMap?: AccountMap) {
   const answers = json<Answer[]>(row.answers_json, []); const scores = json<Score[]>(row.scores_json, []);
   return { id: String(row.id), customerName: String(row.customer_name), industry: String(row.industry), companySize: String(row.company_size), owner: String(row.owner), ownerEmail: row.owner_email ? String(row.owner_email) : null, visibility: String(row.visibility || "demo"), dataClassification: String(row.data_classification || "test"), companyDomain: row.company_domain ? String(row.company_domain) : null, stage: String(row.stage), progress: Number(row.progress), priority: String(row.priority), challengeSummary: String(row.challenge_summary), answers, meetings, accountMap: accountMap || buildAccountMap({ customerName: String(row.customer_name), industry: String(row.industry), scores }, answers, meetings), aiMode: meetings[0]?.aiStatus || "fallback", scores, recommendations: json<Recommendation[]>(row.recommendations_json, []), nextEngagement: String(row.next_engagement), lastAnalyzedAt: row.last_analyzed_at ? String(row.last_analyzed_at) : null, updatedAt: String(row.updated_at) };
@@ -719,9 +854,104 @@ async function backfillV4(db: D1Database, discoveryRows: Record<string, unknown>
   }
 }
 
+async function guidedSnapshotForAccount(db: D1Database, row: Record<string, unknown>) {
+  const id = String(row.id);
+  const [sessionRows, questionRows, answerRows, stakeholderRows] = await Promise.all([
+    db.prepare("SELECT * FROM guided_discovery_sessions WHERE discovery_id = ? ORDER BY updated_at DESC").bind(id).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM guided_discovery_questions WHERE discovery_id = ? ORDER BY session_id, sequence").bind(id).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM guided_discovery_answers WHERE discovery_id = ? ORDER BY updated_at DESC").bind(id).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ? ORDER BY created_at").bind(id).all<Record<string, unknown>>(),
+  ]);
+  return guidedSnapshot({ row, sessions: sessionRows.results.map(mapGuidedSession), questions: questionRows.results.map(mapGuidedQuestion), answers: answerRows.results.map(mapGuidedAnswer), stakeholders: stakeholderRows.results.map(mapStakeholder) });
+}
+
+async function insertCatalogQuestion(db: D1Database, input: { sessionId: string; discoveryId: string; catalogQuestionId: string; sequence: number; now: string; status?: GuidedDiscoveryQuestionRow["status"] }) {
+  const catalog = getQuestionById(input.catalogQuestionId);
+  if (!catalog) return null;
+  const id = `gdq-${input.sessionId}-${catalog.id}`;
+  await db.prepare("INSERT OR IGNORE INTO guided_discovery_questions (id, session_id, discovery_id, catalog_question_id, pillar, prompt, hint, input_schema_json, source, rationale, citations_json, sequence, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'catalog', ?, '[]', ?, ?, ?, ?)")
+    .bind(id, input.sessionId, input.discoveryId, catalog.id, catalog.pillar, catalog.question, catalog.hint, JSON.stringify(catalog.input), catalog.rationale, input.sequence, input.status || "accepted", input.now, input.now).run();
+  return id;
+}
+
+async function refreshGuidedSession(db: D1Database, row: Record<string, unknown>, sessionId: string, now = new Date().toISOString()) {
+  const discoveryId = String(row.id);
+  const sessionRow = await db.prepare("SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ?").bind(sessionId, discoveryId).first<Record<string, unknown>>();
+  if (!sessionRow) return null;
+  const session = mapGuidedSession(sessionRow);
+  const [questionRows, answerRows, stakeholderRows] = await Promise.all([
+    db.prepare("SELECT * FROM guided_discovery_questions WHERE session_id = ? ORDER BY sequence").bind(sessionId).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM guided_discovery_answers WHERE session_id = ? AND is_current = 1 ORDER BY updated_at DESC").bind(sessionId).all<Record<string, unknown>>(),
+    db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ? AND source = 'manual'").bind(discoveryId).all<Record<string, unknown>>(),
+  ]);
+  const questions = questionRows.results.map(mapGuidedQuestion);
+  const answers = answerRows.results.map(mapGuidedAnswer);
+  const catalogAnswers: GuidedDiscoveryAnswerLike[] = answers.map((answer) => ({ ...answer, questionId: questions.find((question) => question.id === answer.questionId)?.catalogQuestionId || answer.questionId }));
+  const route = materializeQuestionRoute({
+    mode: session.mode,
+    selectedPillars: session.selectedPillars.filter(isGuidedDiscoveryPillar),
+    answers: catalogAnswers,
+    scoreHints: scoreHintsForGuidedDiscovery(row) as Record<string, number>,
+    hasRelevantStakeholder: stakeholderRows.results.length > 0,
+    hasOwner: stakeholderRows.results.some((person) => String(person.influence) === "Alta"),
+    hasContradiction: answers.some((answer) => answer.evidenceStatus === "hypothesis" && Boolean(answer.structured.contradiction)),
+  });
+  const existingByCatalog = new Map(questions.filter((question) => question.catalogQuestionId).map((question) => [question.catalogQuestionId!, question]));
+  for (let sequence = 0; sequence < route.questionIds.length; sequence += 1) {
+    const catalogId = route.questionIds[sequence];
+    const existing = existingByCatalog.get(catalogId);
+    if (!existing) await insertCatalogQuestion(db, { sessionId, discoveryId, catalogQuestionId: catalogId, sequence, now });
+    else if (existing.sequence !== sequence) await db.prepare("UPDATE guided_discovery_questions SET sequence = ?, updated_at = ? WHERE id = ?").bind(sequence, now, existing.id).run();
+  }
+  const refreshedQuestions = (await db.prepare("SELECT * FROM guided_discovery_questions WHERE session_id = ? ORDER BY sequence").bind(sessionId).all<Record<string, unknown>>()).results.map(mapGuidedQuestion);
+  const refreshedAnswers = (await db.prepare("SELECT * FROM guided_discovery_answers WHERE session_id = ? AND is_current = 1").bind(sessionId).all<Record<string, unknown>>()).results.map(mapGuidedAnswer);
+  const activeRoute = refreshedQuestions.filter((question) => question.status !== "dismissed" && question.status !== "proposed");
+  const metrics = calculateDiscoveryMetrics(activeRoute.map((question) => question.id), refreshedAnswers);
+  const answerByQuestion = new Map(refreshedAnswers.map((answer) => [answer.questionId, answer]));
+  const ranked = rankNextQuestion({
+    questions: activeRoute.flatMap((question) => {
+      const catalog = question.catalogQuestionId ? getQuestionById(question.catalogQuestionId) : null;
+      return catalog ? [{ ...catalog, id: question.id }] : [];
+    }),
+    answers: refreshedAnswers,
+    hypothesisImpactByPillar: scoreHintsForGuidedDiscovery(row),
+    stakeholderCoverageByPillar: Object.fromEntries(GUIDED_DISCOVERY_CATALOG.map((question) => [question.pillar, stakeholderRows.results.length ? 72 : 12])),
+  });
+  const rankedId = ranked[0]?.question.id;
+  const acceptedAI = activeRoute.find((question) => question.source === "ai" && question.status === "accepted" && !answerByQuestion.has(question.id));
+  const nextQuestionId = session.status === "completed" ? null : rankedId || acceptedAI?.id || null;
+  const updates = activeRoute.filter((question) => question.status === "active" && question.id !== nextQuestionId).map((question) => db.prepare("UPDATE guided_discovery_questions SET status = 'accepted', updated_at = ? WHERE id = ?").bind(now, question.id));
+  if (nextQuestionId) updates.push(db.prepare("UPDATE guided_discovery_questions SET status = 'active', updated_at = ? WHERE id = ?").bind(now, nextQuestionId));
+  if (updates.length) await db.batch(updates);
+  await db.prepare("UPDATE guided_discovery_sessions SET selected_pillars_json = ?, progress_percent = ?, coverage_percent = ?, current_question_id = ?, updated_at = ? WHERE id = ? AND discovery_id = ?")
+    .bind(JSON.stringify(route.selectedPillars), metrics.progressPercent, metrics.coveragePercent, nextQuestionId, now, sessionId, discoveryId).run();
+  return { sessionId, metrics, currentQuestionId: nextQuestionId, selectedPillars: route.selectedPillars };
+}
+
+async function materializeLegacyGuidedAnswers(db: D1Database, row: Record<string, unknown>, sessionId: string, now: string) {
+  const discoveryId = String(row.id);
+  const legacy = json<Answer[]>(row.answers_json, []);
+  let sequence = Number((await db.prepare("SELECT MAX(sequence) AS sequence FROM guided_discovery_questions WHERE session_id = ?").bind(sessionId).first<{ sequence: number | null }>())?.sequence ?? -1) + 1;
+  for (const item of legacy) {
+    const catalogId = legacyQuestionId(item.key);
+    if (!catalogId) continue;
+    let question = await db.prepare("SELECT * FROM guided_discovery_questions WHERE session_id = ? AND catalog_question_id = ?").bind(sessionId, catalogId).first<Record<string, unknown>>();
+    if (!question) {
+      const questionId = await insertCatalogQuestion(db, { sessionId, discoveryId, catalogQuestionId: catalogId, sequence, now, status: "answered" });
+      sequence += 1;
+      question = questionId ? await db.prepare("SELECT * FROM guided_discovery_questions WHERE id = ?").bind(questionId).first<Record<string, unknown>>() : null;
+    }
+    if (!question) continue;
+    const answerId = `gda-${sessionId}-${catalogId}-legacy`;
+    await db.prepare("INSERT OR IGNORE INTO guided_discovery_answers (id, session_id, question_id, discovery_id, structured_json, answer_text, evidence_status, stakeholder_id, source_type, source_id, source_date, confidence, status, supersedes_id, is_current, answered_at, created_at, updated_at) VALUES (?, ?, ?, ?, '{}', ?, 'confirmed', NULL, 'legacy', ?, ?, 82, 'confirmed', NULL, 1, ?, ?, ?)")
+      .bind(answerId, sessionId, String(question.id), discoveryId, item.answer, item.key, item.at || now, item.at || now, item.at || now, item.at || now).run();
+    await db.prepare("UPDATE guided_discovery_questions SET status = 'answered', updated_at = ? WHERE id = ?").bind(now, String(question.id)).run();
+  }
+}
+
 async function accountPayload(db: D1Database, discoveryRows: Record<string, unknown>[]) {
   const ids = discoveryRows.map((row) => String(row.id));
-  if (!ids.length) return { discoveries: [], meetings: [], stakeholders: [], events: [], accountEvents: [], actions: [], hypotheses: [], memories: [], plans: [], documents: [], chats: [], aiRuns: [], relationships: [], graphLayouts: [], externalSignals: [], snapshots: [], actionFeedback: [] };
+  if (!ids.length) return { discoveries: [], meetings: [], stakeholders: [], events: [], accountEvents: [], actions: [], hypotheses: [], memories: [], plans: [], documents: [], chats: [], aiRuns: [], relationships: [], graphLayouts: [], externalSignals: [], snapshots: [], actionFeedback: [], guidedDiscoveries: [] };
   const placeholders = ids.map(() => "?").join(",");
   const queries = [
     db.prepare(`SELECT * FROM meetings WHERE discovery_id IN (${placeholders}) ORDER BY COALESCE(scheduled_at, created_at) DESC`).bind(...ids), db.prepare(`SELECT * FROM account_maps WHERE discovery_id IN (${placeholders})`).bind(...ids), db.prepare(`SELECT * FROM stakeholders WHERE discovery_id IN (${placeholders}) ORDER BY created_at`).bind(...ids), db.prepare(`SELECT * FROM audit_events WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 100`).bind(...ids), db.prepare(`SELECT * FROM account_events WHERE discovery_id IN (${placeholders}) ORDER BY occurred_at DESC`).bind(...ids), db.prepare(`SELECT * FROM account_actions WHERE discovery_id IN (${placeholders}) ORDER BY priority_score DESC`).bind(...ids), db.prepare(`SELECT * FROM opportunity_hypotheses WHERE discovery_id IN (${placeholders}) ORDER BY confidence DESC`).bind(...ids), db.prepare(`SELECT * FROM account_memory WHERE discovery_id IN (${placeholders})`).bind(...ids), db.prepare(`SELECT * FROM account_plans WHERE discovery_id IN (${placeholders})`).bind(...ids), db.prepare(`SELECT * FROM documents WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC`).bind(...ids), db.prepare(`SELECT * FROM account_chat_messages WHERE discovery_id IN (${placeholders}) ORDER BY created_at`).bind(...ids), db.prepare(`SELECT * FROM ai_runs WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 100`).bind(...ids),
@@ -730,12 +960,19 @@ async function accountPayload(db: D1Database, discoveryRows: Record<string, unkn
     db.prepare(`SELECT * FROM external_signals WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC`).bind(...ids),
     db.prepare(`SELECT * FROM account_snapshots WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 120`).bind(...ids),
     db.prepare(`SELECT * FROM action_feedback WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 120`).bind(...ids),
+    db.prepare(`SELECT * FROM guided_discovery_sessions WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`).bind(...ids),
+    db.prepare(`SELECT * FROM guided_discovery_questions WHERE discovery_id IN (${placeholders}) ORDER BY session_id, sequence`).bind(...ids),
+    db.prepare(`SELECT * FROM guided_discovery_answers WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`).bind(...ids),
   ];
-  const [meetingRows, mapRows, stakeholderRows, auditRows, eventRows, actionRows, hypothesisRows, memoryRows, planRows, documentRows, chatRows, aiRunRows, relationshipRows, layoutRows, signalRows, snapshotRows, feedbackRows] = await Promise.all(queries.map((query) => query.all<Record<string, unknown>>()));
+  const [meetingRows, mapRows, stakeholderRows, auditRows, eventRows, actionRows, hypothesisRows, memoryRows, planRows, documentRows, chatRows, aiRunRows, relationshipRows, layoutRows, signalRows, snapshotRows, feedbackRows, guidedSessionRows, guidedQuestionRows, guidedAnswerRows] = await Promise.all(queries.map((query) => query.all<Record<string, unknown>>()));
   const meetings = meetingRows.results.map(mapMeeting); const maps = new Map(mapRows.results.map((row) => [String(row.discovery_id), { nodes: json<AccountNode[]>(row.nodes_json, []), edges: json<AccountEdge[]>(row.edges_json, []), updatedAt: String(row.updated_at) } as AccountMap]));
+  const mappedStakeholders = stakeholderRows.results.map(mapStakeholder);
+  const guidedSessions = guidedSessionRows.results.map(mapGuidedSession);
+  const guidedQuestions = guidedQuestionRows.results.map(mapGuidedQuestion);
+  const guidedAnswers = guidedAnswerRows.results.map(mapGuidedAnswer);
   return {
     discoveries: discoveryRows.map((row) => mapDiscovery(row, meetings.filter((item) => item.discoveryId === String(row.id)), maps.get(String(row.id)))), meetings,
-    stakeholders: stakeholderRows.results.map(mapStakeholder), events: auditRows.results.map((row) => ({ id: row.id, discoveryId: row.discovery_id, type: row.type, detail: row.detail, createdAt: row.created_at })),
+    stakeholders: mappedStakeholders, events: auditRows.results.map((row) => ({ id: row.id, discoveryId: row.discovery_id, type: row.type, detail: row.detail, createdAt: row.created_at })),
     accountEvents: eventRows.results.map(mapAccountEvent), actions: actionRows.results.map(mapAction), hypotheses: hypothesisRows.results.map(mapHypothesis), memories: memoryRows.results.map((row) => ({ discoveryId: String(row.discovery_id), ...mapMemory(row)! })), plans: planRows.results.map((row) => mapPlan(row)!),
     documents: documentRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), name: String(row.name), contentType: String(row.content_type), sizeBytes: Number(row.size_bytes), status: String(row.status), summary: String(row.summary), createdAt: String(row.created_at) } satisfies AccountDocument)),
     chats: chatRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), role: String(row.role), content: String(row.content), citations: json<EvidenceRef[]>(row.citations_json, []), aiStatus: String(row.ai_status), createdAt: String(row.created_at) })),
@@ -745,6 +982,7 @@ async function accountPayload(db: D1Database, discoveryRows: Record<string, unkn
     externalSignals: signalRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), title: String(row.title), summary: String(row.summary), sourceUrl: String(row.source_url), publisher: String(row.publisher || ""), publishedAt: row.published_at ? String(row.published_at) : null, status: String(row.status), confidence: Number(row.confidence), expiresAt: String(row.expires_at), createdAt: String(row.created_at) })),
     snapshots: snapshotRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), reason: String(row.reason), snapshot: json<Record<string, unknown>>(row.snapshot_json, {}), confidence: Number(row.confidence), createdAt: String(row.created_at) })),
     actionFeedback: feedbackRows.results.map((row) => ({ id: String(row.id), actionId: String(row.action_id), discoveryId: String(row.discovery_id), feedbackType: String(row.feedback_type), reason: String(row.reason || ""), adjustment: Number(row.adjustment || 0), previousStatus: String(row.previous_status || ""), newStatus: String(row.new_status || ""), createdAt: String(row.created_at) })),
+    guidedDiscoveries: discoveryRows.map((row) => guidedSnapshot({ row, sessions: guidedSessions, questions: guidedQuestions, answers: guidedAnswers, stakeholders: mappedStakeholders })),
   };
 }
 
@@ -822,6 +1060,147 @@ export async function POST(request: Request) {
     return Response.json({ briefing, provider: providerName, model: generated.model, cached: false, usage: generated.usage, quota: { generative: quota }, generatedAt: now });
   }
   const id = String(body.id || ""); const row = await accountForMutation(db, id, request); if (!row) return Response.json({ error: "Conta não encontrada ou acesso não autorizado." }, { status: 404 });
+  if (body.action === "guided_discovery_start") {
+    const parsed = GuidedDiscoveryStartPayloadSchema.safeParse(body);
+    if (!parsed.success) return Response.json({ error: "Escolha um modo e pilares válidos." }, { status: 400 });
+    const selectedPillars = parsed.data.selectedPillars.filter((pillar): pillar is Exclude<GuidedDiscoveryPillarKey, "base"> => pillar !== "base");
+    if (parsed.data.mode === "direct" && !selectedPillars.length) return Response.json({ error: "Escolha ao menos um pilar para iniciar no modo direto." }, { status: 400 });
+    const existing = await db.prepare("SELECT * FROM guided_discovery_sessions WHERE discovery_id = ? AND owner_email = ? AND status IN ('in_progress','paused') ORDER BY updated_at DESC LIMIT 1").bind(id, identity.email).first<Record<string, unknown>>();
+    if (existing) {
+      await db.prepare("UPDATE guided_discovery_sessions SET status = 'in_progress', completed_at = NULL, updated_at = ? WHERE id = ?").bind(now, String(existing.id)).run();
+      await refreshGuidedSession(db, row, String(existing.id), now);
+      return Response.json({ ok: true, resumed: true, guidedDiscovery: await guidedSnapshotForAccount(db, row) });
+    }
+    const sessionId = `gds-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await db.prepare("INSERT INTO guided_discovery_sessions (id, discovery_id, owner_email, mode, catalog_version, selected_pillars_json, status, progress_percent, coverage_percent, current_question_id, checkpoint_count, ai_status, started_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'in_progress', 0, 0, NULL, 0, 'deterministic', ?, NULL, ?, ?)")
+      .bind(sessionId, id, identity.email, parsed.data.mode, GUIDED_DISCOVERY_CATALOG_VERSION, JSON.stringify(selectedPillars), now, now, now).run();
+    const initialRoute = materializeQuestionRoute({ mode: parsed.data.mode, selectedPillars, answers: [], scoreHints: scoreHintsForGuidedDiscovery(row) as Record<string, number>, hasRelevantStakeholder: false, hasOwner: false });
+    for (let sequence = 0; sequence < initialRoute.questionIds.length; sequence += 1) await insertCatalogQuestion(db, { sessionId, discoveryId: id, catalogQuestionId: initialRoute.questionIds[sequence], sequence, now });
+    await materializeLegacyGuidedAnswers(db, row, sessionId, now);
+    await refreshGuidedSession(db, row, sessionId, now);
+    await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, 'guided_discovery_started', ?, ?)").bind(id, `Sessão ${parsed.data.mode} iniciada com catálogo ${GUIDED_DISCOVERY_CATALOG_VERSION}.`, now).run();
+    return Response.json({ ok: true, sessionId, resumed: false, guidedDiscovery: await guidedSnapshotForAccount(db, row) }, { status: 201 });
+  }
+  if (body.action === "guided_discovery_answer") {
+    const parsed = GuidedDiscoveryAnswerPayloadSchema.safeParse(body);
+    if (!parsed.success) return Response.json({ error: "Revise a resposta, evidência e confiança informadas.", details: parsed.error.flatten() }, { status: 400 });
+    const input = parsed.data;
+    const sessionRow = await db.prepare("SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ? AND owner_email = ?").bind(input.sessionId, id, identity.email).first<Record<string, unknown>>();
+    if (!sessionRow) return Response.json({ error: "Sessão não encontrada ou acesso não autorizado." }, { status: 404 });
+    if (String(sessionRow.status) === "completed") return Response.json({ error: "Retome ou inicie uma sessão antes de revisar respostas concluídas." }, { status: 409 });
+    const questionRow = await db.prepare("SELECT * FROM guided_discovery_questions WHERE id = ? AND session_id = ? AND discovery_id = ? AND status <> 'dismissed'").bind(input.questionId, input.sessionId, id).first<Record<string, unknown>>();
+    if (!questionRow) return Response.json({ error: "Pergunta não encontrada nesta sessão." }, { status: 404 });
+    if (input.status === "confirmed" && !input.answerText && !Object.keys(input.structured).length) return Response.json({ error: "Inclua uma seleção estruturada ou contexto antes de confirmar." }, { status: 400 });
+    if (input.stakeholderId) {
+      const stakeholder = await db.prepare("SELECT id FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(input.stakeholderId, id).first();
+      if (!stakeholder) return Response.json({ error: "O stakeholder selecionado não pertence a esta conta." }, { status: 400 });
+    }
+    const previous = await db.prepare("SELECT * FROM guided_discovery_answers WHERE session_id = ? AND question_id = ? AND is_current = 1 ORDER BY updated_at DESC LIMIT 1").bind(input.sessionId, input.questionId).first<Record<string, unknown>>();
+    const answerId = `gda-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const answerStatus = input.status;
+    const evidenceStatus = answerStatus === "unknown" ? "unknown" : input.evidenceStatus;
+    const confidence = answerStatus === "unknown" ? 0 : input.confidence;
+    const sourceDate = input.sourceDate && Number.isFinite(new Date(input.sourceDate).getTime()) ? new Date(input.sourceDate).toISOString() : null;
+    const statements = [];
+    if (previous) statements.push(db.prepare("UPDATE guided_discovery_answers SET is_current = 0, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(now, String(previous.id), id));
+    statements.push(db.prepare("INSERT INTO guided_discovery_answers (id, session_id, question_id, discovery_id, structured_json, answer_text, evidence_status, stakeholder_id, source_type, source_id, source_date, confidence, status, supersedes_id, is_current, answered_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)").bind(answerId, input.sessionId, input.questionId, id, JSON.stringify(input.structured), input.answerText, evidenceStatus, input.stakeholderId || null, input.sourceType || null, input.sourceId || null, sourceDate, confidence, answerStatus, previous ? String(previous.id) : null, answerStatus === "draft" ? null : now, now, now));
+    statements.push(db.prepare("UPDATE guided_discovery_sessions SET status = 'in_progress', completed_at = NULL, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(now, input.sessionId, id));
+    if (answerStatus !== "draft") statements.push(db.prepare("UPDATE guided_discovery_questions SET status = 'answered', updated_at = ? WHERE id = ? AND session_id = ?").bind(now, input.questionId, input.sessionId));
+    await db.batch(statements);
+
+    const beforeScores = json<Score[]>(row.scores_json, []);
+    if (answerStatus !== "draft") {
+      const eventStatus: AccountEvent["evidenceStatus"] = answerStatus === "unknown" ? "gap" : evidenceStatus === "hypothesis" ? "assumption" : "confirmed";
+      const content = input.answerText || humanizeStructuredAnswer(input.structured) || "Informação ainda desconhecida.";
+      await addEvent(db, { id: `evt-${id}-guided-${answerId}`, discoveryId: id, type: "guided_discovery_answer", title: String(questionRow.prompt), content, sourceType: "guided_discovery", sourceId: answerId, evidenceStatus: eventStatus, confidence, occurredAt: sourceDate || now });
+      const legacyAnswers = json<Answer[]>(row.answers_json, []);
+      if (answerStatus === "confirmed") {
+        const key = String(questionRow.catalog_question_id || questionRow.id);
+        const next = { key, question: String(questionRow.prompt), answer: content, at: now };
+        const index = legacyAnswers.findIndex((item) => item.key === key);
+        if (index >= 0) legacyAnswers[index] = next; else legacyAnswers.push(next);
+      }
+      const meetingRows = await db.prepare("SELECT * FROM meetings WHERE discovery_id = ? ORDER BY created_at DESC").bind(id).all<Record<string, unknown>>();
+      const result = analyze(legacyAnswers, meetingRows.results.map(mapMeeting));
+      await db.prepare("UPDATE discoveries SET priority = ?, challenge_summary = ?, answers_json = ?, scores_json = ?, recommendations_json = ?, next_engagement = ?, updated_at = ? WHERE id = ?")
+        .bind(result.priority, result.challengeSummary, JSON.stringify(legacyAnswers), JSON.stringify(result.scores), JSON.stringify(result.recommendations), result.nextEngagement, now, id).run();
+      await recomputeAccount(db, id, { skipGenerative: true, skipEmbeddings: true });
+    }
+    const updatedRow = await db.prepare("SELECT * FROM discoveries WHERE id = ?").bind(id).first<Record<string, unknown>>() || row;
+    const sessionUpdate = await refreshGuidedSession(db, updatedRow, input.sessionId, now);
+    if (sessionUpdate && answerStatus !== "draft") {
+      const accountProgress = Math.max(Number(updatedRow.progress || 0), Math.min(100, Math.round(12 + sessionUpdate.metrics.coveragePercent * .58 + sessionUpdate.metrics.progressPercent * .18)));
+      await db.prepare("UPDATE discoveries SET progress = ?, updated_at = ? WHERE id = ?").bind(accountProgress, now, id).run();
+      updatedRow.progress = accountProgress;
+    }
+    const afterScores = json<Score[]>(updatedRow.scores_json, []);
+    const snapshot = await guidedSnapshotForAccount(db, updatedRow);
+    return Response.json({ ok: true, answerId, savedAs: answerStatus, aiCalled: false, scoreDeltas: calculateDeterministicDeltas(beforeScores as unknown as Array<Record<string, unknown>>, afterScores as unknown as Array<Record<string, unknown>>), affectedInsights: answerStatus === "draft" ? [] : ["Memória da conta", "Heatmap e temas IBM", "Hipóteses", "Next Best Actions"], guidedDiscovery: snapshot, checkpointAvailable: Boolean(snapshot.checkpoint?.available) });
+  }
+  if (body.action === "guided_discovery_patch") {
+    const sessionId = String(body.sessionId || "");
+    const sessionRow = await db.prepare("SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ? AND owner_email = ?").bind(sessionId, id, identity.email).first<Record<string, unknown>>();
+    if (!sessionRow) return Response.json({ error: "Sessão não encontrada ou acesso não autorizado." }, { status: 404 });
+    const operation = String(body.operation || "");
+    if (operation === "pause" || operation === "resume" || operation === "complete") {
+      if (operation === "complete") {
+        const count = await db.prepare("SELECT COUNT(*) AS count FROM guided_discovery_answers WHERE session_id = ? AND is_current = 1 AND status IN ('confirmed','unknown')").bind(sessionId).first<{ count: number }>();
+        if (!count?.count) return Response.json({ error: "Responda ou marque ao menos uma pergunta antes de concluir." }, { status: 400 });
+      }
+      const status = operation === "pause" ? "paused" : operation === "complete" ? "completed" : "in_progress";
+      await db.prepare("UPDATE guided_discovery_sessions SET status = ?, current_question_id = CASE WHEN ? = 'completed' THEN NULL ELSE current_question_id END, completed_at = CASE WHEN ? = 'completed' THEN ? ELSE NULL END, updated_at = ? WHERE id = ? AND discovery_id = ?")
+        .bind(status, status, status, now, now, sessionId, id).run();
+      if (status !== "completed") await refreshGuidedSession(db, row, sessionId, now);
+      return Response.json({ ok: true, status, guidedDiscovery: await guidedSnapshotForAccount(db, row) });
+    }
+    if (operation === "accept_follow_up" || operation === "dismiss_follow_up") {
+      const questionId = String(body.questionId || "");
+      const nextStatus = operation === "accept_follow_up" ? "accepted" : "dismissed";
+      const result = await db.prepare("UPDATE guided_discovery_questions SET status = ?, updated_at = ? WHERE id = ? AND session_id = ? AND discovery_id = ? AND source = 'ai' AND status = 'proposed'").bind(nextStatus, now, questionId, sessionId, id).run();
+      if (!result.meta.changes) return Response.json({ error: "Follow-up não encontrado ou já revisado." }, { status: 404 });
+      await refreshGuidedSession(db, row, sessionId, now);
+      return Response.json({ ok: true, decision: nextStatus, guidedDiscovery: await guidedSnapshotForAccount(db, row) });
+    }
+    if (operation === "checkpoint") {
+      const session = mapGuidedSession(sessionRow);
+      if (session.checkpointCount >= 3) return Response.json({ error: "Esta sessão já utilizou os três checkpoints de IA permitidos." }, { status: 429 });
+      const current = await guidedSnapshotForAccount(db, row);
+      if (!current.checkpoint?.available) return Response.json({ error: "Conclua o diagnóstico ou um pilar antes de solicitar um follow-up." }, { status: 409 });
+      const existing = await db.prepare("SELECT * FROM guided_discovery_questions WHERE session_id = ? AND source = 'ai' AND status IN ('proposed','accepted','active') ORDER BY updated_at DESC LIMIT 1").bind(sessionId).first<Record<string, unknown>>();
+      if (existing) return Response.json({ ok: true, cached: true, followUp: mapGuidedQuestion(existing), guidedDiscovery: current });
+      await db.prepare("UPDATE guided_discovery_sessions SET checkpoint_count = checkpoint_count + 1, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(now, sessionId, id).run();
+      const sources = await collectAccountSources(db, id);
+      const fingerprint = await evidenceFingerprint(sources.slice(0, 50));
+      const provider = aiAdapter();
+      const pillar = String(current.checkpoint.pillar);
+      const cacheKey = await cacheKeyFor([id, "guided-discovery-follow-up", sessionId, pillar, providerCacheSignature(provider, classificationOf(row)), fingerprint]);
+      const cached = await cachedAI<Record<string, unknown>>(db, cacheKey);
+      const quota = await quotaAllows(db, "generative");
+      const generated = cached ? null : await provider.suggestDiscoveryFollowUp(JSON.stringify({ customer: row.customer_name, pillar, catalogVersion: GUIDED_DISCOVERY_CATALOG_VERSION, answers: current.answers, hypotheses: (await db.prepare("SELECT * FROM opportunity_hypotheses WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapHypothesis), sources: sources.slice(0, 30).map((source) => ({ id: source.id, title: source.title, content: source.content, occurredAt: source.occurredAt })) }), pillar, { classification: quota.allowed ? classificationOf(row) : "confidential" });
+      const followUp = cached?.data || generated?.data;
+      if (!followUp || typeof followUp.question !== "string") {
+        if (generated) await recordAIRun(db, id, "guided-discovery-follow-up", generated, sources.slice(0, 20).map((source) => source.id), 0, "Checkpoint não gerou pergunta válida; fluxo determinístico preservado.");
+        await db.prepare("UPDATE guided_discovery_sessions SET ai_status = 'deterministic-fallback', updated_at = ? WHERE id = ? AND discovery_id = ?").bind(now, sessionId, id).run();
+        return Response.json({ ok: true, followUp: null, provider: "deterministic-fallback", message: "O catálogo determinístico continua disponível; nenhum follow-up de IA foi salvo.", guidedDiscovery: await guidedSnapshotForAccount(db, row) });
+      }
+      const citationIds = Array.isArray(followUp.citationIds) ? followUp.citationIds.map(String) : [];
+      const sourceMap = new Map(sources.map((source) => [source.id, source]));
+      const citations = citationIds.flatMap((sourceId) => { const source = sourceMap.get(sourceId); return source ? [{ sourceType: source.kind, sourceId: source.sourceId, title: source.title, excerpt: source.content.slice(0, 220), occurredAt: source.occurredAt }] : []; });
+      const resolvedPillar = isGuidedDiscoveryPillar(followUp.pillar) && followUp.pillar !== "base" ? followUp.pillar : pillar === "base" ? "finops" : pillar;
+      const questionId = `gdq-ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const maxSequence = Number((await db.prepare("SELECT MAX(sequence) AS sequence FROM guided_discovery_questions WHERE session_id = ?").bind(sessionId).first<{ sequence: number | null }>())?.sequence ?? -1) + 1;
+      await db.batch([
+        db.prepare("INSERT INTO guided_discovery_questions (id, session_id, discovery_id, catalog_question_id, pillar, prompt, hint, input_schema_json, source, rationale, citations_json, sequence, status, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 'ai', ?, ?, ?, 'proposed', ?, ?)").bind(questionId, sessionId, id, resolvedPillar, String(followUp.question), "Pergunta complementar proposta a partir das evidências da conta.", JSON.stringify({ kind: "scale", label: "Maturidade percebida", min: 1, max: 5 }), String(followUp.rationale || "Preencher a lacuna de maior valor de informação."), JSON.stringify(citations), maxSequence, now, now),
+        db.prepare("UPDATE guided_discovery_sessions SET ai_status = ?, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(cached?.provider || (generated ? dbProviderName(generated.provider) : "deterministic-fallback"), now, sessionId, id),
+      ]);
+      if (generated) {
+        await recordAIRun(db, id, "guided-discovery-follow-up", generated, citationIds, Number(followUp.informationValue || 70), "Pergunta complementar proposta; aprovação humana obrigatória.");
+        if (generated.ok) await putAICache(db, { cacheKey, accountId: id, task: "guided-discovery-follow-up", provider: dbProviderName(generated.provider), model: generated.model || "", fingerprint, data: followUp, usage: generated.usage, ttlMs: 24 * 3600_000 });
+      }
+      return Response.json({ ok: true, followUp: { id: questionId, ...followUp, citations }, provider: cached?.provider || (generated ? dbProviderName(generated.provider) : "deterministic-fallback"), model: cached?.model || generated?.model || null, cached: Boolean(cached), requiresHumanApproval: true, guidedDiscovery: await guidedSnapshotForAccount(db, row) });
+    }
+    return Response.json({ error: "Operação de descoberta guiada inválida." }, { status: 400 });
+  }
   if (body.action === "answer") {
     const answers = json<Answer[]>(row.answers_json, []); const next = { key: String(body.key), question: String(body.question), answer: String(body.answer), at: now }; const index = answers.findIndex((item) => item.key === next.key); if (index >= 0) answers[index] = next; else answers.push(next);
     const meetingRows = await db.prepare("SELECT * FROM meetings WHERE discovery_id = ? ORDER BY created_at DESC").bind(id).all<Record<string, unknown>>(); const meetings = meetingRows.results.map(mapMeeting); const result = analyze(answers, meetings); const progress = Math.min(100, 16 + answers.length * 10 + meetings.length * 18);

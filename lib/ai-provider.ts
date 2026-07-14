@@ -180,6 +180,15 @@ export const ProposedActionsSchema = z.object({
   }).nullable(),
 });
 
+export const DiscoveryFollowUpSchema = z.object({
+  question: cleanString,
+  rationale: cleanString,
+  pillar: z.enum(["finops", "trusted-data", "ai-governance", "hybrid-cloud", "automation", "app-modernization"]),
+  affectedHypothesisIds: conciseList(8),
+  citationIds: conciseList(8),
+  informationValue: confidence,
+});
+
 const GroundedCitationSchema = z.object({
   title: cleanString,
   uri: z.string().url(),
@@ -203,6 +212,7 @@ export type MeetingPreparation = z.infer<typeof MeetingPreparationSchema>;
 export type AccountPlanSuggestion = z.infer<typeof AccountPlanSuggestionSchema>;
 export type DailyBrief = z.infer<typeof DailyBriefSchema>;
 export type ProposedActions = z.infer<typeof ProposedActionsSchema>;
+export type DiscoveryFollowUp = z.infer<typeof DiscoveryFollowUpSchema>;
 export type AccountResearch = z.infer<typeof AccountResearchSchema>;
 
 export type ResearchAccountInput = {
@@ -394,6 +404,20 @@ const ACTIONS_JSON_SCHEMA: JsonSchema = {
     },
   },
   required: ["actions", "nextConversation", "nextDiscoveryQuestion"],
+  additionalProperties: false,
+};
+
+const DISCOVERY_FOLLOW_UP_JSON_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    question: stringSchema,
+    rationale: stringSchema,
+    pillar: { type: "string", enum: ["finops", "trusted-data", "ai-governance", "hybrid-cloud", "automation", "app-modernization"] },
+    affectedHypothesisIds: arraySchema(stringSchema, 8),
+    citationIds: arraySchema(stringSchema, 8),
+    informationValue: confidenceSchema,
+  },
+  required: ["question", "rationale", "pillar", "affectedHypothesisIds", "citationIds", "informationValue"],
   additionalProperties: false,
 };
 
@@ -843,6 +867,12 @@ export function createAIProvider(config: AIProviderConfig = {}) {
       schema: ProposedActionsSchema,
       jsonSchema: ACTIONS_JSON_SCHEMA,
       maxOutputTokens: 1_500,
+    }, context, options),
+    suggestDiscoveryFollowUp: (context: string, pillar: string, options?: AIRequestOptions) => structured({
+      instruction: `Proponha uma única pergunta complementar para o pilar ${JSON.stringify(pillar)}. Ela deve preencher a lacuna de maior valor, citar somente fontes fornecidas e permanecer como proposta até aprovação humana. Não calcule nem altere scores.`,
+      schema: DiscoveryFollowUpSchema,
+      jsonSchema: DISCOVERY_FOLLOW_UP_JSON_SCHEMA,
+      maxOutputTokens: 700,
     }, context, options),
     researchAccount: (context: string, account: ResearchAccountInput, options?: AIRequestOptions) => structured({
       instruction: `Pesquise sinais públicos atuais sobre a empresa ${JSON.stringify(account.companyName)} no domínio confirmado ${JSON.stringify(account.domain)}${account.question ? `, com foco em ${JSON.stringify(account.question)}` : ""}. Trate os achados apenas como propostas para aprovação humana.`,
