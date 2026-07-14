@@ -2,10 +2,10 @@
 
 ## v5.1-guided-discovery
 
-Status: validated, pending publication
+Status: published
 Branch: `codex/guided-discovery-v5-1`
-Deploy commit: pending
-OpenAI Sites version: pending
+Deploy commit: `57746b592972464d969bc8902f77a391c3235031`
+OpenAI Sites version: `7`
 Rollback tag: `v5-proactive-copilot-gemini`
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
