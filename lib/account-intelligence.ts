@@ -7,7 +7,7 @@ export type AccountEvent = {
 export type EvidenceRef = { sourceType: string; sourceId: string; title: string; excerpt: string; occurredAt: string };
 export type AccountMemory = {
   executiveSummary: string; known: string[]; assumptions: string[]; gaps: string[];
-  changes: string[]; aiStatus: "watsonx" | "fallback" | "error"; version: number; updatedAt: string;
+  changes: string[]; aiStatus: "watsonx" | "gemini" | "fallback" | "error"; version: number; updatedAt: string;
 };
 export type ScoreLike = { name: string; short: string; alignment: number; readiness: number; confidence: number; evidence: string[]; action: string };
 export type StakeholderLike = { id: string; name: string; role: string; influence: string; stance: string; priorities: string[]; notes: string; source?: string };
@@ -15,6 +15,15 @@ export type ActionCandidate = {
   type: string; title: string; rationale: string; nextStep: string; stakeholderId: string | null;
   impact: number; urgency: number; confidence: number; maturity: number; priorityScore: number;
   dueAt: string | null; evidence: EvidenceRef[]; dedupeKey: string; evidenceFingerprint: string;
+  whyNow: string; effort: number; expectedOutcome: string;
+  conversation: {
+    stakeholder: string;
+    theme: string;
+    opener: string;
+    questions: string[];
+    objection: string;
+    successCriterion: string;
+  };
 };
 export type HypothesisCandidate = {
   capabilityKey: string; title: string; problem: string; products: string[]; stakeholderIds: string[];
@@ -95,7 +104,7 @@ export function buildHypotheses(scores: ScoreLike[], events: AccountEvent[], sta
 }
 
 export function buildActions(account: { id: string; customerName: string; progress: number; updatedAt: string }, events: AccountEvent[], scores: ScoreLike[], stakeholders: StakeholderLike[], hypotheses: HypothesisCandidate[]): ActionCandidate[] {
-  const candidates: Omit<ActionCandidate, "priorityScore" | "evidenceFingerprint">[] = [];
+  const candidates: Omit<ActionCandidate, "priorityScore" | "evidenceFingerprint" | "whyNow" | "effort" | "expectedOutcome" | "conversation">[] = [];
   const evidence = events.slice(0, 5).map(evidenceOf);
   const inactivity = Math.max(0, ageInDays(account.updatedAt));
   if (inactivity >= 21) candidates.push({ type: "reactivate", title: `Retomar ${account.customerName}`, rationale: `A conta está há ${inactivity} dias sem nova informação.`, nextStep: "Agendar uma conversa de atualização com o contato mais próximo.", stakeholderId: stakeholders[0]?.id || null, impact: 72, urgency: Math.min(95, 60 + inactivity), confidence: 92, maturity: account.progress, dueAt: daysFromNow(3), evidence, dedupeKey: `${account.id}:reactivate` });
@@ -113,7 +122,30 @@ export function buildActions(account: { id: string; customerName: string; progre
   if (top?.alignment >= 70) candidates.push({ type: "validate_hypothesis", title: `Validar aderência em ${top.short}`, rationale: `${top.short} alcançou ${top.alignment}% de alinhamento com ${top.confidence}% de confiança.`, nextStep: top.action, stakeholderId: executives[0]?.id || stakeholders[0]?.id || null, impact: top.alignment, urgency: 70, confidence: top.confidence, maturity: account.progress, dueAt: daysFromNow(7), evidence, dedupeKey: `${account.id}:capability:${top.short}` });
   const qualified = hypotheses.find((item) => item.stage === "qualified");
   if (qualified) candidates.push({ type: "crm_handoff", title: `Revisar handoff de ${qualified.capabilityKey}`, rationale: "A hipótese atingiu os critérios mínimos de evidência, prontidão e cobertura de stakeholders.", nextStep: "Revisar o resumo estruturado e aprovar manualmente o handoff para o CRM.", stakeholderId: qualified.stakeholderIds[0] || null, impact: 94, urgency: 76, confidence: qualified.confidence, maturity: account.progress, dueAt: daysFromNow(5), evidence: qualified.evidence, dedupeKey: `${account.id}:handoff:${qualified.capabilityKey}` });
-  return candidates.map((item) => ({ ...item, priorityScore: priorityScore(item.impact, item.urgency, item.confidence, item.maturity), evidenceFingerprint: hash(JSON.stringify(item.evidence.map((ref) => [ref.sourceId, ref.excerpt]))) })).sort((a, b) => b.priorityScore - a.priorityScore);
+  return candidates.map((item) => {
+    const stakeholder = stakeholders.find((person) => person.id === item.stakeholderId) || stakeholders.find((person) => person.influence === "Alta") || stakeholders[0];
+    const theme = hypotheses[0]?.capabilityKey || scores[0]?.short || "prioridade estratégica";
+    return {
+      ...item,
+      whyNow: item.rationale,
+      effort: item.type === "meeting_prep" ? 35 : item.type === "crm_handoff" ? 65 : item.type === "coverage" ? 45 : 50,
+      expectedOutcome: item.type === "crm_handoff" ? "Handoff revisado, fundamentado e pronto para decisão humana." : `Nova evidência para reduzir incerteza sobre ${theme}.`,
+      conversation: {
+        stakeholder: stakeholder ? `${stakeholder.name} · ${stakeholder.role}` : "Stakeholder a identificar",
+        theme,
+        opener: `Quero validar como ${theme} se conecta às prioridades atuais de ${account.customerName}.`,
+        questions: [
+          `Qual resultado de negócio torna ${theme} prioritário agora?`,
+          "Quem precisa participar da decisão e quais métricas definem sucesso?",
+          "Qual evidência ainda falta para concordarmos com o próximo passo?",
+        ],
+        objection: "Ainda não há urgência, sponsor ou evidência suficiente para avançar.",
+        successCriterion: "Confirmar dor, responsável, métrica e um próximo passo com prazo.",
+      },
+      priorityScore: priorityScore(item.impact, item.urgency, item.confidence, item.maturity),
+      evidenceFingerprint: hash(JSON.stringify(item.evidence.map((ref) => [ref.sourceId, ref.excerpt]))),
+    };
+  }).sort((a, b) => b.priorityScore - a.priorityScore);
 }
 
 export function answerFromEvidence(question: string, customerName: string, events: AccountEvent[], scores: ScoreLike[], stakeholders: StakeholderLike[]) {

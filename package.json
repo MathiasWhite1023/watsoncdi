@@ -16,13 +16,15 @@
   "dependencies": {
     "@carbon/charts-react": "^1.27.16",
     "@carbon/react": "^1.111.1",
+    "@xyflow/react": "^12.11.2",
     "drizzle-orm": "0.45.2",
     "mammoth": "^1.12.0",
     "next": "16.2.6",
     "pdfjs-dist": "^6.1.200",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "sass": "^1.101.0"
+    "sass": "^1.101.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
