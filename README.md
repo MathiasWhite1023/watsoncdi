@@ -22,17 +22,37 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Accepts PDF, DOCX, TXT and Markdown sources in the private workspace, storing originals in R2 and chunks in D1.
 - Keeps audit history, human validation, and clear AI/fallback status.
 - Keeps `/` as a synthetic read-only demo and protects `/workspace` with Sign in with ChatGPT plus server-side ownership checks.
+- Produces a proactive daily briefing, Next Best Actions, the next best conversation and the discovery question with the highest information value.
+- Combines keyword, recency and 768-dimensional semantic retrieval with account-scoped citations.
+- Provides a Carbon command palette (`Cmd/Ctrl + K`) and an interactive hierarchy/influence graph powered by React Flow.
 
 ## AI Behavior
 
-The platform is prepared for real IBM watsonx analysis using these runtime variables:
+The server-side AI adapter uses this precedence:
+
+```text
+IBM watsonx -> Google Gemini -> deterministic fallback
+```
+
+IBM watsonx remains the target production provider and uses:
 
 - `WATSONX_API_KEY`
 - `WATSONX_PROJECT_ID`
 - `WATSONX_URL`
 - `WATSONX_MODEL_ID`
 
-When those values are present, the unified adapter uses IBM watsonx.ai for meeting preparation, account analysis, grounded answers and Account Plan suggestions. When they are missing or a call fails, the app keeps working with a deterministic fallback engine and clearly marks the analysis as fallback.
+The temporary test provider uses:
+
+- `GEMINI_API_KEY` (secret; never expose it in source code or browser variables)
+- `GEMINI_MODEL_ID=gemini-3.1-flash-lite`
+- `GEMINI_EMBEDDING_MODEL_ID=gemini-embedding-2`
+- `AI_PROVIDER_MODE=auto`
+
+The public demo never calls Gemini. Accounts classified as `confidential` also block Gemini automatically. A test account may use Gemini only inside the authenticated workspace. If a provider is unavailable, over quota, returns invalid output or opens the circuit breaker, the app continues with the deterministic engine and exposes the active status without returning credentials.
+
+The key previously pasted into a chat is intentionally not present in this repository or deployment. Revoke it, create a new key restricted to the Gemini API, and save the replacement only as the `GEMINI_API_KEY` Sites secret. Until then, V5 operates safely in deterministic fallback mode.
+
+Free-tier Gemini processing is experimental. Do not mark real or confidential customer data as `test`; use watsonx or fallback for that content.
 
 ## Tech Stack
 
@@ -44,6 +64,8 @@ When those values are present, the unified adapter uses IBM watsonx.ai for meeti
 - Drizzle migrations
 - IBM Carbon React
 - Carbon Charts React
+- React Flow (`@xyflow/react`)
+- Zod structured-output validation
 - Sass
 - OpenAI Sites hosting
 
@@ -52,13 +74,14 @@ When those values are present, the unified adapter uses IBM watsonx.ai for meeti
 ```text
 Meeting notes / unified information / documents
   -> /api/accounts
-  -> IBM watsonx adapter or deterministic fallback
-  -> D1 memory, events, stakeholders, hypotheses, actions, plans and audit
+  -> selective retrieval (semantic + keyword + recency)
+  -> IBM watsonx, Gemini, or deterministic fallback
+  -> D1 memory, embeddings, cache, briefings, relationships, actions, plans and audit
   -> R2 original documents
   -> Home, account workspace, portfolio radar and settings
 ```
 
-The main product UI lives in `app/page.tsx`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The deterministic intelligence engine lives in `lib/account-intelligence.ts`. Carbon chart components live in `app/CarbonVisuals.tsx`.
+The main product UI lives in `app/page.tsx`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
 
 ## Getting Started
 
@@ -92,28 +115,29 @@ npm test
 
 ## Versioning And Rollback
 
-The rollback baseline for V4 is tagged as:
-
-```bash
-v3-stakeholder-intelligence
-```
-
-The V4 version is developed on:
-
-```bash
-codex/account-intelligence-v4
-```
-
-After validation and deployment, tag the exact deployed commit:
+The rollback baseline for V5 is tagged as:
 
 ```bash
 v4-proactive-account-intelligence
 ```
 
+The V5 version is developed on:
+
+```bash
+codex/proactive-intelligence-v5
+```
+
+After validation and deployment, tag the exact deployed commit:
+
+```bash
+v5-proactive-copilot-gemini
+```
+
 Application rollback:
 
 ```bash
-git checkout v3-stakeholder-intelligence
+git checkout v4-proactive-account-intelligence
+npm install
 npm run build
 ```
 
@@ -121,9 +145,9 @@ Then republish that validated source through OpenAI Sites.
 
 Data rollback policy:
 
-- V4 migrations are additive only.
+- V5 migrations are additive only.
 - Existing `discoveries` data remains compatible.
-- New memory, action, hypothesis, plan, document and chat tables can be ignored safely by V3.
+- New embeddings, AI cache, briefings, snapshots, relationships, layouts, public signals and feedback tables can be ignored safely by V4.
 - New discovery and meeting fields are optional/defaulted, so legacy rows remain readable.
 - No destructive migration is included in this release.
 

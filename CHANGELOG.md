@@ -1,5 +1,35 @@
 # Changelog
 
+## v5-proactive-copilot-gemini
+
+Status: validated; publication tracked by the release tag
+Branch: `codex/proactive-intelligence-v5`
+Rollback tag: `v4-proactive-account-intelligence`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Added
+
+- Vendor-neutral AI adapter with `watsonx -> Gemini -> deterministic fallback` precedence, Zod validation, one transient retry and circuit breaker.
+- Temporary `gemini-3.1-flash-lite` generation plus `gemini-embedding-2` retrieval at 768 dimensions for authenticated test accounts only.
+- Daily briefing, Next Best Action, next best conversation, highest-value discovery question, postponement and explicit human feedback.
+- Hybrid retrieval over account memory, meetings, documents, stakeholders, relationships, hypotheses, actions and Account Plan, with citations and cache fingerprints.
+- IBM Carbon account workspace with four modes, three-mode copilot and global `Cmd/Ctrl + K` command palette.
+- React Flow hierarchy/influence canvas with saved layouts, relationship types, sponsor paths and stakeholder evidence panel.
+- Carbon portfolio radar with potential/maturity bubbles, stakeholder coverage and hypothesis-confidence evolution.
+- Grounded public research proposals with confirmed company name/domain and mandatory approval before account-memory ingestion.
+- Additive D1 storage for embeddings, AI cache, briefings, snapshots, relationships, graph layouts, external signals, action feedback and expanded AI-run metrics.
+- Quota controls, cache, public/confidential policy blocks and a safe status endpoint that never returns secrets.
+
+### Security and activation
+
+- The credential previously shared in chat is treated as compromised and is not stored in Git or Sites.
+- Revoke that credential, create a new Gemini API-restricted key and save it only as the `GEMINI_API_KEY` Sites secret.
+- Until a replacement secret is configured, production remains fully usable through the deterministic fallback engine.
+
+### Rollback
+
+Use tag `v4-proactive-account-intelligence`, rebuild and republish it through OpenAI Sites. Migration `0005` is additive; V4 safely ignores all V5 tables and optional fields.
+
 ## v4-proactive-account-intelligence
 
 Status: published
