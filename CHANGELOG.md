@@ -2,10 +2,10 @@
 
 ## v4-proactive-account-intelligence
 
-Status: implementation validated; production deployment pending
+Status: published
 Branch: `codex/account-intelligence-v4`
-Deploy commit: pending
-OpenAI Sites version: pending
+Deploy commit: `eec9f307967bf52b455ba2629a7578000df0ae5a`
+OpenAI Sites version: `5`
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
 ### Added
