@@ -29,6 +29,24 @@ async function loadProviderModule() {
   return providerModule;
 }
 
+let guidedModule;
+async function loadGuidedModule() {
+  if (guidedModule) return guidedModule;
+  const [typescript, source] = await Promise.all([
+    import("typescript"),
+    readProjectFile("lib/guided-discovery.ts"),
+  ]);
+  const compiled = typescript.transpileModule(source, {
+    compilerOptions: {
+      module: typescript.ModuleKind.ESNext,
+      target: typescript.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const executable = compiled.replace('from "zod"', `from ${JSON.stringify(import.meta.resolve("zod"))}`);
+  guidedModule = await import(`data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`);
+  return guidedModule;
+}
+
 const accountAnswer = (answer) => ({
   answer,
   confidence: 82,
@@ -153,6 +171,116 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
   assert.match(charts, /BubbleChart/);
   assert.match(charts, /GroupedBarChart/);
   assert.match(charts, /LineChart/);
+});
+
+test("wires the V5.1 guided discovery workspace, additive storage and account routes", async () => {
+  const [page, workspace, styles, api, domain, provider, migration, schema, getRoute, sessionRoute, answerRoute] = await Promise.all([
+    readProjectFile("app/page.tsx"),
+    readProjectFile("app/GuidedDiscoveryWorkspace.tsx"),
+    readProjectFile("app/GuidedDiscoveryWorkspace.module.css"),
+    readProjectFile("app/api/discoveries/route.ts"),
+    readProjectFile("lib/guided-discovery.ts"),
+    readProjectFile("lib/ai-provider.ts"),
+    readProjectFile("drizzle/0006_hot_impossible_man.sql"),
+    readProjectFile("db/schema.ts"),
+    readProjectFile("app/api/accounts/[id]/guided-discovery/route.ts"),
+    readProjectFile("app/api/accounts/[id]/guided-discovery/sessions/route.ts"),
+    readProjectFile("app/api/accounts/[id]/guided-discovery/answers/route.ts"),
+  ]);
+
+  assert.match(page, /Descoberta guiada/);
+  assert.match(page, /Abrir descoberta guiada/);
+  assert.match(page, /GuidedDiscoverySummary/);
+  assert.match(workspace, /Adaptativo/);
+  assert.match(workspace, /Direto por pilar/);
+  assert.match(workspace, /Por que estamos perguntando isso/);
+  assert.match(workspace, /Salvar rascunho/);
+  assert.match(workspace, /Confirmar e continuar/);
+  assert.match(workspace, /Não sei ainda/);
+  assert.match(workspace, /Histórico e revisões/);
+  assert.match(workspace, /Checkpoint disponível/);
+  assert.match(styles, /prefers-reduced-motion/);
+  assert.match(styles, /max-width:700px/);
+
+  assert.match(domain, /2026\.1/);
+  assert.match(domain, /\.45 \+ hypothesisImpact \* \.30 \+ staleness \* \.15 \+ stakeholderCoverage \* \.10/);
+  assert.match(domain, /base-business-objective/);
+  assert.match(domain, /finops-allocation/);
+  assert.match(domain, /trusted-data-quality/);
+  assert.match(domain, /ai-governance-monitoring/);
+  assert.match(domain, /hybrid-cloud-workloads/);
+  assert.match(domain, /automation-handoffs/);
+  assert.match(domain, /app-modernization-strategy/);
+  assert.match(provider, /suggestDiscoveryFollowUp/);
+  assert.match(provider, /Não calcule nem altere scores/);
+
+  for (const table of ["guided_discovery_sessions", "guided_discovery_questions", "guided_discovery_answers"]) {
+    assert.match(migration, new RegExp("CREATE TABLE `" + table + "`"));
+    assert.match(schema, new RegExp(table.replaceAll("_", ""), "i"));
+    assert.match(api, new RegExp(table));
+  }
+  assert.match(migration, /supersedes_id/);
+  assert.match(migration, /ON DELETE cascade/);
+  assert.match(api, /guided_discovery_start/);
+  assert.match(api, /guided_discovery_answer/);
+  assert.match(api, /guided_discovery_patch/);
+  assert.match(api, /skipGenerative: true, skipEmbeddings: true/);
+  assert.match(api, /aiCalled: false/);
+  assert.match(api, /sourceType: "guided_discovery"/);
+  assert.match(api, /materializeLegacyGuidedAnswers/);
+  assert.match(getRoute, /guidedDiscoveries/);
+  assert.match(sessionRoute, /scope: "private"/);
+  assert.match(answerRoute, /scope: "private"/);
+});
+
+test("routes guided discovery adaptively and keeps progress separate from evidence coverage", async () => {
+  const guided = await loadGuidedModule();
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.1");
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 30);
+  assert.equal(guided.questionsForPillar("base").length, 6);
+  for (const pillar of ["finops", "trusted-data", "ai-governance", "hybrid-cloud", "automation", "app-modernization"]) {
+    assert.equal(guided.questionsForPillar(pillar).length, 4);
+  }
+
+  const initial = guided.materializeQuestionRoute({ mode: "adaptive", answers: [] });
+  assert.deepEqual(initial.questionIds, guided.questionsForPillar("base").map((question) => question.id));
+
+  const baseAnswers = guided.questionsForPillar("base").map((question) => ({
+    questionId: question.id,
+    status: "confirmed",
+    evidenceStatus: "confirmed",
+    answerText: `${question.question} custos cloud forecast AWS sponsor orçamento prazo`,
+    structured: { value: 4 },
+    stakeholderId: "stakeholder-1",
+  }));
+  const adaptive = guided.materializeQuestionRoute({ mode: "adaptive", answers: baseAnswers, hasRelevantStakeholder: true, hasOwner: true, scoreHints: { finops: 90, "hybrid-cloud": 75 } });
+  assert.equal(adaptive.selectedPillars.length, 2);
+  assert.equal(adaptive.selectedPillars[0], "finops");
+  assert.equal(adaptive.questionIds.length, 12);
+
+  const direct = guided.materializeQuestionRoute({ mode: "direct", selectedPillars: ["trusted-data"], answers: [] });
+  assert.equal(direct.questionIds.length, 3);
+  assert.ok(direct.questionIds.every((id) => id.startsWith("trusted-data")));
+
+  const pillarAnswers = direct.questionIds.map((questionId, index) => ({ questionId, status: index === 2 ? "unknown" : "confirmed", evidenceStatus: index === 2 ? "unknown" : "reported", answerText: index === 2 ? "" : "Evidência relatada", structured: index === 2 ? {} : { value: 3 } }));
+  const extended = guided.materializeQuestionRoute({ mode: "direct", selectedPillars: ["trusted-data"], answers: pillarAnswers, hasRelevantStakeholder: false, hasOwner: false });
+  assert.equal(extended.questionIds.length, 4);
+  const metrics = guided.calculateDiscoveryMetrics(direct.questionIds, pillarAnswers);
+  assert.equal(metrics.progressPercent, 100);
+  assert.equal(metrics.coveragePercent, 67);
+  assert.equal(metrics.gaps, 1);
+});
+
+test("uses the transparent 45/30/15/10 information-value ranking", async () => {
+  const guided = await loadGuidedModule();
+  const questions = guided.questionsForPillar("finops").slice(0, 2);
+  const ranked = guided.rankNextQuestion({ questions, answers: [], hypothesisImpactByPillar: { finops: 80 }, stakeholderCoverageByPillar: { finops: 20 }, now: new Date("2026-07-14T12:00:00Z") });
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].factors.informationGap, 100);
+  assert.equal(ranked[0].factors.hypothesisImpact, 80);
+  assert.equal(ranked[0].factors.staleness, 35);
+  assert.equal(ranked[0].factors.stakeholderCoverage, 80);
+  assert.equal(ranked[0].rankingScore, Math.round(100 * .45 + 80 * .30 + 35 * .15 + 80 * .10));
 });
 
 test("keeps public reads isolated and the private workspace fail-closed", async () => {

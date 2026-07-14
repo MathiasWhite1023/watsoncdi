@@ -1,5 +1,32 @@
 # Changelog
 
+## v5.1-guided-discovery
+
+Status: validated, pending publication
+Branch: `codex/guided-discovery-v5-1`
+Deploy commit: pending
+OpenAI Sites version: pending
+Rollback tag: `v5-proactive-copilot-gemini`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Added
+
+- Guided discovery inside `Inteligência de contas -> Estratégia`, without adding another primary navigation destination.
+- Adaptive diagnosis and direct-by-pillar entry for FinOps, Trusted Data, AI Governance, Hybrid Cloud, Automation and App Modernization.
+- Versioned `2026.1` catalog with six base questions and four curated questions per technology pillar.
+- Structured answers plus free context, evidence nature, stakeholder, source, date and confidence.
+- Draft, confirmed, unknown, pause, resume, revision and append-only history flows.
+- Separate progress, evidence coverage, gaps, staleness and contradiction indicators.
+- Transparent next-question ranking using `45% information gap + 30% hypothesis impact + 15% staleness + 10% stakeholder coverage`.
+- Deterministic score, memory, hypothesis and action recalculation after confirmed answers.
+- Provider-neutral AI checkpoint proposals, capped at three per session, cached for 24 hours and applied only after human approval.
+- Additive D1 migration `0006` for sessions, materialized routes and append-only answer revisions.
+- Read-only populated public demo with no Gemini calls and authenticated owner-scoped mutations.
+
+### Rollback
+
+Use tag `v5-proactive-copilot-gemini`, rebuild and republish it through OpenAI Sites. Migration `0006` is additive; V5 safely ignores all V5.1 guided-discovery tables.
+
 ## v5-proactive-copilot-gemini
 
 Status: published

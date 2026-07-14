@@ -25,6 +25,20 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Produces a proactive daily briefing, Next Best Actions, the next best conversation and the discovery question with the highest information value.
 - Combines keyword, recency and 768-dimensional semantic retrieval with account-scoped citations.
 - Provides a Carbon command palette (`Cmd/Ctrl + K`) and an interactive hierarchy/influence graph powered by React Flow.
+- Adds a dynamic guided-discovery workspace inside each account's Strategy mode, with adaptive and direct-by-pillar routes.
+- Keeps discovery progress separate from evidence coverage, and records gaps, stale answers, contradictions and append-only revisions.
+- Recalculates account intelligence deterministically after each confirmed answer and reserves generative AI for explicit, cached checkpoints.
+
+## Guided Discovery V5.1
+
+Open `Inteligência de contas -> Estratégia -> Descoberta guiada` to run the account questionnaire. The `2026.1` catalog starts with six business and technology diagnosis questions, then ranks FinOps, Trusted Data, AI Governance, Hybrid Cloud, Automation and App Modernization by information value.
+
+Two modes are available:
+
+- `Adaptativo`: completes the base diagnosis, selects the two most relevant pillars and materializes the next route.
+- `Direto por pilar`: starts immediately in one or more selected technology themes.
+
+Each answer can include a structured value, free context, evidence nature, related stakeholder, source, date and confidence. Drafts do not change intelligence. Confirmed and unknown answers update the deterministic account model, while an AI-generated follow-up remains a proposal until a person accepts it.
 
 ## AI Behavior
 
@@ -74,6 +88,7 @@ Free-tier Gemini processing is experimental. Do not mark real or confidential cu
 ```text
 Meeting notes / unified information / documents
   -> /api/accounts
+  -> guided discovery catalog, route and append-only evidence
   -> selective retrieval (semantic + keyword + recency)
   -> IBM watsonx, Gemini, or deterministic fallback
   -> D1 memory, embeddings, cache, briefings, relationships, actions, plans and audit
@@ -81,7 +96,7 @@ Meeting notes / unified information / documents
   -> Home, account workspace, portfolio radar and settings
 ```
 
-The main product UI lives in `app/page.tsx`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
+The main product UI lives in `app/page.tsx`. The guided workspace lives in `app/GuidedDiscoveryWorkspace.tsx`, its versioned catalog and deterministic route engine in `lib/guided-discovery.ts`, and its scoped endpoints under `app/api/accounts/[id]/guided-discovery`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
 
 ## Getting Started
 
@@ -115,28 +130,28 @@ npm test
 
 ## Versioning And Rollback
 
-The rollback baseline for V5 is tagged as:
-
-```bash
-v4-proactive-account-intelligence
-```
-
-The V5 version is developed on:
-
-```bash
-codex/proactive-intelligence-v5
-```
-
-After validation and deployment, tag the exact deployed commit:
+The rollback baseline for V5.1 is tagged as:
 
 ```bash
 v5-proactive-copilot-gemini
 ```
 
+The V5.1 version is developed on:
+
+```bash
+codex/guided-discovery-v5-1
+```
+
+After validation and deployment, tag the exact deployed commit:
+
+```bash
+v5.1-guided-discovery
+```
+
 Application rollback:
 
 ```bash
-git checkout v4-proactive-account-intelligence
+git checkout v5-proactive-copilot-gemini
 npm install
 npm run build
 ```
@@ -145,9 +160,9 @@ Then republish that validated source through OpenAI Sites.
 
 Data rollback policy:
 
-- V5 migrations are additive only.
+- V5.1 migration `0006` is additive only.
 - Existing `discoveries` data remains compatible.
-- New embeddings, AI cache, briefings, snapshots, relationships, layouts, public signals and feedback tables can be ignored safely by V4.
+- New guided-discovery sessions, questions and answer revisions can be ignored safely by V5.
 - New discovery and meeting fields are optional/defaulted, so legacy rows remain readable.
 - No destructive migration is included in this release.
 
