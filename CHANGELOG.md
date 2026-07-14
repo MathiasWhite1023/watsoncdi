@@ -2,8 +2,10 @@
 
 ## v5-proactive-copilot-gemini
 
-Status: validated; publication tracked by the release tag
+Status: published
 Branch: `codex/proactive-intelligence-v5`
+Deploy commit: `cac122711ccb9f438aeb2c276eef20fa5abfbefb`
+OpenAI Sites version: `6`
 Rollback tag: `v4-proactive-account-intelligence`
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
