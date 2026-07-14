@@ -1,4 +1,5 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { AnySQLiteColumn, check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const discoveries = sqliteTable("discoveries", {
   id: text("id").primaryKey(),
@@ -301,4 +302,89 @@ export const actionFeedback = sqliteTable("action_feedback", {
 }, (table) => ({
   actionTimeIdx: index("action_feedback_action_time_idx").on(table.actionId, table.createdAt),
   accountTimeIdx: index("action_feedback_account_time_idx").on(table.discoveryId, table.createdAt),
+}));
+
+export const guidedDiscoverySessions = sqliteTable("guided_discovery_sessions", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull().references(() => discoveries.id, { onDelete: "cascade" }),
+  ownerEmail: text("owner_email").notNull(),
+  mode: text("mode").notNull().default("adaptive"),
+  catalogVersion: text("catalog_version").notNull(),
+  selectedPillarsJson: text("selected_pillars_json").notNull().default("[]"),
+  status: text("status").notNull().default("in_progress"),
+  progressPercent: integer("progress_percent").notNull().default(0),
+  coveragePercent: integer("coverage_percent").notNull().default(0),
+  currentQuestionId: text("current_question_id"),
+  checkpointCount: integer("checkpoint_count").notNull().default(0),
+  aiStatus: text("ai_status"),
+  startedAt: text("started_at").notNull(),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => ({
+  accountStatusIdx: index("guided_discovery_sessions_account_status_idx").on(table.discoveryId, table.status),
+  ownerIdx: index("guided_discovery_sessions_owner_idx").on(table.ownerEmail),
+  modeCheck: check("guided_discovery_sessions_mode_check", sql`${table.mode} in ('adaptive', 'direct')`),
+  statusCheck: check("guided_discovery_sessions_status_check", sql`${table.status} in ('in_progress', 'paused', 'completed')`),
+  progressCheck: check("guided_discovery_sessions_progress_check", sql`${table.progressPercent} between 0 and 100`),
+  coverageCheck: check("guided_discovery_sessions_coverage_check", sql`${table.coveragePercent} between 0 and 100`),
+  checkpointCheck: check("guided_discovery_sessions_checkpoint_check", sql`${table.checkpointCount} >= 0`),
+}));
+
+export const guidedDiscoveryQuestions = sqliteTable("guided_discovery_questions", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => guidedDiscoverySessions.id, { onDelete: "cascade" }),
+  discoveryId: text("discovery_id").notNull().references(() => discoveries.id, { onDelete: "cascade" }),
+  catalogQuestionId: text("catalog_question_id"),
+  pillar: text("pillar").notNull(),
+  prompt: text("prompt").notNull(),
+  hint: text("hint"),
+  inputSchemaJson: text("input_schema_json").notNull().default("{}"),
+  source: text("source").notNull().default("catalog"),
+  rationale: text("rationale"),
+  citationsJson: text("citations_json").notNull().default("[]"),
+  sequence: integer("sequence").notNull().default(0),
+  status: text("status").notNull().default("proposed"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => ({
+  catalogQuestionIdx: uniqueIndex("guided_discovery_questions_catalog_idx").on(table.sessionId, table.catalogQuestionId),
+  sessionSequenceIdx: index("guided_discovery_questions_session_sequence_idx").on(table.sessionId, table.sequence),
+  accountPillarIdx: index("guided_discovery_questions_account_pillar_idx").on(table.discoveryId, table.pillar),
+  sessionStatusIdx: index("guided_discovery_questions_session_status_idx").on(table.sessionId, table.status),
+  sourceCheck: check("guided_discovery_questions_source_check", sql`${table.source} in ('catalog', 'ai')`),
+  statusCheck: check("guided_discovery_questions_status_check", sql`${table.status} in ('proposed', 'accepted', 'active', 'answered', 'dismissed')`),
+  sequenceCheck: check("guided_discovery_questions_sequence_check", sql`${table.sequence} >= 0`),
+}));
+
+export const guidedDiscoveryAnswers = sqliteTable("guided_discovery_answers", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull().references(() => guidedDiscoverySessions.id, { onDelete: "cascade" }),
+  questionId: text("question_id").notNull().references(() => guidedDiscoveryQuestions.id, { onDelete: "cascade" }),
+  discoveryId: text("discovery_id").notNull().references(() => discoveries.id, { onDelete: "cascade" }),
+  structuredJson: text("structured_json").notNull().default("{}"),
+  answerText: text("answer_text").notNull().default(""),
+  evidenceStatus: text("evidence_status").notNull().default("reported"),
+  stakeholderId: text("stakeholder_id").references(() => stakeholders.id, { onDelete: "set null" }),
+  sourceType: text("source_type"),
+  sourceId: text("source_id"),
+  sourceDate: text("source_date"),
+  confidence: integer("confidence").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  supersedesId: text("supersedes_id").references((): AnySQLiteColumn => guidedDiscoveryAnswers.id, { onDelete: "set null" }),
+  isCurrent: integer("is_current", { mode: "boolean" }).notNull().default(true),
+  answeredAt: text("answered_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => ({
+  sessionQuestionCurrentIdx: index("guided_discovery_answers_session_question_current_idx").on(
+    table.sessionId,
+    table.questionId,
+    table.isCurrent,
+  ),
+  accountIdx: index("guided_discovery_answers_account_idx").on(table.discoveryId),
+  evidenceStatusCheck: check("guided_discovery_answers_evidence_status_check", sql`${table.evidenceStatus} in ('confirmed', 'reported', 'hypothesis', 'unknown')`),
+  statusCheck: check("guided_discovery_answers_status_check", sql`${table.status} in ('draft', 'confirmed', 'unknown')`),
+  confidenceCheck: check("guided_discovery_answers_confidence_check", sql`${table.confidence} between 0 and 100`),
+  currentCheck: check("guided_discovery_answers_current_check", sql`${table.isCurrent} in (0, 1)`),
 }));
