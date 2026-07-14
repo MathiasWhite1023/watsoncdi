@@ -2,6 +2,7 @@
 
 import { DonutChart, GroupedBarChart } from "@carbon/charts-react";
 import type { ChartTabularData, DonutChartOptions, BarChartOptions } from "@carbon/charts-react";
+import { ScaleTypes } from "@carbon/charts";
 
 type Score = {
   name: string;
@@ -53,8 +54,8 @@ export function CarbonCapabilityChart({ scores }: { scores: Score[] }) {
     resizable: true,
     height: "380px",
     axes: {
-      left: { mapsTo: "value", scaleType: "linear", title: "Score", domain: [0, 100] },
-      bottom: { mapsTo: "key", scaleType: "labels", title: "Capacidade", truncation: { type: "end_line", threshold: 14 } },
+      left: { mapsTo: "value", scaleType: ScaleTypes.LINEAR, title: "Score", domain: [0, 100] },
+      bottom: { mapsTo: "key", scaleType: ScaleTypes.LABELS, title: "Capacidade", truncation: { type: "end_line", threshold: 14 } },
     },
     color: { scale: { Alinhamento: "#0f62fe", Valor: "#009d9a", Prontidão: "#8a3ffc" } },
     legend: { alignment: "center" },
