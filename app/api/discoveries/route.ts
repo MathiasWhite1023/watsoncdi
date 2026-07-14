@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { answerFromEvidence, buildActions, buildHypotheses, buildMemory, suggestAccountPlan, type AccountEvent, type AccountMemory, type EvidenceRef } from "../../../lib/account-intelligence";
-import { createAccountIntelligenceAdapter } from "../../../lib/watsonx-adapter";
+import { createAIProviderFromEnv, type AccountDataClassification, type AIResult } from "../../../lib/ai-provider";
+import { collectAccountSources, evidenceFingerprint, persistEmbeddings, retrieveAccountSources, type RetrievalSource } from "../../../lib/account-retrieval";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ type MeetingInsight = {
   stakeholders: string[];
   systems: string[];
   painPoints: string[];
-  aiStatus: "watsonx" | "fallback" | "error";
+  aiStatus: "watsonx" | "gemini" | "fallback" | "error";
 };
 type Meeting = {
   id: string;
@@ -37,7 +38,7 @@ type Meeting = {
   notes: string;
   summary: string;
   insights: MeetingInsight;
-  aiStatus: "watsonx" | "fallback" | "error";
+  aiStatus: "watsonx" | "gemini" | "fallback" | "error";
   createdAt: string;
 };
 type AccountNode = { id: string; type: "area" | "person" | "system" | "pain" | "initiative" | "capability" | "risk"; label: string; detail: string; strength: number };
@@ -58,7 +59,7 @@ type Stakeholder = {
   createdAt: string;
   updatedAt: string;
 };
-type AccountAction = { id: string; discoveryId: string; stakeholderId: string | null; type: string; title: string; rationale: string; nextStep: string; impact: number; urgency: number; confidence: number; maturity: number; priorityScore: number; status: string; dueAt: string | null; evidence: EvidenceRef[]; dedupeKey: string; evidenceFingerprint: string; createdAt: string; updatedAt: string };
+type AccountAction = { id: string; discoveryId: string; stakeholderId: string | null; type: string; title: string; rationale: string; whyNow: string; nextStep: string; impact: number; urgency: number; confidence: number; maturity: number; effort: number; priorityScore: number; status: string; dueAt: string | null; expectedOutcome: string; conversation: { stakeholder: string; theme: string; opener: string; questions: string[]; objection: string; successCriterion: string }; snoozedUntil: string | null; feedbackReason: string | null; rankAdjustment: number; evidence: EvidenceRef[]; dedupeKey: string; evidenceFingerprint: string; createdAt: string; updatedAt: string };
 type Hypothesis = { id: string; discoveryId: string; capabilityKey: string; title: string; problem: string; products: string[]; stakeholderIds: string[]; evidence: EvidenceRef[]; gaps: string[]; confidence: number; stage: string; nextStep: string; createdAt: string; updatedAt: string };
 type AccountPlan = { discoveryId: string; priorities: string[]; initiatives: string[]; objectives: string[]; risks: string[]; ecosystem: string[]; relationship: string[]; plan30: string[]; plan60: string[]; plan90: string[]; approvalStatus: string; suggestion: Record<string, string[]>; updatedAt: string };
 type AccountDocument = { id: string; discoveryId: string; name: string; contentType: string; sizeBytes: number; status: string; summary: string; createdAt: string };
@@ -125,8 +126,14 @@ const compact = (items: Array<string | false | null | undefined>) => Array.from(
 
 const aiAdapter = () => {
   const runtime = env as unknown as Record<string, string | undefined>;
-  return createAccountIntelligenceAdapter({ apiKey: runtime.WATSONX_API_KEY, projectId: runtime.WATSONX_PROJECT_ID, url: runtime.WATSONX_URL, modelId: runtime.WATSONX_MODEL_ID });
+  return createAIProviderFromEnv(runtime);
 };
+
+const classificationOf = (row: Record<string, unknown>): AccountDataClassification =>
+  String(row.data_classification || "test") === "confidential" ? "confidential" : "test";
+
+const aiStatusOf = (provider: "watsonx" | "gemini" | "fallback") =>
+  provider === "watsonx" ? "watsonx" as const : provider === "gemini" ? "gemini" as const : "fallback" as const;
 
 function fallbackMeetingInsights(notes: string, customerName: string): MeetingInsight {
   const text = notes.toLowerCase();
@@ -189,10 +196,11 @@ function fallbackMeetingInsights(notes: string, customerName: string): MeetingIn
   };
 }
 
-async function getWatsonxInsights(notes: string, customerName: string, industry: string): Promise<MeetingInsight | null> {
-  const parsed = await aiAdapter().prepareMeeting(`Cliente: ${customerName}\nSetor: ${industry}\nNotas da reunião:\n${notes}`) as Partial<MeetingInsight> | null;
-  if (!parsed) return null;
-  return {
+async function getAIInsights(notes: string, customerName: string, industry: string, classification: AccountDataClassification): Promise<{ insights: MeetingInsight | null; result: AIResult<unknown> }> {
+  const generated = await aiAdapter().prepareMeeting(`Cliente: ${customerName}\nSetor: ${industry}\nNotas da reunião:\n${notes}`, { classification });
+  const parsed = generated.data as Partial<MeetingInsight> | null;
+  if (!parsed) return { insights: null, result: generated };
+  return { result: generated, insights: {
     summary: String(parsed.summary || notes.slice(0, 260)),
     signals: compact((parsed.signals || []) as string[]),
     ibmThemes: compact((parsed.ibmThemes || []) as string[]),
@@ -202,8 +210,8 @@ async function getWatsonxInsights(notes: string, customerName: string, industry:
     stakeholders: compact((parsed.stakeholders || []) as string[]),
     systems: compact((parsed.systems || []) as string[]),
     painPoints: compact((parsed.painPoints || []) as string[]),
-    aiStatus: "watsonx",
-  };
+    aiStatus: aiStatusOf(generated.provider),
+  } };
 }
 
 function analyze(answers: Answer[], meetings: Meeting[] = []) {
@@ -292,6 +300,14 @@ async function ensureSchema(db: D1Database) {
     db.prepare("CREATE TABLE IF NOT EXISTS document_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL, discovery_id TEXT NOT NULL, ordinal INTEGER NOT NULL, content TEXT NOT NULL, page INTEGER, created_at TEXT NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS account_chat_messages (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, citations_json TEXT NOT NULL, ai_status TEXT NOT NULL, created_at TEXT NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS ai_runs (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, agent TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL, confidence INTEGER NOT NULL, source_ids_json TEXT NOT NULL, validated INTEGER NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS account_embeddings (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, chunk_ordinal INTEGER NOT NULL DEFAULT 0, content_hash TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL DEFAULT 768, vector_json TEXT NOT NULL, content_preview TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS ai_cache (id TEXT PRIMARY KEY, cache_key TEXT NOT NULL, discovery_id TEXT, task TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, usage_json TEXT NOT NULL DEFAULT '{}', expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS daily_briefings (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, briefing_date TEXT NOT NULL, account_ids_json TEXT NOT NULL DEFAULT '[]', content_json TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, generated_at TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS account_snapshots (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, reason TEXT NOT NULL, snapshot_json TEXT NOT NULL, confidence INTEGER NOT NULL DEFAULT 0, source_fingerprint TEXT NOT NULL, created_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS account_relationships (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, source_stakeholder_id TEXT NOT NULL, target_stakeholder_id TEXT NOT NULL, relation_type TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', confidence INTEGER NOT NULL DEFAULT 50, evidence_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'confirmed', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS account_graph_layouts (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, mode TEXT NOT NULL, nodes_json TEXT NOT NULL DEFAULT '[]', viewport_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS external_signals (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL, query_fingerprint TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL, source_url TEXT NOT NULL, publisher TEXT NOT NULL DEFAULT '', published_at TEXT, citation_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'proposed', confidence INTEGER NOT NULL DEFAULT 0, approved_at TEXT, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS action_feedback (id TEXT PRIMARY KEY, action_id TEXT NOT NULL, discovery_id TEXT NOT NULL, feedback_type TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', adjustment INTEGER NOT NULL DEFAULT 0, previous_status TEXT NOT NULL DEFAULT '', new_status TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)"),
     db.prepare("CREATE INDEX IF NOT EXISTS discoveries_updated_idx ON discoveries(updated_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS audit_events_created_idx ON audit_events(created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS meetings_discovery_created_idx ON meetings(discovery_id, created_at)"),
@@ -302,15 +318,38 @@ async function ensureSchema(db: D1Database) {
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS account_actions_dedupe_idx ON account_actions(discovery_id, dedupe_key)"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS opportunity_hypotheses_key_idx ON opportunity_hypotheses(discovery_id, capability_key)"),
     db.prepare("CREATE INDEX IF NOT EXISTS document_chunks_discovery_idx ON document_chunks(discovery_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS account_embeddings_discovery_idx ON account_embeddings(discovery_id)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS account_embeddings_source_idx ON account_embeddings(discovery_id, source_type, source_id, chunk_ordinal, model)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS ai_cache_key_idx ON ai_cache(cache_key)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS daily_briefings_owner_date_idx ON daily_briefings(owner_email, briefing_date)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS account_relationships_relation_idx ON account_relationships(discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS account_graph_layouts_account_mode_idx ON account_graph_layouts(discovery_id, mode)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS external_signals_account_status_idx ON external_signals(discovery_id, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS action_feedback_account_time_idx ON action_feedback(discovery_id, created_at)"),
   ]);
   await ensureColumn(db, "discoveries", "owner_email", "TEXT");
   await ensureColumn(db, "discoveries", "visibility", "TEXT NOT NULL DEFAULT 'demo'");
   await ensureColumn(db, "discoveries", "last_analyzed_at", "TEXT");
+  await ensureColumn(db, "discoveries", "data_classification", "TEXT NOT NULL DEFAULT 'test'");
+  await ensureColumn(db, "discoveries", "company_domain", "TEXT");
   await ensureColumn(db, "meetings", "scheduled_at", "TEXT");
   await ensureColumn(db, "meetings", "attendees_json", "TEXT NOT NULL DEFAULT '[]'");
   await ensureColumn(db, "meetings", "objective", "TEXT NOT NULL DEFAULT ''");
   await ensureColumn(db, "meetings", "preparation_json", "TEXT NOT NULL DEFAULT '{}'");
   await ensureColumn(db, "meetings", "meeting_status", "TEXT NOT NULL DEFAULT 'completed'");
+  await ensureColumn(db, "account_actions", "why_now", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(db, "account_actions", "effort", "INTEGER NOT NULL DEFAULT 50");
+  await ensureColumn(db, "account_actions", "expected_outcome", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(db, "account_actions", "conversation_json", "TEXT NOT NULL DEFAULT '{}'");
+  await ensureColumn(db, "account_actions", "snoozed_until", "TEXT");
+  await ensureColumn(db, "account_actions", "feedback_reason", "TEXT");
+  await ensureColumn(db, "account_actions", "rank_adjustment", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "ai_runs", "model", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(db, "ai_runs", "prompt_tokens", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "ai_runs", "output_tokens", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "ai_runs", "latency_ms", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "ai_runs", "cache_hit", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "ai_runs", "error_code", "TEXT");
 }
 
 async function ensureColumn(db: D1Database, table: string, column: string, definition: string) {
@@ -471,7 +510,7 @@ function mapMemory(row?: Record<string, unknown> | null): AccountMemory | null {
 }
 
 function mapAction(row: Record<string, unknown>): AccountAction {
-  return { id: String(row.id), discoveryId: String(row.discovery_id), stakeholderId: row.stakeholder_id ? String(row.stakeholder_id) : null, type: String(row.type), title: String(row.title), rationale: String(row.rationale), nextStep: String(row.next_step), impact: Number(row.impact), urgency: Number(row.urgency), confidence: Number(row.confidence), maturity: Number(row.maturity), priorityScore: Number(row.priority_score), status: String(row.status), dueAt: row.due_at ? String(row.due_at) : null, evidence: json<EvidenceRef[]>(row.evidence_json, []), dedupeKey: String(row.dedupe_key), evidenceFingerprint: String(row.evidence_fingerprint), createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+  return { id: String(row.id), discoveryId: String(row.discovery_id), stakeholderId: row.stakeholder_id ? String(row.stakeholder_id) : null, type: String(row.type), title: String(row.title), rationale: String(row.rationale), whyNow: String(row.why_now || row.rationale || ""), nextStep: String(row.next_step), impact: Number(row.impact), urgency: Number(row.urgency), confidence: Number(row.confidence), maturity: Number(row.maturity), effort: Number(row.effort || 50), priorityScore: Math.max(0, Math.min(100, Number(row.priority_score) + Number(row.rank_adjustment || 0))), status: String(row.status), dueAt: row.due_at ? String(row.due_at) : null, expectedOutcome: String(row.expected_outcome || ""), conversation: json<AccountAction["conversation"]>(row.conversation_json, { stakeholder: "Stakeholder a identificar", theme: "prioridade estratégica", opener: "Validar contexto e prioridade.", questions: [], objection: "Ainda não há evidência suficiente.", successCriterion: "Confirmar um próximo passo com prazo." }), snoozedUntil: row.snoozed_until ? String(row.snoozed_until) : null, feedbackReason: row.feedback_reason ? String(row.feedback_reason) : null, rankAdjustment: Number(row.rank_adjustment || 0), evidence: json<EvidenceRef[]>(row.evidence_json, []), dedupeKey: String(row.dedupe_key), evidenceFingerprint: String(row.evidence_fingerprint), createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
 }
 
 function mapHypothesis(row: Record<string, unknown>): Hypothesis {
@@ -485,7 +524,7 @@ function mapPlan(row?: Record<string, unknown> | null): AccountPlan | null {
 
 function mapDiscovery(row: Record<string, unknown>, meetings: Meeting[], accountMap?: AccountMap) {
   const answers = json<Answer[]>(row.answers_json, []); const scores = json<Score[]>(row.scores_json, []);
-  return { id: String(row.id), customerName: String(row.customer_name), industry: String(row.industry), companySize: String(row.company_size), owner: String(row.owner), ownerEmail: row.owner_email ? String(row.owner_email) : null, visibility: String(row.visibility || "demo"), stage: String(row.stage), progress: Number(row.progress), priority: String(row.priority), challengeSummary: String(row.challenge_summary), answers, meetings, accountMap: accountMap || buildAccountMap({ customerName: String(row.customer_name), industry: String(row.industry), scores }, answers, meetings), aiMode: meetings[0]?.aiStatus || "fallback", scores, recommendations: json<Recommendation[]>(row.recommendations_json, []), nextEngagement: String(row.next_engagement), lastAnalyzedAt: row.last_analyzed_at ? String(row.last_analyzed_at) : null, updatedAt: String(row.updated_at) };
+  return { id: String(row.id), customerName: String(row.customer_name), industry: String(row.industry), companySize: String(row.company_size), owner: String(row.owner), ownerEmail: row.owner_email ? String(row.owner_email) : null, visibility: String(row.visibility || "demo"), dataClassification: String(row.data_classification || "test"), companyDomain: row.company_domain ? String(row.company_domain) : null, stage: String(row.stage), progress: Number(row.progress), priority: String(row.priority), challengeSummary: String(row.challenge_summary), answers, meetings, accountMap: accountMap || buildAccountMap({ customerName: String(row.customer_name), industry: String(row.industry), scores }, answers, meetings), aiMode: meetings[0]?.aiStatus || "fallback", scores, recommendations: json<Recommendation[]>(row.recommendations_json, []), nextEngagement: String(row.next_engagement), lastAnalyzedAt: row.last_analyzed_at ? String(row.last_analyzed_at) : null, updatedAt: String(row.updated_at) };
 }
 
 function requestIdentity(request: Request) {
@@ -496,6 +535,23 @@ function requestIdentity(request: Request) {
 
 function scopeFor(request: Request, body?: Record<string, unknown>) {
   return String(body?.scope || new URL(request.url).searchParams.get("scope") || "demo") === "private" ? "private" : "demo";
+}
+
+function normalizeCompanyDomain(value: unknown): string | null {
+  const input = String(value || "").trim().toLowerCase();
+  if (!input) return null;
+  try {
+    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(input) ? input : `https://${input}`);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.port) return null;
+    const hostname = parsed.hostname.replace(/\.$/, "").replace(/^www\./, "");
+    if (!hostname.includes(".") || hostname.length > 253) return null;
+    const labels = hostname.split(".");
+    if (labels.some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
+    if (!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$/.test(labels.at(-1) || "")) return null;
+    return hostname;
+  } catch {
+    return null;
+  }
 }
 
 function privateGate(request: Request) {
@@ -517,7 +573,90 @@ async function addEvent(db: D1Database, input: Omit<AccountEvent, "createdAt"> &
     .bind(input.id, input.discoveryId, input.type, input.title, input.content, input.sourceType, input.sourceId, input.evidenceStatus, input.confidence, input.occurredAt, createdAt).run();
 }
 
-export async function recomputeAccount(db: D1Database, id: string) {
+const dbProviderName = (provider: "watsonx" | "gemini" | "fallback") =>
+  provider === "watsonx" ? "ibm-watsonx" : provider === "gemini" ? "google-gemini" : "deterministic-fallback";
+
+async function quotaAllows(db: D1Database, kind: "generative" | "embedding") {
+  const now = Date.now();
+  const minuteAgo = new Date(now - 60_000).toISOString();
+  const dayAgo = new Date(now - 86_400_000).toISOString();
+  const circuitWindow = new Date(now - 5 * 60_000).toISOString();
+  const agentFilter = kind === "embedding" ? "agent = 'semantic-index'" : "agent <> 'semantic-index'";
+  const [minute, day, recentErrors] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS count FROM ai_runs WHERE provider = 'google-gemini' AND ${agentFilter} AND created_at >= ?`).bind(minuteAgo).first<{ count: number }>(),
+    db.prepare(`SELECT COUNT(*) AS count FROM ai_runs WHERE provider = 'google-gemini' AND ${agentFilter} AND created_at >= ?`).bind(dayAgo).first<{ count: number }>(),
+    db.prepare("SELECT status FROM ai_runs WHERE provider = 'google-gemini' AND created_at >= ? ORDER BY created_at DESC LIMIT 3").bind(circuitWindow).all<{ status: string }>(),
+  ]);
+  const rpm = kind === "embedding" ? 80 : 12;
+  const daily = kind === "embedding" ? 900 : 450;
+  const circuitOpen = recentErrors.results.length === 3 && recentErrors.results.every((row) => row.status === "error");
+  return { allowed: Number(minute?.count || 0) < rpm && Number(day?.count || 0) < daily && !circuitOpen, minute: Number(minute?.count || 0), daily: Number(day?.count || 0), rpm, dailyLimit: daily, circuitOpen };
+}
+
+async function recordAIRun<T>(db: D1Database, accountId: string, agent: string, result: AIResult<T>, sourceIds: string[], confidence: number, detail: string, cached = false) {
+  const now = new Date().toISOString();
+  const attemptedProvider = result.attemptedProviders?.at(-1);
+  const recordedProvider = result.ok ? result.provider : attemptedProvider || result.provider;
+  const status = result.ok ? "completed" : attemptedProvider ? "error" : "fallback";
+  await db.prepare("INSERT INTO ai_runs (id, discovery_id, agent, provider, status, confidence, source_ids_json, validated, detail, model, prompt_tokens, output_tokens, latency_ms, cache_hit, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(`run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, accountId, agent, dbProviderName(recordedProvider), status, confidence, JSON.stringify(sourceIds), 0, detail, result.model || "", result.usage.inputTokens || 0, result.usage.outputTokens || 0, result.latencyMs, cached ? 1 : 0, result.reason || null, now).run();
+}
+
+async function cacheKeyFor(parts: string[]) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts.join("|")));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function providerCacheSignature(provider: ReturnType<typeof aiAdapter>, classification: AccountDataClassification) {
+  const status = provider.status;
+  return JSON.stringify({
+    classification,
+    mode: status.mode,
+    precedence: status.precedence,
+    watsonx: status.watsonx.configured ? status.watsonx.model : "disabled",
+    gemini: status.gemini.configured ? status.gemini.model : "disabled",
+    embedding: status.gemini.configured ? status.gemini.embeddingModel : "disabled",
+  });
+}
+
+async function cachedAI<T>(db: D1Database, cacheKey: string): Promise<{ data: T; provider: string; model: string; usage: Record<string, unknown> } | null> {
+  const row = await db.prepare("SELECT response_json, provider, model, usage_json FROM ai_cache WHERE cache_key = ? AND expires_at > ? AND provider <> 'deterministic-fallback' AND model <> ''").bind(cacheKey, new Date().toISOString()).first<Record<string, unknown>>();
+  return row ? { data: json<T>(row.response_json, null as T), provider: String(row.provider), model: String(row.model), usage: json<Record<string, unknown>>(row.usage_json, {}) } : null;
+}
+
+async function putAICache<T>(db: D1Database, input: { cacheKey: string; accountId: string | null; task: string; provider: string; model: string; fingerprint: string; data: T; usage: Record<string, unknown>; ttlMs: number }) {
+  if (input.provider === "deterministic-fallback" || !input.model) return;
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
+  await db.prepare("INSERT OR REPLACE INTO ai_cache (id, cache_key, discovery_id, task, provider, model, evidence_fingerprint, response_json, usage_json, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(`cache-${input.cacheKey}`, input.cacheKey, input.accountId, input.task, input.provider, input.model, input.fingerprint, JSON.stringify(input.data), JSON.stringify(input.usage), expiresAt, now, now).run();
+}
+
+async function refreshAccountEmbeddings(db: D1Database, row: Record<string, unknown>, sources?: RetrievalSource[]) {
+  if (String(row.visibility || "demo") !== "private" || classificationOf(row) === "confidential") return;
+  const provider = aiAdapter();
+  if (!provider.status.gemini.configured || provider.status.mode === "fallback" || provider.status.mode === "watsonx") return;
+  const quota = await quotaAllows(db, "embedding");
+  if (!quota.allowed) return;
+  const allSources = sources || await collectAccountSources(db, String(row.id));
+  const selected = allSources.slice(0, 300);
+  if (!selected.length) return;
+  const existing = await db.prepare("SELECT source_id, content_hash FROM account_embeddings WHERE discovery_id = ? AND model = ?").bind(String(row.id), provider.status.gemini.embeddingModel).all<{ source_id: string; content_hash: string }>();
+  const hashes = new Map(existing.results.map((item) => [item.source_id, item.content_hash]));
+  const changed = selected.filter((source) => hashes.get(source.id) !== `${source.content.length}:${source.occurredAt}`);
+  if (!changed.length) return;
+  for (let index = 0; index < changed.length; index += 60) {
+    const batch = changed.slice(index, index + 60);
+    const batchQuota = index === 0 ? quota : await quotaAllows(db, "embedding");
+    if (!batchQuota.allowed) break;
+    const result = await provider.embedSources(batch.map((source) => ({ id: source.id, text: `${source.title}\n${source.content}` })), { classification: "test", embeddingTask: "RETRIEVAL_DOCUMENT" });
+    if (result.ok && result.data) await persistEmbeddings(db, String(row.id), batch, result.data.map((item) => item.values), result.model || provider.status.gemini.embeddingModel);
+    await recordAIRun(db, String(row.id), "semantic-index", result, batch.map((source) => source.id), result.ok ? 86 : 0, result.ok ? `${batch.length} fontes indexadas para recuperação seletiva.` : "Indexação semântica indisponível; busca híbrida manteve palavras-chave e recência.");
+    if (!result.ok) break;
+  }
+}
+
+export async function recomputeAccount(db: D1Database, id: string, recomputeOptions: { skipGenerative?: boolean } = {}) {
   const row = await db.prepare("SELECT * FROM discoveries WHERE id = ?").bind(id).first<Record<string, unknown>>();
   if (!row) return;
   const [eventRows, stakeholderRows, previousMemory] = await Promise.all([
@@ -527,8 +666,13 @@ export async function recomputeAccount(db: D1Database, id: string) {
   ]);
   const events = eventRows.results.map(mapAccountEvent); const stakeholders = stakeholderRows.results.map(mapStakeholder); const scores = json<Score[]>(row.scores_json, initialScores());
   let memory = buildMemory(String(row.customer_name), String(row.challenge_summary), events, scores, Number(previousMemory?.version || 0));
-  const generatedMemory = await aiAdapter().analyzeAccount(JSON.stringify({ customer: row.customer_name, currentSummary: row.challenge_summary, sources: events.slice(0, 30), scores: scores.slice(0, 6), stakeholders }));
-  if (generatedMemory && typeof generatedMemory.executiveSummary === "string") memory = { ...memory, executiveSummary: generatedMemory.executiveSummary, known: compact(Array.isArray(generatedMemory.known) ? generatedMemory.known.map(String) : memory.known), assumptions: compact(Array.isArray(generatedMemory.assumptions) ? generatedMemory.assumptions.map(String) : memory.assumptions), gaps: compact(Array.isArray(generatedMemory.gaps) ? generatedMemory.gaps.map(String) : memory.gaps), changes: compact(Array.isArray(generatedMemory.changes) ? generatedMemory.changes.map(String) : memory.changes), aiStatus: "watsonx" };
+  const provider = aiAdapter();
+  const quota = await quotaAllows(db, "generative");
+  const options = { classification: quota.allowed ? classificationOf(row) : "confidential" as const, publicDemo: String(row.visibility || "demo") !== "private" };
+  const generatedMemory = recomputeOptions.skipGenerative
+    ? { ok: false, data: null, provider: "fallback" as const, model: null, fallback: true, reason: "disabled" as const, usage: { inputTokens: null, outputTokens: null, totalTokens: null }, latencyMs: 0, attempts: 0 }
+    : await provider.analyzeAccount(JSON.stringify({ customer: row.customer_name, currentSummary: row.challenge_summary, sources: events.slice(0, 30), scores: scores.slice(0, 6), stakeholders }), options);
+  if (generatedMemory.data && typeof generatedMemory.data.executiveSummary === "string") memory = { ...memory, executiveSummary: generatedMemory.data.executiveSummary, known: compact(generatedMemory.data.known.map(String)), assumptions: compact(generatedMemory.data.assumptions.map(String)), gaps: compact(generatedMemory.data.gaps.map(String)), changes: compact(generatedMemory.data.changes.map(String)), aiStatus: aiStatusOf(generatedMemory.provider) };
   const hypotheses = buildHypotheses(scores, events, stakeholders); const actions = buildActions({ id, customerName: String(row.customer_name), progress: Number(row.progress), updatedAt: String(row.updated_at) }, events, scores, stakeholders, hypotheses);
   await db.prepare("INSERT OR REPLACE INTO account_memory VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, memory.executiveSummary, JSON.stringify(memory.known), JSON.stringify(memory.assumptions), JSON.stringify(memory.gaps), JSON.stringify(memory.changes), memory.aiStatus, memory.version, memory.updatedAt).run();
   for (const item of hypotheses) {
@@ -539,15 +683,20 @@ export async function recomputeAccount(db: D1Database, id: string) {
     const existing = await db.prepare("SELECT * FROM account_actions WHERE discovery_id = ? AND dedupe_key = ?").bind(id, item.dedupeKey).first<Record<string, unknown>>();
     const unchangedDiscard = String(existing?.status || "") === "discarded" && String(existing?.evidence_fingerprint || "") === item.evidenceFingerprint;
     const status = unchangedDiscard ? "discarded" : String(existing?.status || "proposal") === "discarded" ? "proposal" : String(existing?.status || "proposal");
-    await db.prepare("INSERT OR REPLACE INTO account_actions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(String(existing?.id || `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`), id, item.stakeholderId, item.type, item.title, item.rationale, item.nextStep, item.impact, item.urgency, item.confidence, item.maturity, item.priorityScore, status, item.dueAt, JSON.stringify(item.evidence), item.dedupeKey, item.evidenceFingerprint, String(existing?.created_at || memory.updatedAt), memory.updatedAt).run();
+    const snoozedUntil = existing?.snoozed_until ? String(existing.snoozed_until) : null;
+    const currentStatus = snoozedUntil && new Date(snoozedUntil).getTime() > Date.now() ? "snoozed" : status;
+    await db.prepare("INSERT OR REPLACE INTO account_actions (id, discovery_id, stakeholder_id, type, title, rationale, next_step, impact, urgency, confidence, maturity, priority_score, status, due_at, evidence_json, dedupe_key, evidence_fingerprint, created_at, updated_at, why_now, effort, expected_outcome, conversation_json, snoozed_until, feedback_reason, rank_adjustment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(String(existing?.id || `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`), id, item.stakeholderId, item.type, item.title, item.rationale, item.nextStep, item.impact, item.urgency, item.confidence, item.maturity, item.priorityScore, currentStatus, item.dueAt, JSON.stringify(item.evidence), item.dedupeKey, item.evidenceFingerprint, String(existing?.created_at || memory.updatedAt), memory.updatedAt, item.whyNow, item.effort, item.expectedOutcome, JSON.stringify(item.conversation), snoozedUntil, existing?.feedback_reason || null, Math.max(-5, Math.min(5, Number(existing?.rank_adjustment || 0)))).run();
   }
   const plan = await db.prepare("SELECT discovery_id FROM account_plans WHERE discovery_id = ?").bind(id).first();
   if (!plan) {
     const suggestion = suggestAccountPlan(memory, hypotheses, actions, stakeholders);
     await db.prepare("INSERT INTO account_plans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", "draft", JSON.stringify(suggestion), memory.updatedAt).run();
   }
-  await db.prepare("INSERT INTO ai_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, id, "account-orchestrator", memory.aiStatus === "watsonx" ? "ibm-watsonx" : "deterministic-fallback", "completed", memory.aiStatus === "watsonx" ? 82 : 72, JSON.stringify(events.slice(0, 10).map((item) => item.id)), 0, "Memória, hipóteses e fila recalculadas; revisão humana necessária.", memory.updatedAt).run();
+  const snapshotFingerprint = await evidenceFingerprint((await collectAccountSources(db, id)).slice(0, 60));
+  await db.prepare("INSERT OR IGNORE INTO account_snapshots (id, discovery_id, reason, snapshot_json, confidence, source_fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`snap-${id}-${snapshotFingerprint.slice(0, 14)}`, id, "analysis", JSON.stringify({ progress: row.progress, topScores: scores.slice(0, 3), hypothesisConfidence: hypotheses.map((item) => ({ key: item.capabilityKey, confidence: item.confidence })), memoryVersion: memory.version }), scores[0]?.confidence || 0, snapshotFingerprint, memory.updatedAt).run();
+  await recordAIRun(db, id, "account-orchestrator", generatedMemory, events.slice(0, 10).map((item) => item.id), generatedMemory.ok ? 82 : 72, "Memória, hipóteses e fila recalculadas; revisão humana necessária.");
   await db.prepare("UPDATE discoveries SET last_analyzed_at = ? WHERE id = ?").bind(memory.updatedAt, id).run();
+  await refreshAccountEmbeddings(db, row).catch(() => undefined);
 }
 
 async function backfillV4(db: D1Database) {
@@ -561,6 +710,8 @@ async function backfillV4(db: D1Database) {
       const stakeholders = await db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>();
       for (const stakeholder of stakeholders.results) await addEvent(db, { id: `evt-${id}-${String(stakeholder.id)}`, discoveryId: id, type: "stakeholder", title: `${String(stakeholder.name)} · ${String(stakeholder.role)}`, content: `${String(stakeholder.notes || "")} Prioridades: ${json<string[]>(stakeholder.priorities_json, []).join(", ")}`, sourceType: "stakeholder", sourceId: String(stakeholder.id), evidenceStatus: String(stakeholder.source) === "manual" ? "confirmed" : "assumption", confidence: String(stakeholder.source) === "manual" ? 88 : 52, occurredAt: String(stakeholder.updated_at) });
     }
+    const hierarchy = await db.prepare("SELECT id, reports_to_id, created_at, updated_at FROM stakeholders WHERE discovery_id = ? AND reports_to_id IS NOT NULL").bind(id).all<Record<string, unknown>>();
+    for (const person of hierarchy.results) await db.prepare("INSERT OR IGNORE INTO account_relationships (id, discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type, label, confidence, evidence_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`rel-${id}-${String(person.id)}-reports`, id, String(person.id), String(person.reports_to_id), "reporta_para", "Reporta para", 88, "[]", "confirmed", String(person.created_at), String(person.updated_at)).run();
     const memory = await db.prepare("SELECT discovery_id FROM account_memory WHERE discovery_id = ?").bind(id).first();
     if (!memory) await recomputeAccount(db, id);
   }
@@ -568,12 +719,17 @@ async function backfillV4(db: D1Database) {
 
 async function accountPayload(db: D1Database, discoveryRows: Record<string, unknown>[]) {
   const ids = discoveryRows.map((row) => String(row.id));
-  if (!ids.length) return { discoveries: [], meetings: [], stakeholders: [], events: [], accountEvents: [], actions: [], hypotheses: [], memories: [], plans: [], documents: [], chats: [], aiRuns: [] };
+  if (!ids.length) return { discoveries: [], meetings: [], stakeholders: [], events: [], accountEvents: [], actions: [], hypotheses: [], memories: [], plans: [], documents: [], chats: [], aiRuns: [], relationships: [], graphLayouts: [], externalSignals: [], snapshots: [], actionFeedback: [] };
   const placeholders = ids.map(() => "?").join(",");
   const queries = [
     db.prepare(`SELECT * FROM meetings WHERE discovery_id IN (${placeholders}) ORDER BY COALESCE(scheduled_at, created_at) DESC`).bind(...ids), db.prepare(`SELECT * FROM account_maps WHERE discovery_id IN (${placeholders})`).bind(...ids), db.prepare(`SELECT * FROM stakeholders WHERE discovery_id IN (${placeholders}) ORDER BY created_at`).bind(...ids), db.prepare(`SELECT * FROM audit_events WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 100`).bind(...ids), db.prepare(`SELECT * FROM account_events WHERE discovery_id IN (${placeholders}) ORDER BY occurred_at DESC`).bind(...ids), db.prepare(`SELECT * FROM account_actions WHERE discovery_id IN (${placeholders}) ORDER BY priority_score DESC`).bind(...ids), db.prepare(`SELECT * FROM opportunity_hypotheses WHERE discovery_id IN (${placeholders}) ORDER BY confidence DESC`).bind(...ids), db.prepare(`SELECT * FROM account_memory WHERE discovery_id IN (${placeholders})`).bind(...ids), db.prepare(`SELECT * FROM account_plans WHERE discovery_id IN (${placeholders})`).bind(...ids), db.prepare(`SELECT * FROM documents WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC`).bind(...ids), db.prepare(`SELECT * FROM account_chat_messages WHERE discovery_id IN (${placeholders}) ORDER BY created_at`).bind(...ids), db.prepare(`SELECT * FROM ai_runs WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 100`).bind(...ids),
+    db.prepare(`SELECT * FROM account_relationships WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`).bind(...ids),
+    db.prepare(`SELECT * FROM account_graph_layouts WHERE discovery_id IN (${placeholders})`).bind(...ids),
+    db.prepare(`SELECT * FROM external_signals WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC`).bind(...ids),
+    db.prepare(`SELECT * FROM account_snapshots WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 120`).bind(...ids),
+    db.prepare(`SELECT * FROM action_feedback WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 120`).bind(...ids),
   ];
-  const [meetingRows, mapRows, stakeholderRows, auditRows, eventRows, actionRows, hypothesisRows, memoryRows, planRows, documentRows, chatRows, aiRunRows] = await Promise.all(queries.map((query) => query.all<Record<string, unknown>>()));
+  const [meetingRows, mapRows, stakeholderRows, auditRows, eventRows, actionRows, hypothesisRows, memoryRows, planRows, documentRows, chatRows, aiRunRows, relationshipRows, layoutRows, signalRows, snapshotRows, feedbackRows] = await Promise.all(queries.map((query) => query.all<Record<string, unknown>>()));
   const meetings = meetingRows.results.map(mapMeeting); const maps = new Map(mapRows.results.map((row) => [String(row.discovery_id), { nodes: json<AccountNode[]>(row.nodes_json, []), edges: json<AccountEdge[]>(row.edges_json, []), updatedAt: String(row.updated_at) } as AccountMap]));
   return {
     discoveries: discoveryRows.map((row) => mapDiscovery(row, meetings.filter((item) => item.discoveryId === String(row.id)), maps.get(String(row.id)))), meetings,
@@ -581,7 +737,12 @@ async function accountPayload(db: D1Database, discoveryRows: Record<string, unkn
     accountEvents: eventRows.results.map(mapAccountEvent), actions: actionRows.results.map(mapAction), hypotheses: hypothesisRows.results.map(mapHypothesis), memories: memoryRows.results.map((row) => ({ discoveryId: String(row.discovery_id), ...mapMemory(row)! })), plans: planRows.results.map((row) => mapPlan(row)!),
     documents: documentRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), name: String(row.name), contentType: String(row.content_type), sizeBytes: Number(row.size_bytes), status: String(row.status), summary: String(row.summary), createdAt: String(row.created_at) } satisfies AccountDocument)),
     chats: chatRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), role: String(row.role), content: String(row.content), citations: json<EvidenceRef[]>(row.citations_json, []), aiStatus: String(row.ai_status), createdAt: String(row.created_at) })),
-    aiRuns: aiRunRows.results.map((row) => ({ id: row.id, discoveryId: row.discovery_id, agent: row.agent, provider: row.provider, status: row.status, confidence: row.confidence, sources: json<string[]>(row.source_ids_json, []), validated: Boolean(row.validated), detail: row.detail, createdAt: row.created_at })),
+    aiRuns: aiRunRows.results.map((row) => ({ id: row.id, discoveryId: row.discovery_id, agent: row.agent, provider: row.provider, model: row.model, status: row.status, confidence: row.confidence, sources: json<string[]>(row.source_ids_json, []), validated: Boolean(row.validated), detail: row.detail, promptTokens: Number(row.prompt_tokens || 0), outputTokens: Number(row.output_tokens || 0), latencyMs: Number(row.latency_ms || 0), cached: Boolean(row.cache_hit), errorCode: row.error_code || null, createdAt: row.created_at })),
+    relationships: relationshipRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), sourceStakeholderId: String(row.source_stakeholder_id), targetStakeholderId: String(row.target_stakeholder_id), relationType: String(row.relation_type), label: String(row.label || ""), confidence: Number(row.confidence), evidence: json<EvidenceRef[]>(row.evidence_json, []), status: String(row.status), createdAt: String(row.created_at), updatedAt: String(row.updated_at) })),
+    graphLayouts: layoutRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), mode: String(row.mode), nodes: json<Array<{ id: string; x: number; y: number }>>(row.nodes_json, []), viewport: json<Record<string, number>>(row.viewport_json, {}), updatedAt: String(row.updated_at) })),
+    externalSignals: signalRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), title: String(row.title), summary: String(row.summary), sourceUrl: String(row.source_url), publisher: String(row.publisher || ""), publishedAt: row.published_at ? String(row.published_at) : null, status: String(row.status), confidence: Number(row.confidence), expiresAt: String(row.expires_at), createdAt: String(row.created_at) })),
+    snapshots: snapshotRows.results.map((row) => ({ id: String(row.id), discoveryId: String(row.discovery_id), reason: String(row.reason), snapshot: json<Record<string, unknown>>(row.snapshot_json, {}), confidence: Number(row.confidence), createdAt: String(row.created_at) })),
+    actionFeedback: feedbackRows.results.map((row) => ({ id: String(row.id), actionId: String(row.action_id), discoveryId: String(row.discovery_id), feedbackType: String(row.feedback_type), reason: String(row.reason || ""), adjustment: Number(row.adjustment || 0), previousStatus: String(row.previous_status || ""), newStatus: String(row.new_status || ""), createdAt: String(row.created_at) })),
   };
 }
 
@@ -606,10 +767,51 @@ export async function POST(request: Request) {
   if (body.action === "create") {
     const name = String(body.customerName || "").trim(); if (!name) return Response.json({ error: "Informe o nome da conta." }, { status: 400 });
     const id = `cdi-${Date.now()}`; const scores = initialScores(); const accountMap = buildAccountMap({ customerName: name, industry: String(body.industry || "Não informado"), scores }, [], []);
-    await db.prepare("INSERT INTO discoveries (id, customer_name, industry, company_size, owner, stage, progress, priority, challenge_summary, answers_json, scores_json, recommendations_json, next_engagement, created_at, updated_at, owner_email, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, name, String(body.industry || "Não informado"), String(body.companySize || "Enterprise"), identity.email.split("@")[0], "Account intelligence", 8, "Baixa", "Conta criada. Adicione uma informação para iniciar a memória.", "[]", JSON.stringify(scores), "[]", "Registrar primeira informação", now, now, identity.email, "private").run();
+    const classification = String(body.dataClassification) === "confidential" ? "confidential" : "test";
+    const rawDomain = String(body.companyDomain || "").trim();
+    const domain = normalizeCompanyDomain(rawDomain);
+    if (rawDomain && !domain) return Response.json({ error: "Informe um domínio corporativo válido, como empresa.com.br." }, { status: 400 });
+    await db.prepare("INSERT INTO discoveries (id, customer_name, industry, company_size, owner, stage, progress, priority, challenge_summary, answers_json, scores_json, recommendations_json, next_engagement, created_at, updated_at, owner_email, visibility, data_classification, company_domain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, name, String(body.industry || "Não informado"), String(body.companySize || "Enterprise"), identity.email.split("@")[0], "Account intelligence", 8, "Baixa", "Conta criada. Adicione uma informação para iniciar a memória.", "[]", JSON.stringify(scores), "[]", "Registrar primeira informação", now, now, identity.email, "private", classification, domain).run();
     await db.prepare("INSERT INTO account_maps VALUES (?, ?, ?, ?)").bind(id, JSON.stringify(accountMap.nodes), JSON.stringify(accountMap.edges), now).run();
     await addEvent(db, { id: `evt-${id}-created`, discoveryId: id, type: "account_created", title: "Conta adicionada ao workspace", content: `Conta ${name} criada para inteligência antes do CRM.`, sourceType: "system", sourceId: id, evidenceStatus: "confirmed", confidence: 100, occurredAt: now }); await seedStakeholderTrees(db); await recomputeAccount(db, id);
     return Response.json({ ok: true, id }, { status: 201 });
+  }
+  if (body.action === "briefing") {
+    const briefingDate = now.slice(0, 10);
+    const briefingProvider = aiAdapter();
+    const briefingConfig = await cacheKeyFor(["daily-briefing", providerCacheSignature(briefingProvider, "test")]);
+    const existing = await db.prepare("SELECT * FROM daily_briefings WHERE owner_email = ? AND briefing_date = ? AND expires_at > ? AND provider <> 'deterministic-fallback' AND model <> '' AND evidence_fingerprint LIKE ?").bind(identity.email, briefingDate, now, `${briefingConfig}:%`).first<Record<string, unknown>>();
+    if (existing && !body.force) return Response.json({ briefing: json<Record<string, unknown>>(existing.content_json, {}), provider: String(existing.provider), model: String(existing.model || ""), cached: true, generatedAt: String(existing.generated_at) });
+    const rows = await db.prepare("SELECT * FROM discoveries WHERE visibility = 'private' AND owner_email = ? ORDER BY progress DESC, updated_at DESC LIMIT 5").bind(identity.email).all<Record<string, unknown>>();
+    const accountIds = rows.results.map((item) => String(item.id));
+    if (!accountIds.length) return Response.json({ briefing: { headline: "Comece sua inteligência de contas", summary: "Adicione uma conta e registre a primeira informação para receber recomendações proativas.", focusAccounts: [], changes: [], meetingsToPrepare: [], overdueCommitments: [] }, provider: "deterministic-fallback", model: null, cached: false, generatedAt: now });
+    const placeholders = accountIds.map(() => "?").join(",");
+    const [actionRows, eventRows, meetingRows] = await Promise.all([
+      db.prepare(`SELECT * FROM account_actions WHERE discovery_id IN (${placeholders}) AND status NOT IN ('completed', 'discarded') AND (snoozed_until IS NULL OR snoozed_until <= ?) ORDER BY (priority_score + rank_adjustment) DESC LIMIT 12`).bind(...accountIds, now).all<Record<string, unknown>>(),
+      db.prepare(`SELECT * FROM account_events WHERE discovery_id IN (${placeholders}) ORDER BY occurred_at DESC LIMIT 20`).bind(...accountIds).all<Record<string, unknown>>(),
+      db.prepare(`SELECT * FROM meetings WHERE discovery_id IN (${placeholders}) AND meeting_status = 'scheduled' ORDER BY scheduled_at ASC LIMIT 8`).bind(...accountIds).all<Record<string, unknown>>(),
+    ]);
+    const actions = actionRows.results.map(mapAction);
+    const accountName = new Map(rows.results.map((item) => [String(item.id), String(item.customer_name)]));
+    const deterministicBrief = {
+      headline: actions.length ? "O que merece sua atenção hoje" : "Sua carteira não tem pendências críticas",
+      summary: actions.length ? `${actions.length} ações estão abertas. As três primeiras combinam maior impacto, urgência, confiança e maturidade.` : "Registre novas interações para manter a memória e as recomendações atualizadas.",
+      focusAccounts: actions.slice(0, 5).map((action) => ({ accountId: action.discoveryId, accountName: accountName.get(action.discoveryId) || "Conta", headline: action.title, whyNow: action.whyNow || action.rationale, priority: action.priorityScore, suggestedAction: action.nextStep, citationIds: action.evidence.map((source) => source.sourceId).slice(0, 8) })),
+      changes: eventRows.results.slice(0, 8).map((event) => `${accountName.get(String(event.discovery_id)) || "Conta"}: ${String(event.title)}`),
+      meetingsToPrepare: meetingRows.results.map((meeting) => `${accountName.get(String(meeting.discovery_id)) || "Conta"}: ${String(meeting.title)} · ${String(meeting.scheduled_at || "sem data")}`),
+      overdueCommitments: eventRows.results.filter((event) => String(event.type) === "commitment" && new Date(String(event.occurred_at)).getTime() < Date.now()).map((event) => `${accountName.get(String(event.discovery_id)) || "Conta"}: ${String(event.title)}`).slice(0, 8),
+    };
+    const sources = eventRows.results.map((event) => ({ id: String(event.id), accountId: String(event.discovery_id), kind: String(event.type), title: String(event.title), content: String(event.content), sourceId: String(event.source_id || event.id), page: null, occurredAt: String(event.occurred_at), confidence: Number(event.confidence || 70) } satisfies RetrievalSource));
+    const fingerprint = await evidenceFingerprint(sources);
+    const quota = await quotaAllows(db, "generative");
+    const testAccountIds = new Set(rows.results.filter((item) => classificationOf(item) === "test").map((item) => String(item.id)));
+    const safeContext = { accounts: rows.results.filter((item) => testAccountIds.has(String(item.id))).map((item) => ({ id: item.id, name: item.customer_name, progress: item.progress, priority: item.priority, stage: item.stage })), actions: actions.filter((action) => testAccountIds.has(action.discoveryId)), events: sources.filter((source) => testAccountIds.has(source.accountId)), scheduledMeetings: meetingRows.results.filter((meeting) => testAccountIds.has(String(meeting.discovery_id))) };
+    const generated = quota.allowed && testAccountIds.size ? await briefingProvider.generateDailyBrief(JSON.stringify(safeContext), { classification: "test" }) : { ok: false, data: null, provider: "fallback" as const, model: null, fallback: true, reason: "quota" as const, usage: { inputTokens: null, outputTokens: null, totalTokens: null }, latencyMs: 0, attempts: 0 };
+    const briefing = generated.data || deterministicBrief;
+    const providerName = dbProviderName(generated.provider);
+    if (generated.ok && generated.model) await db.prepare("INSERT OR REPLACE INTO daily_briefings (id, owner_email, briefing_date, account_ids_json, content_json, provider, model, status, evidence_fingerprint, generated_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`brief-${identity.email}-${briefingDate}`, identity.email, briefingDate, JSON.stringify(accountIds), JSON.stringify(briefing), providerName, generated.model, "generated", `${briefingConfig}:${fingerprint}`, now, new Date(Date.now() + 24 * 3600_000).toISOString(), String(existing?.created_at || now), now).run();
+    await recordAIRun(db, accountIds[0], "daily-briefing", generated, sources.slice(0, 20).map((source) => source.id), generated.ok ? 82 : 70, "Briefing diário para até cinco contas; recomendações exigem aprovação humana.");
+    return Response.json({ briefing, provider: providerName, model: generated.model, cached: false, usage: generated.usage, quota: { generative: quota }, generatedAt: now });
   }
   const id = String(body.id || ""); const row = await accountForMutation(db, id, request); if (!row) return Response.json({ error: "Conta não encontrada ou acesso não autorizado." }, { status: 404 });
   if (body.action === "answer") {
@@ -620,11 +822,20 @@ export async function POST(request: Request) {
   }
   if (body.action === "meeting") {
     const notes = String(body.notes || "").trim(); if (!notes) return Response.json({ error: "As notas da reunião são obrigatórias." }, { status: 400 }); let insights: MeetingInsight;
-    try { insights = await getWatsonxInsights(notes, String(row.customer_name), String(row.industry)) || fallbackMeetingInsights(notes, String(row.customer_name)); } catch { insights = { ...fallbackMeetingInsights(notes, String(row.customer_name)), aiStatus: "error" }; }
+    const meetingQuota = await quotaAllows(db, "generative");
+    let meetingRun: AIResult<unknown> = { ok: false, data: null, provider: "fallback", model: null, fallback: true, reason: meetingQuota.allowed ? "provider_error" : "quota", usage: { inputTokens: null, outputTokens: null, totalTokens: null }, latencyMs: 0, attempts: 0 };
+    try {
+      const generated = await getAIInsights(notes, String(row.customer_name), String(row.industry), meetingQuota.allowed ? classificationOf(row) : "confidential");
+      meetingRun = generated.result;
+      insights = generated.insights || fallbackMeetingInsights(notes, String(row.customer_name));
+    } catch {
+      insights = { ...fallbackMeetingInsights(notes, String(row.customer_name)), aiStatus: "error" };
+    }
     const meetingId = `mtg-${Date.now()}`; const title = String(body.title || "Reunião registrada");
     await db.prepare("INSERT INTO meetings (id, discovery_id, title, notes, summary, insights_json, ai_status, created_at, scheduled_at, attendees_json, objective, preparation_json, meeting_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(meetingId, id, title, notes, insights.summary, JSON.stringify(insights), insights.aiStatus, now, null, JSON.stringify(list(body.attendees)), String(body.objective || ""), JSON.stringify({ questions: insights.nextQuestions, risks: insights.risks, themes: insights.ibmThemes }), "completed").run();
-    await addEvent(db, { id: `evt-${id}-${meetingId}`, discoveryId: id, type: "meeting", title, content: `${insights.summary} ${insights.signals.join(" ")}`, sourceType: "meeting", sourceId: meetingId, evidenceStatus: "confirmed", confidence: insights.aiStatus === "watsonx" ? 90 : 78, occurredAt: now }); const answers = json<Answer[]>(row.answers_json, []); const allMeetings = (await db.prepare("SELECT * FROM meetings WHERE discovery_id = ? ORDER BY created_at DESC").bind(id).all<Record<string, unknown>>()).results.map(mapMeeting); const result = analyze(answers, allMeetings); const progress = Math.min(100, 20 + answers.length * 10 + allMeetings.length * 18); const map = buildAccountMap({ customerName: String(row.customer_name), industry: String(row.industry), scores: result.scores }, answers, allMeetings);
-    await db.prepare("UPDATE discoveries SET stage = ?, progress = ?, priority = ?, challenge_summary = ?, scores_json = ?, recommendations_json = ?, next_engagement = ?, updated_at = ? WHERE id = ?").bind(allMeetings.length >= 2 && result.priority !== "Baixa" ? "Pronto para handoff" : "Qualificação pré-CRM", progress, result.priority, result.challengeSummary, JSON.stringify(result.scores), JSON.stringify(result.recommendations), result.nextEngagement, now, id).run(); await db.prepare("INSERT OR REPLACE INTO account_maps VALUES (?, ?, ?, ?)").bind(id, JSON.stringify(map.nodes), JSON.stringify(map.edges), now).run(); await recomputeAccount(db, id); return Response.json({ ok: true, aiStatus: insights.aiStatus });
+    await recordAIRun(db, id, "meeting-intelligence", meetingRun, [meetingId], meetingRun.ok ? 86 : 70, meetingRun.ok ? "Notas analisadas pelo provedor ativo; extrações exigem validação humana." : "Notas analisadas pelo motor determinístico após indisponibilidade, política ou cota do provedor.");
+    await addEvent(db, { id: `evt-${id}-${meetingId}`, discoveryId: id, type: "meeting", title, content: `${insights.summary} ${insights.signals.join(" ")}`, sourceType: "meeting", sourceId: meetingId, evidenceStatus: "confirmed", confidence: insights.aiStatus === "watsonx" || insights.aiStatus === "gemini" ? 90 : 78, occurredAt: now }); const answers = json<Answer[]>(row.answers_json, []); const allMeetings = (await db.prepare("SELECT * FROM meetings WHERE discovery_id = ? ORDER BY created_at DESC").bind(id).all<Record<string, unknown>>()).results.map(mapMeeting); const result = analyze(answers, allMeetings); const progress = Math.min(100, 20 + answers.length * 10 + allMeetings.length * 18); const map = buildAccountMap({ customerName: String(row.customer_name), industry: String(row.industry), scores: result.scores }, answers, allMeetings);
+    await db.prepare("UPDATE discoveries SET stage = ?, progress = ?, priority = ?, challenge_summary = ?, scores_json = ?, recommendations_json = ?, next_engagement = ?, updated_at = ? WHERE id = ?").bind(allMeetings.length >= 2 && result.priority !== "Baixa" ? "Pronto para handoff" : "Qualificação pré-CRM", progress, result.priority, result.challengeSummary, JSON.stringify(result.scores), JSON.stringify(result.recommendations), result.nextEngagement, now, id).run(); await db.prepare("INSERT OR REPLACE INTO account_maps VALUES (?, ?, ?, ?)").bind(id, JSON.stringify(map.nodes), JSON.stringify(map.edges), now).run(); await recomputeAccount(db, id, { skipGenerative: true }); return Response.json({ ok: true, aiStatus: insights.aiStatus });
   }
   if (body.action === "information") {
     const kind = String(body.kind || "note"); const title = String(body.title || "Nova informação").trim(); const content = String(body.content || "").trim(); if (!content) return Response.json({ error: "Descreva a informação." }, { status: 400 }); const occurredAt = String(body.occurredAt || now); const eventId = `evt-${id}-${Date.now()}`; const status = ["confirmed", "assumption", "gap", "stale"].includes(String(body.evidenceStatus)) ? String(body.evidenceStatus) as AccountEvent["evidenceStatus"] : "confirmed";
@@ -633,21 +844,209 @@ export async function POST(request: Request) {
     if (kind === "scheduled_meeting") { const meetingId = `mtg-${Date.now()}`; const fallback = fallbackMeetingInsights(content, String(row.customer_name)); await db.prepare("INSERT INTO meetings (id, discovery_id, title, notes, summary, insights_json, ai_status, created_at, scheduled_at, attendees_json, objective, preparation_json, meeting_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(meetingId, id, title, "", content, JSON.stringify(fallback), "fallback", now, occurredAt, JSON.stringify(list(body.attendees)), content, JSON.stringify({ questions: fallback.nextQuestions, risks: fallback.risks, themes: fallback.ibmThemes }), "scheduled").run(); }
     await db.prepare("UPDATE discoveries SET updated_at = ? WHERE id = ?").bind(now, id).run(); await recomputeAccount(db, id); return Response.json({ ok: true, eventId });
   }
-  if (body.action === "ask") {
-    const question = String(body.question || "").trim(); if (!question) return Response.json({ error: "Digite uma pergunta." }, { status: 400 }); const eventRows = await db.prepare("SELECT * FROM account_events WHERE discovery_id = ? ORDER BY occurred_at DESC").bind(id).all<Record<string, unknown>>(); const chunkRows = await db.prepare("SELECT document_id, content, page, created_at FROM document_chunks WHERE discovery_id = ? ORDER BY ordinal LIMIT 30").bind(id).all<Record<string, unknown>>(); const evidenceEvents = [...eventRows.results.map(mapAccountEvent), ...chunkRows.results.map((chunk, index) => ({ id: `chunk-${index}`, discoveryId: id, type: "document", title: `Documento${chunk.page ? ` · pág. ${chunk.page}` : ""}`, content: String(chunk.content), sourceType: "document", sourceId: String(chunk.document_id), evidenceStatus: "confirmed" as const, confidence: 82, occurredAt: String(chunk.created_at), createdAt: String(chunk.created_at) }))]; const stakeholders = (await db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapStakeholder); let result: { answer: string; citations: EvidenceRef[]; confidence: number; aiStatus: "watsonx" | "fallback"; suggestedActions: string[] } = answerFromEvidence(question, String(row.customer_name), evidenceEvents, json<Score[]>(row.scores_json, []), stakeholders); const generatedAnswer = await aiAdapter().answerQuestion(JSON.stringify({ customer: row.customer_name, sources: result.citations, context: evidenceEvents.slice(0, 15), stakeholders, scores: json<Score[]>(row.scores_json, []).slice(0, 4) }), question); if (generatedAnswer) result = { ...result, answer: String(generatedAnswer.answer), confidence: Math.max(0, Math.min(100, Number(generatedAnswer.confidence || result.confidence))), aiStatus: "watsonx", suggestedActions: Array.isArray(generatedAnswer.suggestedActions) ? generatedAnswer.suggestedActions.map(String).slice(0, 4) : result.suggestedActions }; const userId = `chat-${Date.now()}-u`; const assistantId = `chat-${Date.now()}-a`;
-    await db.batch([db.prepare("INSERT INTO account_chat_messages VALUES (?, ?, ?, ?, ?, ?, ?)").bind(userId, id, "user", question, "[]", "human", now), db.prepare("INSERT INTO account_chat_messages VALUES (?, ?, ?, ?, ?, ?, ?)").bind(assistantId, id, "assistant", result.answer, JSON.stringify(result.citations), result.aiStatus, now), db.prepare("INSERT INTO ai_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`run-${Date.now()}-ask`, id, "account-copilot", "deterministic-fallback", "completed", result.confidence, JSON.stringify(result.citations.map((item) => item.sourceId)), 0, "Resposta fundamentada; não altera dados.", now)]); return Response.json(result);
+  if (body.action === "information_preview") {
+    const content = String(body.content || "").trim();
+    if (!content) return Response.json({ error: "Descreva a informação antes de revisar." }, { status: 400 });
+    const lower = content.toLowerCase();
+    const detectedKinds = compact([
+      /ceo|cio|cto|cfo|ciso|diretor|gerente|stakeholder/.test(lower) && "stakeholder",
+      /aws|azure|cloud|sap|mainframe|sistema|plataforma/.test(lower) && "system",
+      /dor|problema|custo|risco|atraso|desperd/.test(lower) && "pain",
+      /iniciativa|programa|projeto|roadmap/.test(lower) && "initiative",
+      /compromisso|prazo|até |responsável/.test(lower) && "commitment",
+    ]);
+    const affectedThemes = capabilityCatalog.filter((item) => hitCount(lower, item.keywords) > 0).map((item) => item.short);
+    return Response.json({
+      preview: {
+        title: String(body.title || "Nova informação").trim(),
+        content,
+        kind: String(body.kind || detectedKinds[0] || "note"),
+        evidenceStatus: String(body.evidenceStatus || "confirmed"),
+        detectedKinds,
+        affectedThemes,
+        willUpdate: ["Memória da conta", detectedKinds.includes("stakeholder") ? "Relacionamentos" : "Entidades da conta", affectedThemes.length ? "Hipóteses e Next Best Actions" : "Fila proativa"],
+        requiresHumanConfirmation: true,
+      },
+    });
   }
-  if (body.action === "action_status") { const allowed = ["proposal", "accepted", "in_progress", "completed", "discarded"]; const status = String(body.status); if (!allowed.includes(status)) return Response.json({ error: "Status inválido." }, { status: 400 }); await db.prepare("UPDATE account_actions SET status = ?, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(status, now, String(body.actionId), id).run(); return Response.json({ ok: true }); }
+  if (body.action === "prepare_conversation") {
+    const focus = String(body.focus || "próxima conversa").trim();
+    const sources = await retrieveAccountSources(db, id, focus, null, 16);
+    const fingerprint = await evidenceFingerprint(sources);
+    const provider = aiAdapter();
+    const cacheKey = await cacheKeyFor([id, "prepare-conversation", providerCacheSignature(provider, classificationOf(row)), fingerprint, focus.toLowerCase()]);
+    const cached = await cachedAI<Record<string, unknown>>(db, cacheKey);
+    if (cached) return Response.json({ preparation: cached.data, provider: cached.provider, model: cached.model, cached: true, usage: cached.usage, citations: sources.slice(0, 8) });
+    const quota = await quotaAllows(db, "generative");
+    const generated = await provider.prepareMeeting(JSON.stringify({ customer: row.customer_name, focus, sources: sources.map((source) => ({ id: source.id, title: source.title, content: source.content, occurredAt: source.occurredAt })), stakeholders: (await db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapStakeholder), hypotheses: (await db.prepare("SELECT * FROM opportunity_hypotheses WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapHypothesis) }), { classification: quota.allowed ? classificationOf(row) : "confidential" });
+    const fallback = fallbackMeetingInsights(sources.map((source) => `${source.title}: ${source.content}`).join("\n"), String(row.customer_name));
+    const preparation = generated.data || { ...fallback, objective: focus };
+    await recordAIRun(db, id, "meeting-preparation", generated, sources.slice(0, 12).map((source) => source.id), generated.ok ? 84 : 70, "Preparação de conversa gerada sem alterar a memória da conta.");
+    if (generated.ok) await putAICache(db, { cacheKey, accountId: id, task: "prepare-conversation", provider: dbProviderName(generated.provider), model: generated.model || "", fingerprint, data: preparation, usage: generated.usage, ttlMs: 12 * 3600_000 });
+    return Response.json({ preparation, provider: dbProviderName(generated.provider), model: generated.model, cached: false, usage: generated.usage, citations: sources.slice(0, 8).map((source) => ({ sourceType: source.kind, sourceId: source.sourceId, title: source.title, excerpt: source.content.slice(0, 220), occurredAt: source.occurredAt })) });
+  }
+  if (body.action === "ask") {
+    const question = String(body.question || "").trim();
+    if (!question) return Response.json({ error: "Digite uma pergunta." }, { status: 400 });
+    const provider = aiAdapter();
+    const allSources = await collectAccountSources(db, id);
+    const fingerprint = await evidenceFingerprint(allSources.slice(0, 90));
+    const cacheKey = await cacheKeyFor([id, "ask", providerCacheSignature(provider, classificationOf(row)), fingerprint, question.toLowerCase()]);
+    const cached = await cachedAI<Record<string, unknown>>(db, cacheKey);
+    if (cached) {
+      const cachedResponse = { ...cached.data, provider: cached.provider, model: cached.model, cached: true, usage: cached.usage };
+      await db.batch([
+        db.prepare("INSERT INTO account_chat_messages VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`chat-${Date.now()}-u`, id, "user", question, "[]", "human", now),
+        db.prepare("INSERT INTO account_chat_messages VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`chat-${Date.now()}-a`, id, "assistant", String(cached.data.answer || ""), JSON.stringify(cached.data.citations || []), String(cached.data.aiStatus || "fallback"), now),
+      ]);
+      return Response.json(cachedResponse);
+    }
+    const embeddingQuota = await quotaAllows(db, "embedding");
+    let queryVector: number[] | null = null;
+    if (embeddingQuota.allowed && classificationOf(row) === "test" && provider.status.gemini.configured) {
+      const embedded = await provider.embedSources([{ id: "query", text: question }], { classification: "test", embeddingTask: "RETRIEVAL_QUERY" });
+      queryVector = embedded.data?.[0]?.values || null;
+      await recordAIRun(db, id, "semantic-index", embedded, ["query"], embedded.ok ? 80 : 0, embedded.ok ? "Consulta vetorizada para recuperação híbrida." : "Consulta sem embedding; busca por palavras-chave e recência.");
+    }
+    const ranked = await retrieveAccountSources(db, id, question, queryVector, 14);
+    const evidenceEvents: AccountEvent[] = ranked.map((source) => ({ id: source.id, discoveryId: id, type: source.kind, title: source.title, content: source.content, sourceType: source.kind, sourceId: source.sourceId, evidenceStatus: "confirmed", confidence: source.confidence, occurredAt: source.occurredAt, createdAt: source.occurredAt }));
+    const stakeholders = (await db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapStakeholder);
+    const deterministic = answerFromEvidence(question, String(row.customer_name), evidenceEvents, json<Score[]>(row.scores_json, []), stakeholders);
+    const generativeQuota = await quotaAllows(db, "generative");
+    const generated = await provider.answerQuestion(JSON.stringify({ customer: row.customer_name, sources: ranked.map((source) => ({ id: source.id, title: source.title, content: source.content, sourceType: source.kind, sourceId: source.sourceId, page: source.page, occurredAt: source.occurredAt })), stakeholders, scores: json<Score[]>(row.scores_json, []).slice(0, 4) }), question, { classification: generativeQuota.allowed ? classificationOf(row) : "confidential" });
+    const citationLookup = new Map(ranked.map((source) => [source.id, source]));
+    const generatedCitations = generated.data?.citationIds.map((citationId) => citationLookup.get(citationId)).filter(Boolean).map((source) => ({ sourceType: source!.kind, sourceId: source!.sourceId, title: source!.title, excerpt: source!.content.slice(0, 220), occurredAt: source!.occurredAt })) || [];
+    const citations = generatedCitations.length ? generatedCitations : deterministic.citations;
+    const result = {
+      answer: generated.data?.answer || deterministic.answer,
+      citations,
+      confidence: generated.data?.confidence ?? deterministic.confidence,
+      aiStatus: generated.ok ? aiStatusOf(generated.provider) : "fallback",
+      suggestedActions: generated.data?.suggestedActions || deterministic.suggestedActions,
+      facts: generated.data?.facts || [],
+      hypotheses: generated.data?.hypotheses || [],
+      inferences: generated.data?.inferences || [],
+      provider: dbProviderName(generated.provider),
+      model: generated.model,
+      cached: false,
+      usage: generated.usage,
+    };
+    await db.batch([
+      db.prepare("INSERT INTO account_chat_messages VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`chat-${Date.now()}-u`, id, "user", question, "[]", "human", now),
+      db.prepare("INSERT INTO account_chat_messages VALUES (?, ?, ?, ?, ?, ?, ?)").bind(`chat-${Date.now()}-a`, id, "assistant", result.answer, JSON.stringify(result.citations), result.aiStatus, now),
+    ]);
+    await recordAIRun(db, id, "account-copilot", generated, result.citations.map((item) => item.sourceId), result.confidence, "Resposta fundamentada; não altera dados.");
+    if (generated.ok) await putAICache(db, { cacheKey, accountId: id, task: "ask", provider: result.provider, model: result.model || "", fingerprint, data: result, usage: generated.usage, ttlMs: 12 * 3600_000 });
+    return Response.json(result);
+  }
+  if (body.action === "action_status") {
+    const allowed = ["proposal", "accepted", "in_progress", "completed", "discarded", "snoozed"];
+    const status = String(body.status);
+    if (!allowed.includes(status)) return Response.json({ error: "Status inválido." }, { status: 400 });
+    const actionId = String(body.actionId || "");
+    const existing = await db.prepare("SELECT * FROM account_actions WHERE id = ? AND discovery_id = ?").bind(actionId, id).first<Record<string, unknown>>();
+    if (!existing) return Response.json({ error: "Ação não encontrada." }, { status: 404 });
+    const reason = String(body.reason || "").trim();
+    if (status === "discarded" && !reason) return Response.json({ error: "Informe o motivo do descarte para melhorar as próximas recomendações." }, { status: 400 });
+    const snoozedUntil = status === "snoozed" ? String(body.snoozedUntil || new Date(Date.now() + 7 * 86400000).toISOString()) : null;
+    const feedbackType = String(body.feedbackType || (status === "accepted" ? "accepted" : status === "completed" ? "completed" : status === "discarded" ? "discarded" : status === "snoozed" ? "snoozed" : body.edited ? "edited" : "status_changed"));
+    const adjustmentDelta = feedbackType === "completed" ? 3 : feedbackType === "accepted" ? 2 : feedbackType === "edited" ? 1 : feedbackType === "discarded" ? -3 : feedbackType === "snoozed" ? -1 : 0;
+    const adjustment = Math.max(-5, Math.min(5, Number(existing.rank_adjustment || 0) + adjustmentDelta));
+    await db.batch([
+      db.prepare("UPDATE account_actions SET status = ?, title = ?, next_step = ?, due_at = ?, snoozed_until = ?, feedback_reason = ?, rank_adjustment = ?, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(status, String(body.title || existing.title), String(body.nextStep || existing.next_step), body.dueAt ? String(body.dueAt) : existing.due_at, snoozedUntil, reason || existing.feedback_reason || null, adjustment, now, actionId, id),
+      db.prepare("INSERT INTO action_feedback (id, action_id, discovery_id, feedback_type, reason, adjustment, previous_status, new_status, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(`afb-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, actionId, id, feedbackType, reason, adjustmentDelta, String(existing.status), status, JSON.stringify({ dueAt: body.dueAt || null, snoozedUntil, edited: Boolean(body.edited) }), now),
+    ]);
+    return Response.json({ ok: true, status, snoozedUntil, rankAdjustment: adjustment });
+  }
   if (["plan_save", "plan_apply", "plan_suggest"].includes(String(body.action))) {
-    const memory = mapMemory(await db.prepare("SELECT * FROM account_memory WHERE discovery_id = ?").bind(id).first<Record<string, unknown>>()) || buildMemory(String(row.customer_name), String(row.challenge_summary), [], json<Score[]>(row.scores_json, [])); const hypotheses = (await db.prepare("SELECT * FROM opportunity_hypotheses WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapHypothesis); const actions = (await db.prepare("SELECT * FROM account_actions WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapAction); const stakeholders = (await db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapStakeholder); const current = mapPlan(await db.prepare("SELECT * FROM account_plans WHERE discovery_id = ?").bind(id).first<Record<string, unknown>>()); let suggestion = body.action === "plan_suggest" ? suggestAccountPlan(memory, hypotheses.map((item) => ({ ...item, stage: item.stage as "draft" | "validating" | "qualified" | "rejected" })), actions, stakeholders) : current?.suggestion || {}; if (body.action === "plan_suggest") { const generated = await aiAdapter().suggestAccountPlan(JSON.stringify({ customer: row.customer_name, memory, hypotheses, actions, stakeholders, humanPlan: current })); if (generated) suggestion = Object.fromEntries(["priorities", "initiatives", "objectives", "risks", "ecosystem", "relationship", "plan30", "plan60", "plan90"].map((key) => [key, Array.isArray(generated[key]) ? (generated[key] as unknown[]).map(String).slice(0, 8) : suggestion[key as keyof typeof suggestion] || []])); }
+    const memory = mapMemory(await db.prepare("SELECT * FROM account_memory WHERE discovery_id = ?").bind(id).first<Record<string, unknown>>()) || buildMemory(String(row.customer_name), String(row.challenge_summary), [], json<Score[]>(row.scores_json, [])); const hypotheses = (await db.prepare("SELECT * FROM opportunity_hypotheses WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapHypothesis); const actions = (await db.prepare("SELECT * FROM account_actions WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapAction); const stakeholders = (await db.prepare("SELECT * FROM stakeholders WHERE discovery_id = ?").bind(id).all<Record<string, unknown>>()).results.map(mapStakeholder); const current = mapPlan(await db.prepare("SELECT * FROM account_plans WHERE discovery_id = ?").bind(id).first<Record<string, unknown>>()); let suggestion = body.action === "plan_suggest" ? suggestAccountPlan(memory, hypotheses.map((item) => ({ ...item, stage: item.stage as "draft" | "validating" | "qualified" | "rejected" })), actions, stakeholders) : current?.suggestion || {}; if (body.action === "plan_suggest") { const quota = await quotaAllows(db, "generative"); const generated = await aiAdapter().suggestAccountPlan(JSON.stringify({ customer: row.customer_name, memory, hypotheses, actions, stakeholders, humanPlan: current }), { classification: quota.allowed ? classificationOf(row) : "confidential" }); if (generated.data) suggestion = Object.fromEntries(["priorities", "initiatives", "objectives", "risks", "ecosystem", "relationship", "plan30", "plan60", "plan90"].map((key) => [key, Array.isArray(generated.data?.[key as keyof typeof generated.data]) ? (generated.data?.[key as keyof typeof generated.data] as unknown[]).map(String).slice(0, 8) : suggestion[key as keyof typeof suggestion] || []])); await recordAIRun(db, id, "account-plan", generated, [], generated.ok ? 80 : 65, "Sugestão de Account Plan criada para comparação e aprovação humana."); }
     const source = body.action === "plan_apply" ? suggestion : body; const values = ["priorities", "initiatives", "objectives", "risks", "ecosystem", "relationship", "plan30", "plan60", "plan90"].map((key) => list((source as Record<string, unknown>)[key] ?? (current as unknown as Record<string, unknown> | null)?.[key])); await db.prepare("INSERT OR REPLACE INTO account_plans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, ...values.map((value) => JSON.stringify(value)), body.action === "plan_apply" ? "human-approved" : body.action === "plan_save" ? "human-edited" : String(current?.approvalStatus || "draft"), JSON.stringify(suggestion), now).run(); return Response.json({ ok: true, suggestion });
   }
   if (body.action === "analyze") { const last = row.last_analyzed_at ? new Date(String(row.last_analyzed_at)).getTime() : 0; if (body.force || Date.now() - last > 12 * 3600000) await recomputeAccount(db, id); return Response.json({ ok: true }); }
+  if (body.action === "relationship") {
+    const allowedRelations = ["reporta_para", "influencia", "aliado", "bloqueia", "decide", "possui_iniciativa"];
+    const relationshipId = String(body.relationshipId || `rel-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    if (String(body.operation) === "delete") {
+      await db.prepare("DELETE FROM account_relationships WHERE id = ? AND discovery_id = ?").bind(relationshipId, id).run();
+      return Response.json({ ok: true });
+    }
+    const sourceId = String(body.sourceStakeholderId || body.source || "");
+    const targetId = String(body.targetStakeholderId || body.target || "");
+    const relationType = String(body.relationType || body.type || "reporta_para");
+    if (!sourceId || !targetId || sourceId === targetId || !allowedRelations.includes(relationType)) return Response.json({ error: "Origem, destino e tipo de relação válidos são obrigatórios." }, { status: 400 });
+    const people = await db.prepare("SELECT id FROM stakeholders WHERE discovery_id = ? AND id IN (?, ?)").bind(id, sourceId, targetId).all<{ id: string }>();
+    if (people.results.length !== 2) return Response.json({ error: "Os dois stakeholders precisam pertencer à conta." }, { status: 400 });
+    const existing = await db.prepare("SELECT id, created_at FROM account_relationships WHERE discovery_id = ? AND source_stakeholder_id = ? AND target_stakeholder_id = ? AND relation_type = ?").bind(id, sourceId, targetId, relationType).first<Record<string, unknown>>();
+    const savedId = String(existing?.id || relationshipId);
+    await db.prepare("INSERT OR REPLACE INTO account_relationships (id, discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type, label, confidence, evidence_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(savedId, id, sourceId, targetId, relationType, String(body.label || ""), Math.max(0, Math.min(100, Number(body.confidence || 85))), JSON.stringify(Array.isArray(body.evidence) ? body.evidence : []), "confirmed", String(existing?.created_at || now), now).run();
+    if (relationType === "reporta_para") await db.prepare("UPDATE stakeholders SET reports_to_id = ?, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(targetId, now, sourceId, id).run();
+    return Response.json({ ok: true, relationshipId: savedId });
+  }
+  if (body.action === "graph_layout") {
+    const mode = String(body.mode) === "influence" ? "influence" : "hierarchy";
+    const nodes = Array.isArray(body.nodes) ? body.nodes.slice(0, 250) : [];
+    const viewport = body.viewport && typeof body.viewport === "object" ? body.viewport : {};
+    await db.prepare("INSERT OR REPLACE INTO account_graph_layouts (id, discovery_id, mode, nodes_json, viewport_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)").bind(`layout-${id}-${mode}`, id, mode, JSON.stringify(nodes), JSON.stringify(viewport), now).run();
+    return Response.json({ ok: true, mode });
+  }
+  if (body.action === "research") {
+    const companyName = String(body.companyName || row.customer_name).trim();
+    const domain = normalizeCompanyDomain(body.domain || row.company_domain);
+    if (!body.confirmed || companyName.toLowerCase() !== String(row.customer_name).trim().toLowerCase() || !domain) return Response.json({ error: "Confirme o nome da empresa e um domínio corporativo válido antes da pesquisa pública." }, { status: 400 });
+    if (classificationOf(row) === "confidential") return Response.json({ error: "Pesquisa com Gemini está bloqueada para contas confidenciais. Use watsonx ou registre fontes aprovadas manualmente." }, { status: 403 });
+    const query = String(body.question || "sinais estratégicos, tecnologia, investimentos e riscos recentes").trim();
+    const provider = aiAdapter();
+    const queryKey = await cacheKeyFor([id, "public-research", providerCacheSignature(provider, "test"), companyName.toLowerCase(), domain, query.toLowerCase()]);
+    const saved = await db.prepare("SELECT * FROM external_signals WHERE discovery_id = ? AND query_fingerprint = ? AND expires_at > ? ORDER BY created_at DESC").bind(id, queryKey, now).all<Record<string, unknown>>();
+    if (saved.results.length && !body.force) return Response.json({ signals: saved.results.map((signal) => ({ id: signal.id, title: signal.title, summary: signal.summary, sourceUrl: signal.source_url, publisher: signal.publisher, publishedAt: signal.published_at, status: signal.status, confidence: signal.confidence })), cached: true, provider: "google-gemini" });
+    const quota = await quotaAllows(db, "generative");
+    if (!quota.allowed) return Response.json({ error: "A cota experimental de IA foi atingida. Tente novamente mais tarde; nenhuma informação foi alterada.", quota }, { status: 429 });
+    const context = await collectAccountSources(db, id);
+    const generated = await provider.researchAccount(JSON.stringify({ existingAccountMemory: context.slice(0, 20).map((source) => ({ id: source.id, title: source.title, content: source.content })) }), { companyName, domain, question: query }, { classification: "test" });
+    await recordAIRun(db, id, "public-research", generated, context.slice(0, 10).map((source) => source.id), generated.ok ? 78 : 0, "Pesquisa pública sob demanda; achados permanecem propostas até aprovação humana.");
+    if (!generated.data || !generated.data.citations.length) return Response.json({ error: "A pesquisa fundamentada não retornou fontes verificáveis. Nenhuma informação foi salva.", provider: dbProviderName(generated.provider), model: generated.model, reason: generated.reason }, { status: 503 });
+    await db.prepare("UPDATE discoveries SET company_domain = ?, updated_at = ? WHERE id = ?").bind(domain, now, id).run();
+    const expiresAt = new Date(Date.now() + 7 * 86400_000).toISOString();
+    const savedSignals = [];
+    for (let index = 0; index < generated.data.signals.length; index += 1) {
+      const signal = generated.data.signals[index];
+      const citation = generated.data.citations[index % generated.data.citations.length];
+      const signalId = `signal-${Date.now()}-${index}`;
+      await db.prepare("INSERT INTO external_signals (id, discovery_id, query_fingerprint, title, summary, source_url, publisher, published_at, citation_json, status, confidence, approved_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(signalId, id, queryKey, signal.title, `${signal.description} Relevância: ${signal.relevance}`, citation.uri, citation.title, signal.publishedAt, JSON.stringify(citation), "proposed", 72, null, expiresAt, now, now).run();
+      savedSignals.push({ id: signalId, title: signal.title, summary: signal.description, relevance: signal.relevance, sourceUrl: citation.uri, publisher: citation.title, publishedAt: signal.publishedAt, status: "proposed", confidence: 72 });
+    }
+    return Response.json({ summary: generated.data.summary, signals: savedSignals, provider: dbProviderName(generated.provider), model: generated.model, cached: false, usage: generated.usage, requiresHumanApproval: true });
+  }
+  if (body.action === "external_signal_status") {
+    const signalId = String(body.signalId || "");
+    const status = String(body.status) === "approved" ? "approved" : "discarded";
+    const signal = await db.prepare("SELECT * FROM external_signals WHERE id = ? AND discovery_id = ?").bind(signalId, id).first<Record<string, unknown>>();
+    if (!signal) return Response.json({ error: "Sinal público não encontrado." }, { status: 404 });
+    await db.prepare("UPDATE external_signals SET status = ?, approved_at = ?, updated_at = ? WHERE id = ? AND discovery_id = ?").bind(status, status === "approved" ? now : null, now, signalId, id).run();
+    if (status === "approved") {
+      await addEvent(db, { id: `evt-${id}-${signalId}`, discoveryId: id, type: "public_signal", title: String(signal.title), content: `${String(signal.summary)} Fonte: ${String(signal.source_url)}`, sourceType: "public_research", sourceId: signalId, evidenceStatus: "confirmed", confidence: Number(signal.confidence || 72), occurredAt: String(signal.published_at || now) });
+      await recomputeAccount(db, id);
+    }
+    return Response.json({ ok: true, status });
+  }
+  if (body.action === "account_settings") {
+    const classification = String(body.dataClassification) === "confidential" ? "confidential" : "test";
+    const rawDomain = String(body.companyDomain || "").trim();
+    const domain = normalizeCompanyDomain(rawDomain);
+    if (rawDomain && !domain) return Response.json({ error: "Informe um domínio corporativo válido, como empresa.com.br." }, { status: 400 });
+    await db.prepare("UPDATE discoveries SET data_classification = ?, company_domain = ?, updated_at = ? WHERE id = ?").bind(classification, domain, now, id).run();
+    await db.batch([
+      db.prepare("DELETE FROM ai_cache WHERE discovery_id = ?").bind(id),
+      db.prepare("DELETE FROM daily_briefings WHERE owner_email = ?").bind(identity.email),
+      ...(classification === "confidential" ? [db.prepare("DELETE FROM account_embeddings WHERE discovery_id = ?").bind(id)] : []),
+    ]);
+    return Response.json({ ok: true, dataClassification: classification, companyDomain: domain });
+  }
   if (body.action === "stakeholder_upsert") {
     const stakeholderId = String(body.stakeholderId || `stk-${Date.now()}`); const name = String(body.name || "").trim(); const role = String(body.role || "").trim(); if (!name || !role) return Response.json({ error: "Nome e cargo são obrigatórios." }, { status: 400 }); const reportsToId = body.reportsToId ? String(body.reportsToId) : null; if (reportsToId === stakeholderId) return Response.json({ error: "Uma pessoa não pode reportar a si mesma." }, { status: 400 });
     const existing = await db.prepare("SELECT created_at FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(stakeholderId, id).first<Record<string, unknown>>(); await db.prepare("INSERT OR REPLACE INTO stakeholders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(stakeholderId, id, name, role, String(body.area || "Não informada"), reportsToId, String(body.influence || "Média"), String(body.stance || "Desconhecido"), JSON.stringify(list(body.priorities).slice(0, 8)), String(body.notes || ""), "manual", String(existing?.created_at || now), now).run(); await addEvent(db, { id: `evt-${id}-${stakeholderId}`, discoveryId: id, type: "stakeholder", title: `${name} · ${role}`, content: `${String(body.notes || "")} Prioridades: ${list(body.priorities).join(", ")}`, sourceType: "stakeholder", sourceId: stakeholderId, evidenceStatus: "confirmed", confidence: 90, occurredAt: now }); await recomputeAccount(db, id); return Response.json({ ok: true });
   }
-  if (body.action === "stakeholder_delete") { const stakeholderId = String(body.stakeholderId || ""); await db.batch([db.prepare("UPDATE stakeholders SET reports_to_id = NULL WHERE reports_to_id = ? AND discovery_id = ?").bind(stakeholderId, id), db.prepare("DELETE FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(stakeholderId, id), db.prepare("DELETE FROM account_events WHERE source_type = 'stakeholder' AND source_id = ? AND discovery_id = ?").bind(stakeholderId, id)]); await recomputeAccount(db, id); return Response.json({ ok: true }); }
+  if (body.action === "stakeholder_delete") { const stakeholderId = String(body.stakeholderId || ""); await db.batch([db.prepare("UPDATE stakeholders SET reports_to_id = NULL WHERE reports_to_id = ? AND discovery_id = ?").bind(stakeholderId, id), db.prepare("DELETE FROM account_relationships WHERE discovery_id = ? AND (source_stakeholder_id = ? OR target_stakeholder_id = ?)").bind(id, stakeholderId, stakeholderId), db.prepare("DELETE FROM stakeholders WHERE id = ? AND discovery_id = ?").bind(stakeholderId, id), db.prepare("DELETE FROM account_events WHERE source_type = 'stakeholder' AND source_id = ? AND discovery_id = ?").bind(stakeholderId, id)]); await recomputeAccount(db, id); return Response.json({ ok: true }); }
   if (body.action === "feedback") { await db.prepare("INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, ?, ?, ?)").bind(id, "feedback", body.accepted ? "Handoff validado pelo usuário" : "Handoff devolvido para revisão", now).run(); return Response.json({ ok: true }); }
   return Response.json({ error: "Ação desconhecida." }, { status: 400 });
 }
