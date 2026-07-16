@@ -2,10 +2,10 @@
 
 ## v5.2-bilingual-account-health
 
-Status: validated; production deployment pending
+Status: published
 Branch: `codex/bilingual-account-health-v5-2`
-Deploy commit: pending
-OpenAI Sites version: pending
+Deploy commit: `8fc1b5c4db7a491f3f19c73c1ccf61b881504e02`
+OpenAI Sites version: `8`
 Rollback tag: `v5.1-guided-discovery`
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
