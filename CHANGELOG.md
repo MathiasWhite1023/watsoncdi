@@ -1,5 +1,31 @@
 # Changelog
 
+## v5.2-bilingual-account-health
+
+Status: validated; production deployment pending
+Branch: `codex/bilingual-account-health-v5-2`
+Deploy commit: pending
+OpenAI Sites version: pending
+Rollback tag: `v5.1-guided-discovery`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Added
+
+- Product identity standardized as **Watson CDI — Customer Discovery Intelligence**.
+- Typed `en-US` and `pt-BR` localization with English as the unconditional first-visit default and a persisted `English / Português` Carbon selector.
+- Localized navigation, account workspace, settings, guided discovery, relationship canvas, Carbon charts, API feedback, accessibility labels, dates, numbers, and deterministic fallback output.
+- Preservation of user-authored content in its original language, with authorized on-demand translation references and provider-aware translation caching.
+- Home `Account Health` heatmap for opportunity potential, pre-CRM maturity, relationship coverage, evidence confidence, and discovery coverage.
+- Account `Capability Health` heatmap for alignment, business value, readiness, confidence, and discovery coverage by IBM pillar.
+- Radar `Portfolio Fit` heatmap with search, combined filters, sorting, evidence details, and account/capability drill-down.
+- A consistent numeric and semantic health scale across all three matrices: low `0–39`, medium `40–69`, and high `70–100`.
+- Locale-aware AI requests, caches, audit metadata, briefing variants, stable API error codes, and `Content-Language` responses.
+- Additive D1 migration `0007` for locale-specific briefings, authorized translation cache records, and AI-run locale auditing.
+
+### Rollback
+
+Use tag `v5.1-guided-discovery`, rebuild and republish it through OpenAI Sites. Migration `0007` is additive; V5.1 safely ignores localized briefing variants, translation cache records, and optional locale audit fields. Original customer content is never rewritten by V5.2.
+
 ## v5.1-guided-discovery
 
 Status: published

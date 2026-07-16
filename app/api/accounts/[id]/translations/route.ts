@@ -24,7 +24,7 @@ export async function POST(
         ...parsed.value,
         id,
         scope: "private",
-        action: "research",
+        action: "translate",
       }),
     }),
   );

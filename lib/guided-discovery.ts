@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Locale } from "./i18n";
 
 export const GUIDED_DISCOVERY_CATALOG_VERSION = "2026.1";
 
@@ -372,6 +373,46 @@ export const GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] = [
   },
 ];
 
+type GuidedDiscoveryQuestionTranslation = Omit<GuidedDiscoveryCatalogQuestion, "id" | "pillar">;
+
+/**
+ * English copy is keyed by the immutable catalog question ID. Structured answers
+ * continue to store their canonical value; consumers can use
+ * `localizeGuidedDiscoveryOption` to translate only the visible label.
+ */
+export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<string, GuidedDiscoveryQuestionTranslation> = {
+  "base-business-objective": { title: "Business objective", question: "What is the primary business objective for the next 12 months?", rationale: "The objective connects technology to outcomes and keeps discovery from starting with a product.", hint: "Describe the outcome, metric, and time horizon when known.", input: single("Objective clarity", ["Not defined yet", "General theme", "Defined objective", "Objective with a metric", "Objective with a metric and deadline"]), keywords: ["growth", "revenue", "margin", "cost", "productivity", "experience", "risk", "12 months"] },
+  "base-why-now": { title: "Why now", question: "What made this theme a priority now?", rationale: "Understanding the trigger reveals urgency, the decision window, and the cost of inaction.", hint: "Examples: executive target, incident, audit, rising costs, or a regulatory change.", input: multi("Triggers", ["Executive target", "Cost pressure", "Risk or compliance", "Incident", "Market change", "We do not know yet"]), keywords: ["urgency", "now", "deadline", "incident", "audit", "target", "priority"] },
+  "base-tech-landscape": { title: "Current environment", question: "How is the technology environment organized today?", rationale: "The current landscape reveals dependencies, complexity, and where change can begin.", hint: "Include cloud, data centers, platforms, data, critical applications, and the operating model.", input: single("Understanding level", ["Not mapped", "Partial", "Main environments", "Architecture mapped", "Architecture and dependencies mapped"]), keywords: ["aws", "azure", "cloud", "data center", "mainframe", "sap", "openshift", "architecture"] },
+  "base-biggest-loss": { title: "Largest loss", question: "Where is the greatest loss of money, productivity, trust, speed, or control?", rationale: "The largest loss helps size value and prioritize the next conversation.", hint: "Provide a concrete example and, if possible, an order of magnitude.", input: multi("Impact types", ["Money", "Productivity", "Trust", "Speed", "Control", "We do not know yet"]), keywords: ["cost", "waste", "rework", "delay", "risk", "control", "productivity"] },
+  "base-stakeholders": { title: "People and decisions", question: "Who feels the pain, who influences, and who decides?", rationale: "A technical hypothesis without a political map rarely becomes a qualified opportunity.", hint: "Link the answer to a mapped stakeholder or record the roles that are still unknown.", input: single("Stakeholder coverage", ["Not mapped", "Solution user", "Influencer", "Decision-maker", "Decision-maker and sponsor"]), keywords: ["ceo", "cio", "cto", "cfo", "ciso", "director", "sponsor", "decision-maker"] },
+  "base-qualification": { title: "Conditions to advance", question: "Is there a sponsor, budget, deadline, team, and success criterion?", rationale: "These conditions distinguish curiosity from an initiative that can advance to CRM.", hint: "Select only what has been confirmed; everything else becomes a discovery gap.", input: multi("Confirmed conditions", ["Sponsor", "Budget", "Deadline", "Team", "Success criterion", "None confirmed"]), keywords: ["sponsor", "budget", "deadline", "team", "metric", "success"] },
+  "finops-allocation": { title: "Cost allocation", question: "How are technology and cloud costs allocated by product, business unit, or team?", rationale: "Reliable allocation is the foundation for ownership and optimization decisions.", hint: "Consider tags, cost centers, showback, chargeback, and shared costs.", input: scale("Allocation maturity"), keywords: ["allocation", "tag", "showback", "chargeback", "cost center"] },
+  "finops-forecast": { title: "Budget and forecast", question: "How are budgets, forecasts, and cost variances monitored?", rationale: "Financial predictability shows the potential value of a FinOps practice.", hint: "Explain frequency, tools, variance tolerance, and who receives alerts.", input: scale("Planning maturity"), keywords: ["forecast", "budget", "variance", "predictability"] },
+  "finops-accountability": { title: "Accountability", question: "How do finance and engineering share accountability for cost and performance decisions?", rationale: "Without shared accountability, savings recommendations are rarely implemented.", hint: "Identify forums, owners, targets, and conflicts among cost, risk, and performance.", input: single("Accountability model", ["None", "Ad hoc", "Informal owners", "Defined RACI", "Shared targets and operating cadence"]), keywords: ["finance", "engineering", "owner", "raci", "accountability", "performance"] },
+  "finops-waste-risk": { title: "Waste and risk", question: "What waste is known, and which optimizations could create performance risk?", rationale: "Real value combines cost reduction with protection of performance and experience.", hint: "Include idle resources, commitments, licenses, and over- or under-sized workloads.", input: multi("Observed signals", ["Idle capacity", "Overprovisioning", "Licenses", "Commitments", "Performance risk", "Not measured yet"]), keywords: ["idle", "waste", "rightsizing", "reservation", "license", "performance"] },
+  "trusted-data-sources": { title: "Critical sources", question: "Which data sources are critical to priority decisions and initiatives?", rationale: "Critical sources define scope and show where trust creates the most value.", hint: "List source systems, consumers, and the decisions that depend on this data.", input: single("Source mapping", ["Not mapped", "Sources mentioned", "Sources and consumers", "Critical flows", "Flows and criticality documented"]), keywords: ["source", "erp", "crm", "lakehouse", "warehouse", "mainframe", "critical data"] },
+  "trusted-data-quality": { title: "Quality and integration", question: "How are quality, cataloging, lineage, and integration handled today?", rationale: "These controls explain why users trust—or do not trust—the data.", hint: "Describe processes, tools, coverage, and where information breaks down.", input: multi("Existing capabilities", ["Quality", "Catalog", "Lineage", "Integration", "Data observability", "None structured"]), keywords: ["quality", "catalog", "lineage", "integration", "observability", "silo"] },
+  "trusted-data-sensitive": { title: "Sensitive data and access", question: "Where is sensitive data located, and how is access granted, revoked, and audited?", rationale: "Security and privacy determine the risk and feasibility of new data uses.", hint: "Consider classification, privacy regulation, privileges, masking, and audit trails.", input: scale("Access-control maturity"), keywords: ["sensitive", "privacy", "access", "privilege", "masking", "audit"] },
+  "trusted-data-ownership": { title: "Ownership and SLAs", question: "Who owns the data, and which SLAs or metrics define trust?", rationale: "Ownership and metrics make governance executable and measurable.", hint: "Map domains, data owners, stewards, availability, and expected quality.", input: single("Ownership model", ["None", "Informal", "Owners by system", "Owners by domain", "Owners with SLAs and metrics"]), keywords: ["owner", "steward", "domain", "sla", "metric", "governance"] },
+  "ai-governance-cases": { title: "AI use cases", question: "Which AI use cases exist, are in pilot, or are priorities for the coming months?", rationale: "The inventory connects governance to real decisions rather than abstract controls.", hint: "Include objective, user, model, data, impact, and use-case stage.", input: single("Portfolio maturity", ["No use cases", "Ideas", "Pilots", "Isolated production", "Managed portfolio"]), keywords: ["ai", "genai", "model", "pilot", "production", "use case"] },
+  "ai-governance-risk": { title: "Risk approval", question: "How are AI risks assessed, approved, and documented before production?", rationale: "The approval process reveals controls, bottlenecks, and accountability.", hint: "Consider legal, risk, security, privacy, and AI committees.", input: scale("Approval maturity"), keywords: ["risk", "approval", "documentation", "committee", "legal", "privacy"] },
+  "ai-governance-monitoring": { title: "Monitoring", question: "How are models monitored for drift, quality, explainability, and misuse?", rationale: "Continuous monitoring reduces risk after a model enters operation.", hint: "Include metrics, alerts, human review, logs, and response to deviations.", input: multi("Operational controls", ["Quality", "Drift", "Bias", "Explainability", "Misuse", "No continuous controls"]), keywords: ["drift", "bias", "explainability", "monitoring", "alert", "model"] },
+  "ai-governance-accountability": { title: "Accountability", question: "Who is accountable for automated decisions and AI-related incidents?", rationale: "Clear accountability is required to scale AI safely.", hint: "Map the use-case owner, model owner, risk, operations, and escalation.", input: single("Accountability clarity", ["Not defined", "Case by case", "Technical owner", "Technical and business owners", "RACI and incident response"]), keywords: ["accountable", "owner", "incident", "decision", "raci", "escalation"] },
+  "hybrid-cloud-workloads": { title: "Workload distribution", question: "How are workloads distributed across cloud, data center, edge, and third-party platforms?", rationale: "Distribution reveals complexity, constraints, and opportunities for standardization.", hint: "Include criticality, data, latency, regulation, and operational responsibility.", input: multi("Environments", ["Public cloud", "Private cloud", "Data center", "Edge", "SaaS", "Not mapped yet"]), keywords: ["workload", "cloud", "data center", "edge", "saas", "hybrid"] },
+  "hybrid-cloud-portability": { title: "Portability and standards", question: "Which standards enable—or prevent—portability and consistency across environments?", rationale: "Platform and automation standards determine speed and lock-in.", hint: "Consider containers, Kubernetes, IaC, pipelines, policies, and proprietary services.", input: scale("Standardization maturity"), keywords: ["portability", "openshift", "kubernetes", "terraform", "iac", "standard", "lock-in"] },
+  "hybrid-cloud-resilience": { title: "Security and resilience", question: "How do security, resilience, and observability work end to end?", rationale: "Consistent operations are essential before moving or modernizing workloads.", hint: "Describe incidents, SLOs, recovery, visibility, and controls across environments.", input: multi("Capabilities", ["Security", "Backup and DR", "Observability", "SLOs", "Incident response", "Fragmented coverage"]), keywords: ["security", "resilience", "dr", "observability", "slo", "incident"] },
+  "hybrid-cloud-dependencies": { title: "Dependencies and blockers", question: "Which technical, contractual, or regulatory dependencies prevent change?", rationale: "Real blockers inform a viable transformation sequence.", hint: "Include data, licenses, integrations, skills, contracts, and compliance.", input: multi("Blocker types", ["Data", "Integrations", "Licenses", "Contract", "Skills", "Regulation"]), keywords: ["dependency", "contract", "license", "regulation", "integration", "skill"] },
+  "automation-repetitive": { title: "Repetitive work", question: "Which repetitive tasks or decisions consume the most team time?", rationale: "Volume, frequency, and effort help prioritize automation with measurable value.", hint: "Describe frequency, people involved, time, and exceptions.", input: single("Scale of manual work", ["Not mapped yet", "Occasional", "Recurring", "High volume", "High volume and critical impact"]), keywords: ["manual", "repetitive", "task", "decision", "time", "volume"] },
+  "automation-handoffs": { title: "Handoffs and rework", question: "Where are there handoffs, waits, errors, or rework between teams?", rationale: "Handoffs expose process bottlenecks and orchestration opportunities.", hint: "Map input, output, approver, wait time, and the most common cause of return.", input: scale("Handoff impact"), keywords: ["handoff", "wait", "error", "rework", "approval", "queue"] },
+  "automation-integrations": { title: "Required integrations", question: "Which systems, data, and channels need to be connected to automate the journey?", rationale: "Feasibility depends on integrations and each system's boundaries.", hint: "Include APIs, files, email, chat, legacy systems, and systems without available integration.", input: multi("Integration types", ["APIs", "Events", "Files", "Email or chat", "Legacy", "No integration available"]), keywords: ["api", "integration", "file", "email", "teams", "legacy", "event"] },
+  "automation-owner-value": { title: "Owner and value", question: "Who will own the automation, and which metric will prove value?", rationale: "An owner and metric prevent automation without adoption or sustainable outcomes.", hint: "Consider time, cost, errors, SLA, experience, and released capacity.", input: single("Ownership clarity", ["Not defined", "Interested team", "Proposed owner", "Owner and metric", "Owner, metric, and baseline"]), keywords: ["owner", "metric", "baseline", "sla", "time", "error", "value"] },
+  "app-modernization-critical": { title: "Critical applications", question: "Which applications are critical to business strategy and operations?", rationale: "Criticality and value determine where to modernize first.", hint: "Map supported journeys, users, revenue, risk, and tolerated downtime.", input: single("Portfolio mapping", ["Not mapped", "Partial list", "Critical applications", "Criticality and value", "Criticality, value, and dependencies"]), keywords: ["application", "critical", "portfolio", "revenue", "downtime", "user"] },
+  "app-modernization-debt": { title: "Debt and dependencies", question: "Where do technical debt and dependencies limit change, security, or scale?", rationale: "Debt and coupling explain effort, risk, and the modernization sequence.", hint: "Include language, middleware, database, integrations, vendor, and scarce knowledge.", input: multi("Debt types", ["Code", "Platform", "Data", "Integrations", "Security", "Knowledge"]), keywords: ["debt", "dependency", "legacy", "coupling", "middleware", "mainframe"] },
+  "app-modernization-delivery": { title: "Delivery and operations", question: "How do releases, incidents, and observability affect delivery speed?", rationale: "Delivery and operations reveal current cost and the success criteria.", hint: "Include release frequency, lead time, failures, MTTR, and visibility.", input: scale("Delivery maturity"), keywords: ["release", "deploy", "incident", "mttr", "observability", "lead time"] },
+  "app-modernization-strategy": { title: "Modernization strategy", question: "Which modernization strategy has been considered, and which constraints shape the decision?", rationale: "The strategy must balance value, risk, time, and team capacity.", hint: "Consider retain, replatform, refactor, replace, retire, and delivery waves.", input: multi("Options considered", ["Retain", "Replatform", "Refactor", "Replace", "Retire", "Not defined yet"]), keywords: ["retain", "replatform", "refactor", "replace", "retire", "modernization", "roadmap"] },
+};
+
 export const GUIDED_DISCOVERY_PILLAR_META: Record<GuidedDiscoveryPillarKey, { label: string; description: string }> = {
   base: { label: "Diagnóstico-base", description: "Objetivo, urgência, ambiente, impacto, pessoas e condições para avançar." },
   finops: { label: "FinOps", description: "Economia, previsibilidade e responsabilidade sobre custos de tecnologia." },
@@ -382,7 +423,45 @@ export const GUIDED_DISCOVERY_PILLAR_META: Record<GuidedDiscoveryPillarKey, { la
   "app-modernization": { label: "App Modernization", description: "Portfólio crítico, dívida, entrega e estratégia de modernização." },
 };
 
+export const GUIDED_DISCOVERY_PILLAR_META_EN_US: typeof GUIDED_DISCOVERY_PILLAR_META = {
+  base: { label: "Baseline assessment", description: "Objective, urgency, environment, impact, people, and conditions to advance." },
+  finops: { label: "FinOps", description: "Savings, predictability, and accountability for technology costs." },
+  "trusted-data": { label: "Trusted Data", description: "Data trust, integration, protection, and ownership." },
+  "ai-governance": { label: "AI Governance", description: "AI use cases, risk, monitoring, and accountability." },
+  "hybrid-cloud": { label: "Hybrid Cloud", description: "Workloads, standards, resilience, and hybrid dependencies." },
+  automation: { label: "Automation", description: "Repetitive work, handoffs, integrations, and operational value." },
+  "app-modernization": { label: "App Modernization", description: "Critical portfolio, debt, delivery, and modernization strategy." },
+};
+
 const catalogById = new Map(GUIDED_DISCOVERY_CATALOG.map((question) => [question.id, question]));
+
+export function getLocalizedQuestionById(id: string, locale: Locale = "pt-BR") {
+  const canonical = catalogById.get(id);
+  if (!canonical || locale === "pt-BR") return canonical || null;
+  const translation = GUIDED_DISCOVERY_CATALOG_EN_US[id];
+  return translation ? { ...canonical, ...translation, id: canonical.id, pillar: canonical.pillar } : canonical;
+}
+
+export function getLocalizedPillarMeta(pillar: GuidedDiscoveryPillarKey, locale: Locale = "pt-BR") {
+  return (locale === "en-US" ? GUIDED_DISCOVERY_PILLAR_META_EN_US : GUIDED_DISCOVERY_PILLAR_META)[pillar];
+}
+
+export function localizeGuidedDiscoveryOption(questionId: string, canonicalValue: string, locale: Locale = "pt-BR") {
+  const canonical = catalogById.get(questionId);
+  const translated = GUIDED_DISCOVERY_CATALOG_EN_US[questionId];
+  const canonicalIndex = canonical?.input.options?.indexOf(canonicalValue) ?? -1;
+  const translatedIndex = translated?.input.options?.indexOf(canonicalValue) ?? -1;
+  if (locale === "en-US" && canonicalIndex >= 0) return translated?.input.options?.[canonicalIndex] || canonicalValue;
+  if (locale === "pt-BR" && translatedIndex >= 0) return canonical?.input.options?.[translatedIndex] || canonicalValue;
+  return canonicalValue;
+}
+
+export function canonicalizeGuidedDiscoveryOption(questionId: string, value: string) {
+  const canonical = catalogById.get(questionId);
+  const translated = GUIDED_DISCOVERY_CATALOG_EN_US[questionId];
+  const translatedIndex = translated?.input.options?.indexOf(value) ?? -1;
+  return translatedIndex >= 0 ? canonical?.input.options?.[translatedIndex] || value : value;
+}
 
 export function isGuidedDiscoveryPillar(value: unknown): value is GuidedDiscoveryPillarKey {
   return GUIDED_DISCOVERY_PILLARS.includes(String(value) as GuidedDiscoveryPillarKey);
@@ -412,7 +491,10 @@ export function rankPillarsFromAnswers(answers: GuidedDiscoveryAnswerLike[], sco
   const text = answers.map(answerText).join(" ");
   return GUIDED_DISCOVERY_PILLARS.filter((pillar) => pillar !== "base").map((pillar) => {
     const questions = questionsForPillar(pillar);
-    const keywordHits = new Set(questions.flatMap((question) => question.keywords).filter((keyword) => text.includes(keyword.toLowerCase()))).size;
+    const keywordHits = new Set(questions.flatMap((question) => [
+      ...question.keywords,
+      ...(GUIDED_DISCOVERY_CATALOG_EN_US[question.id]?.keywords || []),
+    ]).filter((keyword) => text.includes(keyword.toLowerCase()))).size;
     const score = Math.min(100, Math.round(28 + keywordHits * 11 + Number(scoreHints[pillar] || 0) * 0.45));
     return { pillar, score, rationale: keywordHits ? `${keywordHits} sinais encontrados nas respostas.` : "Pilar ainda com pouca evidência; priorização usa aderência atual da conta." };
   }).sort((a, b) => b.score - a.score);

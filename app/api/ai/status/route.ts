@@ -1,17 +1,19 @@
 import { env } from "cloudflare:workers";
+import { finalizeApiResponse, localizedApiError, resolveResponseLocale } from "../../../../lib/api-locale";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
+  const locale = resolveResponseLocale(request);
   const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
-  if (!email) return Response.json({ error: "Autenticação necessária." }, { status: 401 });
+  if (!email) return localizedApiError(locale, "AUTH_REQUIRED", 401, { en: "Authentication is required.", pt: "Autenticação necessária." });
   const runtime = env as unknown as Record<string, string | undefined>;
   const allowlist = String(runtime.PRIVATE_ALLOWED_EMAILS || "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
-  if (!allowlist.length) return Response.json({ error: "A allowlist do workspace privado ainda não foi configurada." }, { status: 503 });
-  if (!allowlist.includes(email)) return Response.json({ error: "E-mail não autorizado." }, { status: 403 });
+  if (!allowlist.length) return localizedApiError(locale, "WORKSPACE_ALLOWLIST_NOT_CONFIGURED", 503, { en: "The private workspace allowlist has not been configured yet.", pt: "A allowlist do workspace privado ainda não foi configurada." });
+  if (!allowlist.includes(email)) return localizedApiError(locale, "WORKSPACE_EMAIL_NOT_ALLOWED", 403, { en: "This email is not authorized.", pt: "E-mail não autorizado." });
   const watsonxConfigured = Boolean(
     runtime.WATSONX_API_KEY && runtime.WATSONX_PROJECT_ID && runtime.WATSONX_URL && runtime.WATSONX_MODEL_ID,
   );
@@ -49,4 +51,9 @@ export async function GET(request: Request) {
     fallback: { available: true },
     secretsExposed: false,
   });
+}
+
+export async function GET(request: Request) {
+  const locale = resolveResponseLocale(request);
+  return finalizeApiResponse(await handleGET(request), locale);
 }

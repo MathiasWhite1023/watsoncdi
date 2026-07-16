@@ -1,28 +1,64 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { I18nProvider } from "./I18nProvider";
+import { LOCALE_COOKIE, messages, resolveRequestLocale } from "@/lib/i18n";
 import "./carbon.scss";
 import "@carbon/charts-react/styles.css";
 import "./globals.css";
 import "./v5.css";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+  const [requestHeaders, cookieStore] = await Promise.all([
+    headers(),
+    cookies(),
+  ]);
+  const host =
+    requestHeaders.get("x-forwarded-host") ||
+    requestHeaders.get("host") ||
+    "localhost:3000";
+  const protocol =
+    requestHeaders.get("x-forwarded-proto") ||
+    (host.includes("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "watson Account Intelligence";
-  const description = "Inteligência proativa de contas antes do CRM: memória, stakeholders, reuniões, hipóteses, temas IBM e próximos passos fundamentados.";
-  const image = `${origin}/og-v5.png`;
+  const locale = resolveRequestLocale({
+    cookie: cookieStore.get(LOCALE_COOKIE)?.value,
+  });
+  const title = messages[locale].brand.name;
+  const description = messages[locale].brand.description;
+  const image = `${origin}/og.png`;
 
   return {
     title,
     description,
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-    openGraph: { title, description, type: "website", url: origin, images: [{ url: image, width: 1672, height: 941, alt: title }] },
-    twitter: { card: "summary_large_image", title, description, images: [image] },
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      url: origin,
+      images: [{ url: image, width: 1734, height: 907, alt: title }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [image],
+    },
   };
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR"><body>{children}</body></html>;
+export default async function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  const cookieStore = await cookies();
+  const locale = resolveRequestLocale({
+    cookie: cookieStore.get(LOCALE_COOKIE)?.value,
+  });
+  return (
+    <html lang={locale}>
+      <body>
+        <I18nProvider initialLocale={locale}>{children}</I18nProvider>
+      </body>
+    </html>
+  );
 }

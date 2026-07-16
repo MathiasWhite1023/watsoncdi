@@ -154,6 +154,7 @@ export const aiRuns = sqliteTable("ai_runs", {
   model: text("model").notNull().default(""), promptTokens: integer("prompt_tokens").notNull().default(0),
   outputTokens: integer("output_tokens").notNull().default(0), latencyMs: integer("latency_ms").notNull().default(0),
   cacheHit: integer("cache_hit").notNull().default(0), errorCode: text("error_code"),
+  locale: text("locale").notNull().default("en-US"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -218,6 +219,63 @@ export const dailyBriefings = sqliteTable("daily_briefings", {
 }, (table) => ({
   ownerDateIdx: uniqueIndex("daily_briefings_owner_date_idx").on(table.ownerEmail, table.briefingDate),
   expiryIdx: index("daily_briefings_expires_at_idx").on(table.expiresAt),
+}));
+
+/**
+ * Locale-aware briefing cache. The legacy daily_briefings table remains in
+ * place so V5.1 can safely roll back and ignore this additive V5.2 surface.
+ */
+export const dailyBriefingVariants = sqliteTable("daily_briefing_variants", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  briefingDate: text("briefing_date").notNull(),
+  locale: text("locale").notNull().default("en-US"),
+  accountIdsJson: text("account_ids_json").notNull().default("[]"),
+  contentJson: text("content_json").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull().default(""),
+  status: text("status").notNull(),
+  evidenceFingerprint: text("evidence_fingerprint").notNull(),
+  generatedAt: text("generated_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => ({
+  ownerDateLocaleIdx: uniqueIndex("daily_briefing_variants_owner_date_locale_idx").on(
+    table.ownerEmail,
+    table.briefingDate,
+    table.locale,
+  ),
+  expiryIdx: index("daily_briefing_variants_expires_at_idx").on(table.expiresAt),
+}));
+
+/**
+ * Translations are derived artifacts keyed to an authorized account source.
+ * Original user-authored content is never overwritten.
+ */
+export const contentTranslations = sqliteTable("content_translations", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull().references(() => discoveries.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  sourceFingerprint: text("source_fingerprint").notNull(),
+  sourceLocale: text("source_locale"),
+  targetLocale: text("target_locale").notNull(),
+  translatedText: text("translated_text").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull().default(""),
+  status: text("status").notNull().default("completed"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => ({
+  sourceLocaleIdx: uniqueIndex("content_translations_source_locale_idx").on(
+    table.discoveryId,
+    table.sourceType,
+    table.sourceId,
+    table.sourceFingerprint,
+    table.targetLocale,
+  ),
+  accountIdx: index("content_translations_discovery_idx").on(table.discoveryId),
 }));
 
 export const accountSnapshots = sqliteTable("account_snapshots", {

@@ -1,3 +1,7 @@
+import {
+  parseLocalizedJsonObject,
+  resolveResponseLocale,
+} from "../../../lib/api-locale";
 import { POST as mutateAccount } from "../discoveries/route";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +20,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  return proxy(request, Boolean(body.force));
+  const parsed = await parseLocalizedJsonObject(
+    request,
+    resolveResponseLocale(request),
+  );
+  if (!parsed.ok) return parsed.response;
+  return proxy(request, Boolean(parsed.value.force));
 }

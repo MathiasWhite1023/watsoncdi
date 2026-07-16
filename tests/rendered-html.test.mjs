@@ -24,8 +24,13 @@ async function loadProviderModule() {
       target: typescript.ScriptTarget.ES2022,
     },
   }).outputText;
-  const executable = compiled.replace('from "zod"', `from ${JSON.stringify(import.meta.resolve("zod"))}`);
-  providerModule = await import(`data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`);
+  const executable = compiled.replace(
+    'from "zod"',
+    `from ${JSON.stringify(import.meta.resolve("zod"))}`,
+  );
+  providerModule = await import(
+    `data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`
+  );
   return providerModule;
 }
 
@@ -42,8 +47,13 @@ async function loadGuidedModule() {
       target: typescript.ScriptTarget.ES2022,
     },
   }).outputText;
-  const executable = compiled.replace('from "zod"', `from ${JSON.stringify(import.meta.resolve("zod"))}`);
-  guidedModule = await import(`data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`);
+  const executable = compiled.replace(
+    'from "zod"',
+    `from ${JSON.stringify(import.meta.resolve("zod"))}`,
+  );
+  guidedModule = await import(
+    `data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`
+  );
   return guidedModule;
 }
 
@@ -57,36 +67,64 @@ const accountAnswer = (answer) => ({
   suggestedActions: ["Validar próximo passo"],
 });
 
-const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
-  status,
-  headers: { "content-type": "application/json" },
-});
+const jsonResponse = (payload, status = 200) =>
+  new Response(JSON.stringify(payload), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
-test("documents the proactive account intelligence product and rollback path", async () => {
+test("documents Watson CDI V5.2 and its additive rollback path", async () => {
   const [readme, changelog, packageJson] = await Promise.all([
     readProjectFile("README.md"),
     readProjectFile("CHANGELOG.md"),
     readProjectFile("package.json"),
   ]);
 
-  assert.match(readme, /# Watson CDI Account Intelligence/);
-  assert.match(readme, /Account Intelligence before CRM/);
+  assert.match(readme, /# Watson CDI — Customer Discovery Intelligence/);
+  assert.match(
+    readme,
+    /Account Intelligence platform for the work that happens before CRM/,
+  );
+  assert.match(readme, /English \(US\) is the default/);
+  assert.match(readme, /Account Health/);
+  assert.match(readme, /Capability Health/);
+  assert.match(readme, /Portfolio Fit/);
   assert.match(readme, /WATSONX_API_KEY/);
-  assert.match(readme, /v4-proactive-account-intelligence/);
-  assert.match(readme, /v5-proactive-copilot-gemini/);
+  assert.match(readme, /v5\.1-guided-discovery/);
+  assert.match(readme, /v5\.2-bilingual-account-health/);
   assert.match(readme, /GEMINI_API_KEY/);
   assert.match(readme, /gemini-3\.1-flash-lite/);
+  assert.match(changelog, /v5\.2-bilingual-account-health/);
+  assert.match(changelog, /production deployment pending/);
   assert.match(changelog, /v5-proactive-copilot-gemini/);
   assert.match(changelog, /v4-proactive-account-intelligence/);
   assert.match(changelog, /migrations are additive/i);
   assert.match(readme, /Live demo:/);
   assert.match(readme, /not an official IBM product/i);
-  assert.match(packageJson, /"name": "ibm-opportunity-heatmap"/);
+  assert.match(packageJson, /"name": "watson-cdi"/);
+  assert.match(packageJson, /"version": "5\.2\.0"/);
 });
 
 test("keeps the V5 proactive account intelligence surfaces wired", async () => {
-  const [page, api, engine, visuals, graph, charts, migration, stakeholderMigration, v4Migration, v5Migration, auth, documents] = await Promise.all([
+  const [
+    page,
+    appMessages,
+    i18n,
+    api,
+    engine,
+    visuals,
+    graph,
+    charts,
+    migration,
+    stakeholderMigration,
+    v4Migration,
+    v5Migration,
+    auth,
+    documents,
+  ] = await Promise.all([
     readProjectFile("app/page.tsx"),
+    readProjectFile("lib/app-messages.ts"),
+    readProjectFile("lib/i18n.ts"),
     readProjectFile("app/api/discoveries/route.ts"),
     readProjectFile("lib/account-intelligence.ts"),
     readProjectFile("app/CarbonVisuals.tsx"),
@@ -100,25 +138,29 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
     readProjectFile("app/api/accounts/[id]/documents/route.ts"),
   ]);
 
-  assert.match(page, /label: "Início"/);
-  assert.match(page, /Inteligência de contas/);
-  assert.match(page, /Radar da carteira/);
-  assert.match(page, /Configurações/);
-  assert.match(page, /label: "Visão geral"/);
-  assert.match(page, /label: "Atividade"/);
-  assert.match(page, /label: "Relacionamentos"/);
-  assert.match(page, /label: "Estratégia"/);
-  assert.match(page, /Copiloto da conta/);
-  assert.match(page, /Preparar conversa/);
-  assert.match(page, /Próximo passo/);
-  assert.match(page, /O que merece sua atenção hoje/);
-  assert.match(page, /Paleta de comandos/);
+  assert.match(page, /const navItems/);
+  assert.match(page, /const accountModeItems/);
+  assert.match(page, /LanguageSwitcher/);
+  assert.match(page, /useI18n/);
+  assert.match(i18n, /home: "Home"/);
+  assert.match(i18n, /accounts: "Account intelligence"/);
+  assert.match(i18n, /radar: "Portfolio radar"/);
+  assert.match(i18n, /settings: "Settings"/);
+  assert.match(appMessages, /overview: "Overview"/);
+  assert.match(appMessages, /activity: "Activity"/);
+  assert.match(appMessages, /relationships: "Relationships"/);
+  assert.match(appMessages, /strategy: "Strategy"/);
+  assert.match(appMessages, /title: "Account copilot"/);
+  assert.match(appMessages, /prepare: "Prepare conversation"/);
+  assert.match(appMessages, /next: "Next step"/);
+  assert.match(appMessages, /title: "What deserves your attention today"/);
+  assert.match(appMessages, /dialog: "Command palette"/);
   assert.match(page, /event\.metaKey \|\| event\.ctrlKey/);
-  assert.match(page, /Adicionar informação/);
-  assert.match(page, /Account Plan/);
-  assert.match(page, /Sabemos/);
-  assert.match(page, /Supomos/);
-  assert.match(page, /Falta descobrir/);
+  assert.match(appMessages, /addInformation: "Add information"/);
+  assert.match(appMessages, /accountPlan: "Account Plan"/);
+  assert.match(appMessages, /known: "Known"/);
+  assert.match(appMessages, /assumed: "Assumed"/);
+  assert.match(appMessages, /missing: "Missing"/);
 
   assert.match(api, /createAIProviderFromEnv/);
   assert.match(api, /fallbackMeetingInsights/);
@@ -156,7 +198,10 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
   assert.match(v5Migration, /CREATE TABLE `account_embeddings`/);
   assert.match(v5Migration, /CREATE TABLE `daily_briefings`/);
   assert.match(v5Migration, /CREATE TABLE `account_relationships`/);
-  assert.match(v5Migration, /ALTER TABLE `discoveries` ADD `data_classification`/);
+  assert.match(
+    v5Migration,
+    /ALTER TABLE `discoveries` ADD `data_classification`/,
+  );
   assert.match(auth, /oai-authenticated-user-email/);
   assert.match(documents, /15 \* 1024 \* 1024/);
   assert.match(documents, /R2Bucket/);
@@ -174,9 +219,23 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
 });
 
 test("wires the V5.1 guided discovery workspace, additive storage and account routes", async () => {
-  const [page, workspace, styles, api, domain, provider, migration, schema, getRoute, sessionRoute, answerRoute] = await Promise.all([
+  const [
+    page,
+    workspace,
+    i18n,
+    styles,
+    api,
+    domain,
+    provider,
+    migration,
+    schema,
+    getRoute,
+    sessionRoute,
+    answerRoute,
+  ] = await Promise.all([
     readProjectFile("app/page.tsx"),
     readProjectFile("app/GuidedDiscoveryWorkspace.tsx"),
+    readProjectFile("lib/i18n.ts"),
     readProjectFile("app/GuidedDiscoveryWorkspace.module.css"),
     readProjectFile("app/api/discoveries/route.ts"),
     readProjectFile("lib/guided-discovery.ts"),
@@ -188,22 +247,26 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
     readProjectFile("app/api/accounts/[id]/guided-discovery/answers/route.ts"),
   ]);
 
-  assert.match(page, /Descoberta guiada/);
-  assert.match(page, /Abrir descoberta guiada/);
   assert.match(page, /GuidedDiscoverySummary/);
-  assert.match(workspace, /Adaptativo/);
-  assert.match(workspace, /Direto por pilar/);
-  assert.match(workspace, /Por que estamos perguntando isso/);
-  assert.match(workspace, /Salvar rascunho/);
-  assert.match(workspace, /Confirmar e continuar/);
-  assert.match(workspace, /Não sei ainda/);
-  assert.match(workspace, /Histórico e revisões/);
-  assert.match(workspace, /Checkpoint disponível/);
+  assert.match(workspace, /useI18n/);
+  assert.match(workspace, /getLocalizedQuestionById/);
+  assert.match(workspace, /localizeGuidedDiscoveryOption/);
+  assert.match(i18n, /adaptive: "Adaptive"/);
+  assert.match(i18n, /direct: "Direct by pillar"/);
+  assert.match(i18n, /whyAsk: "Why are we asking this\?"/);
+  assert.match(i18n, /saveDraft: "Save draft"/);
+  assert.match(i18n, /confirmContinue: "Confirm and continue"/);
+  assert.match(i18n, /doNotKnow: "I don't know yet"/);
+  assert.match(i18n, /historyAndRevisions: "History and revisions/);
+  assert.match(i18n, /checkpointAvailable: "Checkpoint available"/);
   assert.match(styles, /prefers-reduced-motion/);
   assert.match(styles, /max-width:700px/);
 
   assert.match(domain, /2026\.1/);
-  assert.match(domain, /\.45 \+ hypothesisImpact \* \.30 \+ staleness \* \.15 \+ stakeholderCoverage \* \.10/);
+  assert.match(
+    domain,
+    /\.45 \+ hypothesisImpact \* \.30 \+ staleness \* \.15 \+ stakeholderCoverage \* \.10/,
+  );
   assert.match(domain, /base-business-objective/);
   assert.match(domain, /finops-allocation/);
   assert.match(domain, /trusted-data-quality/);
@@ -214,7 +277,11 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
   assert.match(provider, /suggestDiscoveryFollowUp/);
   assert.match(provider, /Não calcule nem altere scores/);
 
-  for (const table of ["guided_discovery_sessions", "guided_discovery_questions", "guided_discovery_answers"]) {
+  for (const table of [
+    "guided_discovery_sessions",
+    "guided_discovery_questions",
+    "guided_discovery_answers",
+  ]) {
     assert.match(migration, new RegExp("CREATE TABLE `" + table + "`"));
     assert.match(schema, new RegExp(table.replaceAll("_", ""), "i"));
     assert.match(api, new RegExp(table));
@@ -224,7 +291,7 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
   assert.match(api, /guided_discovery_start/);
   assert.match(api, /guided_discovery_answer/);
   assert.match(api, /guided_discovery_patch/);
-  assert.match(api, /skipGenerative: true, skipEmbeddings: true/);
+  assert.match(api, /skipGenerative:\s*true,\s*skipEmbeddings:\s*true/);
   assert.match(api, /aiCalled: false/);
   assert.match(api, /sourceType: "guided_discovery"/);
   assert.match(api, /materializeLegacyGuidedAnswers/);
@@ -238,12 +305,25 @@ test("routes guided discovery adaptively and keeps progress separate from eviden
   assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.1");
   assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 30);
   assert.equal(guided.questionsForPillar("base").length, 6);
-  for (const pillar of ["finops", "trusted-data", "ai-governance", "hybrid-cloud", "automation", "app-modernization"]) {
+  for (const pillar of [
+    "finops",
+    "trusted-data",
+    "ai-governance",
+    "hybrid-cloud",
+    "automation",
+    "app-modernization",
+  ]) {
     assert.equal(guided.questionsForPillar(pillar).length, 4);
   }
 
-  const initial = guided.materializeQuestionRoute({ mode: "adaptive", answers: [] });
-  assert.deepEqual(initial.questionIds, guided.questionsForPillar("base").map((question) => question.id));
+  const initial = guided.materializeQuestionRoute({
+    mode: "adaptive",
+    answers: [],
+  });
+  assert.deepEqual(
+    initial.questionIds,
+    guided.questionsForPillar("base").map((question) => question.id),
+  );
 
   const baseAnswers = guided.questionsForPillar("base").map((question) => ({
     questionId: question.id,
@@ -253,19 +333,44 @@ test("routes guided discovery adaptively and keeps progress separate from eviden
     structured: { value: 4 },
     stakeholderId: "stakeholder-1",
   }));
-  const adaptive = guided.materializeQuestionRoute({ mode: "adaptive", answers: baseAnswers, hasRelevantStakeholder: true, hasOwner: true, scoreHints: { finops: 90, "hybrid-cloud": 75 } });
+  const adaptive = guided.materializeQuestionRoute({
+    mode: "adaptive",
+    answers: baseAnswers,
+    hasRelevantStakeholder: true,
+    hasOwner: true,
+    scoreHints: { finops: 90, "hybrid-cloud": 75 },
+  });
   assert.equal(adaptive.selectedPillars.length, 2);
   assert.equal(adaptive.selectedPillars[0], "finops");
   assert.equal(adaptive.questionIds.length, 12);
 
-  const direct = guided.materializeQuestionRoute({ mode: "direct", selectedPillars: ["trusted-data"], answers: [] });
+  const direct = guided.materializeQuestionRoute({
+    mode: "direct",
+    selectedPillars: ["trusted-data"],
+    answers: [],
+  });
   assert.equal(direct.questionIds.length, 3);
   assert.ok(direct.questionIds.every((id) => id.startsWith("trusted-data")));
 
-  const pillarAnswers = direct.questionIds.map((questionId, index) => ({ questionId, status: index === 2 ? "unknown" : "confirmed", evidenceStatus: index === 2 ? "unknown" : "reported", answerText: index === 2 ? "" : "Evidência relatada", structured: index === 2 ? {} : { value: 3 } }));
-  const extended = guided.materializeQuestionRoute({ mode: "direct", selectedPillars: ["trusted-data"], answers: pillarAnswers, hasRelevantStakeholder: false, hasOwner: false });
+  const pillarAnswers = direct.questionIds.map((questionId, index) => ({
+    questionId,
+    status: index === 2 ? "unknown" : "confirmed",
+    evidenceStatus: index === 2 ? "unknown" : "reported",
+    answerText: index === 2 ? "" : "Evidência relatada",
+    structured: index === 2 ? {} : { value: 3 },
+  }));
+  const extended = guided.materializeQuestionRoute({
+    mode: "direct",
+    selectedPillars: ["trusted-data"],
+    answers: pillarAnswers,
+    hasRelevantStakeholder: false,
+    hasOwner: false,
+  });
   assert.equal(extended.questionIds.length, 4);
-  const metrics = guided.calculateDiscoveryMetrics(direct.questionIds, pillarAnswers);
+  const metrics = guided.calculateDiscoveryMetrics(
+    direct.questionIds,
+    pillarAnswers,
+  );
   assert.equal(metrics.progressPercent, 100);
   assert.equal(metrics.coveragePercent, 67);
   assert.equal(metrics.gaps, 1);
@@ -274,13 +379,22 @@ test("routes guided discovery adaptively and keeps progress separate from eviden
 test("uses the transparent 45/30/15/10 information-value ranking", async () => {
   const guided = await loadGuidedModule();
   const questions = guided.questionsForPillar("finops").slice(0, 2);
-  const ranked = guided.rankNextQuestion({ questions, answers: [], hypothesisImpactByPillar: { finops: 80 }, stakeholderCoverageByPillar: { finops: 20 }, now: new Date("2026-07-14T12:00:00Z") });
+  const ranked = guided.rankNextQuestion({
+    questions,
+    answers: [],
+    hypothesisImpactByPillar: { finops: 80 },
+    stakeholderCoverageByPillar: { finops: 20 },
+    now: new Date("2026-07-14T12:00:00Z"),
+  });
   assert.equal(ranked.length, 2);
   assert.equal(ranked[0].factors.informationGap, 100);
   assert.equal(ranked[0].factors.hypothesisImpact, 80);
   assert.equal(ranked[0].factors.staleness, 35);
   assert.equal(ranked[0].factors.stakeholderCoverage, 80);
-  assert.equal(ranked[0].rankingScore, Math.round(100 * .45 + 80 * .30 + 35 * .15 + 80 * .10));
+  assert.equal(
+    ranked[0].rankingScore,
+    Math.round(100 * 0.45 + 80 * 0.3 + 35 * 0.15 + 80 * 0.1),
+  );
 });
 
 test("keeps public reads isolated and the private workspace fail-closed", async () => {
@@ -290,10 +404,16 @@ test("keeps public reads isolated and the private workspace fail-closed", async 
     readProjectFile("app/api/ai/status/route.ts"),
   ]);
 
-  assert.match(api, /seedStakeholderTrees\(db: D1Database, discoveryIds: string\[\]\)/);
+  assert.match(
+    api,
+    /seedStakeholderTrees\(db: D1Database, discoveryIds: string\[\]\)/,
+  );
   assert.doesNotMatch(api, /SELECT id, industry, created_at FROM discoveries"/);
-  assert.match(api, /backfillV4\(db: D1Database, discoveryRows: Record<string, unknown>\[\]\)/);
-  assert.match(api, /skipGenerative: true, skipEmbeddings: true/);
+  assert.match(
+    api,
+    /backfillV4\(\s*db: D1Database,\s*discoveryRows: Record<string, unknown>\[\],\s*responseLocale: ResponseLocale,\s*\)/,
+  );
+  assert.match(api, /skipGenerative:\s*true,\s*skipEmbeddings:\s*true/);
   assert.match(api, /allowlistConfigured: allowed\.length > 0/);
   assert.match(api, /if \(!identity\.allowlistConfigured\)/);
   assert.match(documents, /if \(!allowlist\.length\)/);
@@ -314,7 +434,10 @@ test("keeps Gemini behind the server-side provider boundary and policy gates", a
   assert.match(provider, /\["watsonx", "gemini", "fallback"\]/);
   assert.match(provider, /x-goog-api-key/);
   assert.match(provider, /responseJsonSchema/);
-  assert.match(provider, /options\.publicDemo \|\| options\.classification === "confidential"/);
+  assert.match(
+    provider,
+    /options\.publicDemo \|\| options\.classification === "confidential"/,
+  );
   assert.match(provider, /\.slice\(0, 60\)/);
   assert.match(provider, /outputDimensionality: GEMINI_EMBEDDING_DIMENSIONS/);
 
@@ -323,15 +446,15 @@ test("keeps Gemini behind the server-side provider boundary and policy gates", a
   assert.match(api, /rpm = kind === "embedding" \? 80 : 12/);
   assert.match(api, /daily = kind === "embedding" \? 900 : 450/);
   assert.match(api, /meetingQuota = await quotaAllows\(db, "generative"\)/);
-  assert.match(api, /"meeting-intelligence", meetingRun/);
+  assert.match(api, /"meeting-intelligence",\s*meetingRun/);
   assert.match(api, /attemptedProvider = result\.attemptedProviders/);
-  assert.match(api, /attemptedProvider \? "error" : "fallback"/);
+  assert.match(api, /attemptedProvider\s*\?\s*"error"\s*:\s*"fallback"/);
   assert.match(api, /circuitWindow = new Date\(now - 5 \* 60_000\)/);
   assert.match(api, /cachedAI/);
   assert.match(api, /putAICache/);
   assert.match(api, /providerCacheSignature/);
   assert.match(api, /provider <> 'deterministic-fallback' AND model <> ''/);
-  assert.match(api, /if \(generated\.ok\) await putAICache/);
+  assert.match(api, /if \(generated\.ok\)\s*await putAICache/);
   assert.match(api, /normalizeCompanyDomain/);
   assert.match(api, /domínio corporativo válido/);
   assert.match(api, /requiresHumanApproval: true/);
@@ -349,35 +472,94 @@ test("prefers watsonx and falls through to Gemini only when needed", async () =>
   const { createAIProvider } = await loadProviderModule();
   const watsonCalls = [];
   const watsonFirst = createAIProvider({
-    watsonx: { apiKey: "watson-test", projectId: "project-test", url: "https://watson.example", modelId: "watson-model" },
+    watsonx: {
+      apiKey: "watson-test",
+      projectId: "project-test",
+      url: "https://watson.example",
+      modelId: "watson-model",
+    },
     gemini: { apiKey: "gemini-test" },
     fetchImpl: async (url) => {
       watsonCalls.push(String(url));
-      if (String(url).includes("iam.cloud.ibm.com")) return jsonResponse({ access_token: "token", expires_in: 3600 });
-      if (String(url).includes("watson.example")) return jsonResponse({ results: [{ generated_text: JSON.stringify(accountAnswer("Resposta Watson")), input_token_count: 4, generated_token_count: 5 }] });
-      throw new Error("Gemini não deveria ser chamado quando watsonx responde.");
+      if (String(url).includes("iam.cloud.ibm.com"))
+        return jsonResponse({ access_token: "token", expires_in: 3600 });
+      if (String(url).includes("watson.example"))
+        return jsonResponse({
+          results: [
+            {
+              generated_text: JSON.stringify(accountAnswer("Resposta Watson")),
+              input_token_count: 4,
+              generated_token_count: 5,
+            },
+          ],
+        });
+      throw new Error(
+        "Gemini não deveria ser chamado quando watsonx responde.",
+      );
     },
   });
-  const watsonResult = await watsonFirst.answerQuestion("source-1: contexto", "Pergunta?");
+  const watsonResult = await watsonFirst.answerQuestion(
+    "source-1: contexto",
+    "Pergunta?",
+  );
   assert.equal(watsonResult.provider, "watsonx");
   assert.equal(watsonResult.data.answer, "Resposta Watson");
-  assert.equal(watsonCalls.some((url) => url.includes("generativelanguage.googleapis.com")), false);
+  assert.equal(
+    watsonCalls.some((url) =>
+      url.includes("generativelanguage.googleapis.com"),
+    ),
+    false,
+  );
 
   const failoverCalls = [];
   const failover = createAIProvider({
-    watsonx: { apiKey: "watson-test", projectId: "project-test", url: "https://watson.example", modelId: "watson-model" },
+    watsonx: {
+      apiKey: "watson-test",
+      projectId: "project-test",
+      url: "https://watson.example",
+      modelId: "watson-model",
+    },
     gemini: { apiKey: "gemini-test" },
     fetchImpl: async (url) => {
       failoverCalls.push(String(url));
-      if (String(url).includes("iam.cloud.ibm.com")) return jsonResponse({ access_token: "token", expires_in: 3600 });
-      if (String(url).includes("watson.example")) return jsonResponse({ error: "bad request" }, 400);
-      return jsonResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify(accountAnswer("Resposta Gemini")) }] } }], usageMetadata: { promptTokenCount: 7, candidatesTokenCount: 8, totalTokenCount: 15 } });
+      if (String(url).includes("iam.cloud.ibm.com"))
+        return jsonResponse({ access_token: "token", expires_in: 3600 });
+      if (String(url).includes("watson.example"))
+        return jsonResponse({ error: "bad request" }, 400);
+      return jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: JSON.stringify(accountAnswer("Resposta Gemini")) },
+              ],
+            },
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 7,
+          candidatesTokenCount: 8,
+          totalTokenCount: 15,
+        },
+      });
     },
   });
-  const failoverResult = await failover.answerQuestion("source-1: contexto", "Pergunta?");
+  const failoverResult = await failover.answerQuestion(
+    "source-1: contexto",
+    "Pergunta?",
+  );
   assert.equal(failoverResult.provider, "gemini");
   assert.equal(failoverResult.data.answer, "Resposta Gemini");
-  assert.deepEqual(failoverCalls.map((url) => url.includes("iam.cloud.ibm.com") ? "iam" : url.includes("watson.example") ? "watsonx" : "gemini"), ["iam", "watsonx", "gemini"]);
+  assert.deepEqual(
+    failoverCalls.map((url) =>
+      url.includes("iam.cloud.ibm.com")
+        ? "iam"
+        : url.includes("watson.example")
+          ? "watsonx"
+          : "gemini",
+    ),
+    ["iam", "watsonx", "gemini"],
+  );
 });
 
 test("blocks Gemini for demo/confidential data and validates structured output", async () => {
@@ -386,10 +568,18 @@ test("blocks Gemini for demo/confidential data and validates structured output",
   const blocked = createAIProvider({
     mode: "gemini",
     gemini: { apiKey: "gemini-test" },
-    fetchImpl: async () => { calls += 1; throw new Error("A política deveria bloquear antes do fetch."); },
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("A política deveria bloquear antes do fetch.");
+    },
   });
-  const demo = await blocked.answerQuestion("contexto", "Pergunta?", { publicDemo: true, classification: "test" });
-  const confidential = await blocked.answerQuestion("contexto", "Pergunta?", { classification: "confidential" });
+  const demo = await blocked.answerQuestion("contexto", "Pergunta?", {
+    publicDemo: true,
+    classification: "test",
+  });
+  const confidential = await blocked.answerQuestion("contexto", "Pergunta?", {
+    classification: "confidential",
+  });
   assert.equal(demo.reason, "policy_blocked");
   assert.equal(confidential.reason, "policy_blocked");
   assert.equal(calls, 0);
@@ -397,9 +587,14 @@ test("blocks Gemini for demo/confidential data and validates structured output",
   const invalid = createAIProvider({
     mode: "gemini",
     gemini: { apiKey: "gemini-test" },
-    fetchImpl: async () => jsonResponse({ candidates: [{ content: { parts: [{ text: "{not-json" }] } }] }),
+    fetchImpl: async () =>
+      jsonResponse({
+        candidates: [{ content: { parts: [{ text: "{not-json" }] } }],
+      }),
   });
-  const invalidResult = await invalid.answerQuestion("contexto", "Pergunta?", { classification: "test" });
+  const invalidResult = await invalid.answerQuestion("contexto", "Pergunta?", {
+    classification: "test",
+  });
   assert.equal(invalidResult.ok, false);
   assert.equal(invalidResult.reason, "invalid_output");
   assert.deepEqual(invalidResult.attemptedProviders, ["gemini"]);
@@ -413,11 +608,29 @@ test("retries a Gemini 429 only once", async () => {
     gemini: { apiKey: "gemini-test" },
     fetchImpl: async () => {
       calls += 1;
-      if (calls === 1) return new Response("quota", { status: 429, headers: { "retry-after": "0" } });
-      return jsonResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify(accountAnswer("Resposta após retry")) }] } }] });
+      if (calls === 1)
+        return new Response("quota", {
+          status: 429,
+          headers: { "retry-after": "0" },
+        });
+      return jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: JSON.stringify(accountAnswer("Resposta após retry")) },
+              ],
+            },
+          },
+        ],
+      });
     },
   });
-  const result = await provider.answerQuestion("source-1: contexto", "Pergunta?", { classification: "test" });
+  const result = await provider.answerQuestion(
+    "source-1: contexto",
+    "Pergunta?",
+    { classification: "test" },
+  );
   assert.equal(result.ok, true);
   assert.equal(result.attempts, 2);
   assert.equal(calls, 2);
@@ -431,11 +644,20 @@ test("limits an embedding batch to 60 sources at 768 dimensions", async () => {
     gemini: { apiKey: "gemini-test" },
     fetchImpl: async (_url, init) => {
       requestBody = JSON.parse(String(init.body));
-      return jsonResponse({ embeddings: requestBody.requests.map(() => ({ values: Array.from({ length: 768 }, () => 0.01) })) });
+      return jsonResponse({
+        embeddings: requestBody.requests.map(() => ({
+          values: Array.from({ length: 768 }, () => 0.01),
+        })),
+      });
     },
   });
-  const sources = Array.from({ length: 65 }, (_, index) => ({ id: `source-${index}`, text: `Conteúdo ${index}` }));
-  const result = await provider.embedSources(sources, { classification: "test" });
+  const sources = Array.from({ length: 65 }, (_, index) => ({
+    id: `source-${index}`,
+    text: `Conteúdo ${index}`,
+  }));
+  const result = await provider.embedSources(sources, {
+    classification: "test",
+  });
   assert.equal(requestBody.requests.length, 60);
   assert.equal(requestBody.requests[0].outputDimensionality, 768);
   assert.equal(result.data.length, 60);
@@ -443,20 +665,30 @@ test("limits an embedding batch to 60 sources at 768 dimensions", async () => {
 });
 
 test("does not commit a Gemini credential", async () => {
-  const { stdout } = await execFileAsync("git", ["ls-files", "-co", "--exclude-standard"], {
-    cwd: new URL(".", root),
-  });
+  const { stdout } = await execFileAsync(
+    "git",
+    ["ls-files", "-co", "--exclude-standard"],
+    {
+      cwd: new URL(".", root),
+    },
+  );
   const candidateFiles = stdout
     .split("\n")
     .filter(Boolean)
-    .filter((path) => /^(app|lib|db|tests|drizzle|public|\.openai)\//.test(path) || /^(README|CHANGELOG|package|wrangler|\.gitignore)/.test(path));
-  const contents = await Promise.all(candidateFiles.map(async (path) => {
-    try {
-      return await readProjectFile(path);
-    } catch {
-      return "";
-    }
-  }));
+    .filter(
+      (path) =>
+        /^(app|lib|db|tests|drizzle|public|\.openai)\//.test(path) ||
+        /^(README|CHANGELOG|package|wrangler|\.gitignore)/.test(path),
+    );
+  const contents = await Promise.all(
+    candidateFiles.map(async (path) => {
+      try {
+        return await readProjectFile(path);
+      } catch {
+        return "";
+      }
+    }),
+  );
 
   // The previously shared credential used this prefix. Keep both it and
   // conventional Google API keys out of source, tests, generated assets and config.

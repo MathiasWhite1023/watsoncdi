@@ -18,7 +18,18 @@ import {
   useNodesState,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { CSSProperties, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CSSProperties,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useI18n } from "./I18nProvider";
+import { localizeSystemValue } from "@/lib/i18n";
+import type { Messages } from "@/lib/i18n";
 import styles from "./RelationshipGraph.module.css";
 
 export type RelationshipType =
@@ -70,7 +81,9 @@ export type RelationshipGraphProps = {
   stakeholders: RelationshipStakeholder[];
   relationships: AccountRelationship[];
   /** Posições persistidas por modo. Posições arrastadas localmente têm precedência até a próxima montagem. */
-  savedPositions?: Partial<Record<RelationshipGraphMode, Record<string, GraphPosition>>>;
+  savedPositions?: Partial<
+    Record<RelationshipGraphMode, Record<string, GraphPosition>>
+  >;
   defaultMode?: RelationshipGraphMode;
   mode?: RelationshipGraphMode;
   sponsorId?: string | null;
@@ -86,7 +99,9 @@ export type RelationshipGraphProps = {
     positions: Record<string, GraphPosition>,
     changedNodeId: string,
   ) => void | Promise<void>;
-  onCreateRelationship?: (relationship: Omit<AccountRelationship, "id">) => void | Promise<void>;
+  onCreateRelationship?: (
+    relationship: Omit<AccountRelationship, "id">,
+  ) => void | Promise<void>;
   onRequestEdit?: (stakeholder: RelationshipStakeholder) => void;
   onRequestAddStakeholder?: () => void;
   onRequestRelationship?: (stakeholderId: string) => void;
@@ -103,15 +118,6 @@ type RelationshipNodeData = {
 } & Record<string, unknown>;
 
 type RelationshipFlowNode = Node<RelationshipNodeData, "stakeholder">;
-
-const relationshipLabels: Record<RelationshipType, string> = {
-  reporta_para: "Reporta para",
-  influencia: "Influencia",
-  aliado: "Aliado de",
-  bloqueia: "Bloqueia",
-  decide: "Decide",
-  possui_iniciativa: "Possui iniciativa",
-};
 
 const relationshipColors: Record<RelationshipType, string> = {
   reporta_para: "#0f62fe",
@@ -133,12 +139,13 @@ function initials(name: string) {
 }
 
 function nodeTone(stance?: string) {
-  if (stance === "Aliado") return styles.ally;
-  if (stance === "Resistente") return styles.blocker;
+  if (/^(aliado|ally)$/i.test(stance || "")) return styles.ally;
+  if (/^(resistente|resistant)$/i.test(stance || "")) return styles.blocker;
   return styles.neutral;
 }
 
 function StakeholderNode({ data }: NodeProps<RelationshipFlowNode>) {
+  const { locale, dictionary: d } = useI18n();
   const select = () => data.onSelect(data.stakeholder.id);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -156,7 +163,9 @@ function StakeholderNode({ data }: NodeProps<RelationshipFlowNode>) {
         data.pathToSponsor ? styles.nodePath : "",
         data.sponsor ? styles.nodeSponsor : "",
         data.missingRelationship ? styles.nodeMissing : "",
-      ].filter(Boolean).join(" ")}
+      ]
+        .filter(Boolean)
+        .join(" ")}
       role="button"
       tabIndex={0}
       aria-label={`${data.stakeholder.name}, ${data.stakeholder.role}${data.sponsor ? ", sponsor" : ""}`}
@@ -164,32 +173,66 @@ function StakeholderNode({ data }: NodeProps<RelationshipFlowNode>) {
       onClick={select}
       onKeyDown={onKeyDown}
     >
-      <Handle className={styles.handle} type="target" position={Position.Top} aria-label="Conectar como destino" />
+      <Handle
+        className={styles.handle}
+        type="target"
+        position={Position.Top}
+        aria-label={d.relationship.connectTarget}
+      />
       <div className={styles.nodeTopline} />
       <div className={styles.nodeBody}>
-        <span className={styles.avatar} aria-hidden="true">{initials(data.stakeholder.name)}</span>
+        <span className={styles.avatar} aria-hidden="true">
+          {initials(data.stakeholder.name)}
+        </span>
         <div className={styles.nodeCopy}>
-          <span className={styles.nodeEyebrow}>{data.stakeholder.area || "Área não informada"}</span>
+          <span className={styles.nodeEyebrow}>
+            {data.stakeholder.area || d.relationship.unknownArea}
+          </span>
           <strong>{data.stakeholder.name}</strong>
           <span>{data.stakeholder.role}</span>
         </div>
       </div>
       <div className={styles.nodeMeta}>
-        <span>{data.stakeholder.influence || "Influência não avaliada"}</span>
-        {data.sponsor && <span className={styles.sponsorBadge}>Sponsor</span>}
-        {data.missingRelationship && <span className={styles.missingBadge}>Relação pendente</span>}
+        <span>
+          {data.stakeholder.influence
+            ? localizeSystemValue(locale, data.stakeholder.influence)
+            : d.relationship.influenceUnknown}
+        </span>
+        {data.sponsor && (
+          <span className={styles.sponsorBadge}>{d.relationship.sponsor}</span>
+        )}
+        {data.missingRelationship && (
+          <span className={styles.missingBadge}>
+            {d.relationship.pendingRelationship}
+          </span>
+        )}
       </div>
-      <Handle className={styles.handle} type="source" position={Position.Bottom} aria-label="Conectar como origem" />
+      <Handle
+        className={styles.handle}
+        type="source"
+        position={Position.Bottom}
+        aria-label={d.relationship.connectSource}
+      />
     </div>
   );
 }
 
 const nodeTypes: NodeTypes = { stakeholder: StakeholderNode };
 
-function hierarchyPositions(stakeholders: RelationshipStakeholder[], relationships: AccountRelationship[]) {
+function hierarchyPositions(
+  stakeholders: RelationshipStakeholder[],
+  relationships: AccountRelationship[],
+) {
   const ids = new Set(stakeholders.map((item) => item.id));
-  const reporting = relationships.filter((item) => item.type === "reporta_para" && ids.has(item.source) && ids.has(item.target));
-  const managerByPerson = new Map(reporting.map((item) => [item.source, item.target]));
+  const reporting = relationships.filter(
+    (item) =>
+      item.type === "reporta_para" &&
+      ids.has(item.source) &&
+      ids.has(item.target),
+  );
+  const managerByPerson = new Map(
+    reporting.map((item) => [item.source, item.target]),
+  );
   const levels = new Map<string, number>();
 
   const levelOf = (id: string, trail = new Set<string>()): number => {
@@ -212,41 +255,75 @@ function hierarchyPositions(stakeholders: RelationshipStakeholder[], relationshi
   const positions: Record<string, GraphPosition> = {};
   byLevel.forEach((items, level) => {
     const width = Math.max(0, (items.length - 1) * 272);
-    items.sort((a, b) => a.name.localeCompare(b.name)).forEach((item, index) => {
-      positions[item.id] = { x: index * 272 - width / 2, y: level * 190 };
-    });
+    items
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((item, index) => {
+        positions[item.id] = { x: index * 272 - width / 2, y: level * 190 };
+      });
   });
   return positions;
 }
 
-function influencePositions(stakeholders: RelationshipStakeholder[], sponsorId?: string | null) {
+function influencePositions(
+  stakeholders: RelationshipStakeholder[],
+  sponsorId?: string | null,
+) {
   const ordered = [...stakeholders].sort((a, b) => {
-    const score = (value?: string) => value === "Alta" ? 3 : value === "Média" ? 2 : 1;
-    return score(b.influence) - score(a.influence) || a.name.localeCompare(b.name);
+    const score = (value?: string) =>
+      /^(alta|high)$/i.test(value || "")
+        ? 3
+        : /^(média|media|medium)$/i.test(value || "")
+          ? 2
+          : 1;
+    return (
+      score(b.influence) - score(a.influence) || a.name.localeCompare(b.name)
+    );
   });
-  const sponsor = ordered.find((item) => item.id === sponsorId) || ordered.find((item) => item.isSponsor);
-  const ring = sponsor ? ordered.filter((item) => item.id !== sponsor.id) : ordered.slice(1);
+  const sponsor =
+    ordered.find((item) => item.id === sponsorId) ||
+    ordered.find((item) => item.isSponsor);
+  const ring = sponsor
+    ? ordered.filter((item) => item.id !== sponsor.id)
+    : ordered.slice(1);
   const center = sponsor || ordered[0];
   const positions: Record<string, GraphPosition> = {};
   if (center) positions[center.id] = { x: 0, y: 0 };
   ring.forEach((item, index) => {
     const radius = ring.length > 7 && index >= 7 ? 520 : 320;
     const ringStart = radius === 520 ? 7 : 0;
-    const ringLength = radius === 520 ? Math.max(1, ring.length - 7) : Math.min(7, ring.length);
-    const angle = ((index - ringStart) / ringLength) * Math.PI * 2 - Math.PI / 2;
-    positions[item.id] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+    const ringLength =
+      radius === 520 ? Math.max(1, ring.length - 7) : Math.min(7, ring.length);
+    const angle =
+      ((index - ringStart) / ringLength) * Math.PI * 2 - Math.PI / 2;
+    positions[item.id] = {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+    };
   });
   return positions;
 }
 
-function shortestPath(source: string | null, target: string | null, relationships: AccountRelationship[]) {
-  if (!source || !target) return { nodes: new Set<string>(), edges: new Set<string>() };
-  if (source === target) return { nodes: new Set([source]), edges: new Set<string>() };
+function shortestPath(
+  source: string | null,
+  target: string | null,
+  relationships: AccountRelationship[],
+) {
+  if (!source || !target)
+    return { nodes: new Set<string>(), edges: new Set<string>() };
+  if (source === target)
+    return { nodes: new Set([source]), edges: new Set<string>() };
   const adjacency = new Map<string, Array<{ node: string; edge: string }>>();
   relationships.forEach((item, index) => {
-    const edge = item.id || `${item.source}:${item.target}:${item.type}:${index}`;
-    adjacency.set(item.source, [...(adjacency.get(item.source) || []), { node: item.target, edge }]);
-    adjacency.set(item.target, [...(adjacency.get(item.target) || []), { node: item.source, edge }]);
+    const edge =
+      item.id || `${item.source}:${item.target}:${item.type}:${index}`;
+    adjacency.set(item.source, [
+      ...(adjacency.get(item.source) || []),
+      { node: item.target, edge },
+    ]);
+    adjacency.set(item.target, [
+      ...(adjacency.get(item.target) || []),
+      { node: item.source, edge },
+    ]);
   });
   const queue = [source];
   const seen = new Set([source]);
@@ -276,15 +353,18 @@ function shortestPath(source: string | null, target: string | null, relationship
   return { nodes: new Set([source, target]), edges: new Set<string>() };
 }
 
-function approachFor(stakeholder: RelationshipStakeholder) {
+function approachFor(stakeholder: RelationshipStakeholder, d: Messages) {
   if (stakeholder.recommendedApproach) return stakeholder.recommendedApproach;
-  const theme = stakeholder.priorities?.[0] || stakeholder.area || "a prioridade executiva desta pessoa";
-  const posture = stakeholder.stance === "Resistente"
-    ? "Comece validando objeções e critérios de risco"
-    : stakeholder.stance === "Aliado"
-      ? "Use a relação como ponte para ampliar o patrocínio"
-      : "Confirme objetivos, influência e critérios de decisão";
-  return `${posture}. Conecte a conversa a ${theme} e registre uma evidência antes de avançar a hipótese.`;
+  const theme =
+    stakeholder.priorities?.[0] ||
+    stakeholder.area ||
+    d.relationship.defaultTheme;
+  const posture = /^(resistente|resistant)$/i.test(stakeholder.stance || "")
+    ? d.relationship.approachResistant
+    : /^(aliado|ally)$/i.test(stakeholder.stance || "")
+      ? d.relationship.approachAlly
+      : d.relationship.approachNeutral;
+  return `${posture}. ${d.relationship.approachSuffix.replace("{theme}", theme)}`;
 }
 
 export default function RelationshipGraph({
@@ -307,20 +387,52 @@ export default function RelationshipGraph({
   onRequestAddStakeholder,
   onRequestRelationship,
 }: RelationshipGraphProps) {
-  const [internalMode, setInternalMode] = useState<RelationshipGraphMode>(defaultMode);
-  const [internalSelected, setInternalSelected] = useState<string | null>(selectedStakeholderId || null);
-  const [relationType, setRelationType] = useState<RelationshipType>("reporta_para");
-  const [flow, setFlow] = useState<ReactFlowInstance<RelationshipFlowNode, Edge> | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<RelationshipFlowNode>([]);
+  const { locale, dictionary: d, t } = useI18n();
+  const [internalMode, setInternalMode] =
+    useState<RelationshipGraphMode>(defaultMode);
+  const [internalSelected, setInternalSelected] = useState<string | null>(
+    selectedStakeholderId || null,
+  );
+  const [relationType, setRelationType] =
+    useState<RelationshipType>("reporta_para");
+  const [flow, setFlow] = useState<ReactFlowInstance<
+    RelationshipFlowNode,
+    Edge
+  > | null>(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState<RelationshipFlowNode>(
+    [],
+  );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const positionsRef = useRef<Partial<Record<RelationshipGraphMode, Record<string, GraphPosition>>>>({});
+  const positionsRef = useRef<
+    Partial<Record<RelationshipGraphMode, Record<string, GraphPosition>>>
+  >({});
   const activeMode = mode || internalMode;
-  const currentSelected = selectedStakeholderId === undefined ? internalSelected : selectedStakeholderId;
-  const selected = stakeholders.find((item) => item.id === currentSelected) || null;
-  const sponsor = stakeholders.find((item) => item.id === sponsorId)
-    || stakeholders.find((item) => item.isSponsor)
-    || stakeholders.find((item) => /\b(CEO|CIO|CTO|CFO|CISO|presidente|chief)\b/i.test(item.role) && item.influence === "Alta")
-    || null;
+  const currentSelected =
+    selectedStakeholderId === undefined
+      ? internalSelected
+      : selectedStakeholderId;
+  const selected =
+    stakeholders.find((item) => item.id === currentSelected) || null;
+  const sponsor =
+    stakeholders.find((item) => item.id === sponsorId) ||
+    stakeholders.find((item) => item.isSponsor) ||
+    stakeholders.find(
+      (item) =>
+        /\b(CEO|CIO|CTO|CFO|CISO|presidente|chief)\b/i.test(item.role) &&
+        item.influence === "Alta",
+    ) ||
+    null;
+  const relationshipLabels = useMemo<Record<RelationshipType, string>>(
+    () => ({
+      reporta_para: d.relationship.reporta_para,
+      influencia: d.relationship.influencia,
+      aliado: d.relationship.aliado,
+      bloqueia: d.relationship.bloqueia,
+      decide: d.relationship.decide,
+      possui_iniciativa: d.relationship.possui_iniciativa,
+    }),
+    [d.relationship],
+  );
 
   const degree = useMemo(() => {
     const result = new Map<string, number>();
@@ -331,71 +443,95 @@ export default function RelationshipGraph({
     return result;
   }, [relationships]);
   const missingIds = useMemo(
-    () => new Set(missingRelationshipNodeIds || stakeholders.filter((item) => !degree.get(item.id)).map((item) => item.id)),
+    () =>
+      new Set(
+        missingRelationshipNodeIds ||
+          stakeholders
+            .filter((item) => !degree.get(item.id))
+            .map((item) => item.id),
+      ),
     [degree, missingRelationshipNodeIds, stakeholders],
   );
   const sponsorPath = useMemo(
-    () => shortestPath(currentSelected || null, sponsor?.id || null, relationships),
+    () =>
+      shortestPath(currentSelected || null, sponsor?.id || null, relationships),
     [currentSelected, relationships, sponsor?.id],
   );
 
-  const selectStakeholder = useCallback((id: string | null) => {
-    if (selectedStakeholderId === undefined) setInternalSelected(id);
-    onStakeholderSelect?.(stakeholders.find((item) => item.id === id) || null);
-  }, [onStakeholderSelect, selectedStakeholderId, stakeholders]);
+  const selectStakeholder = useCallback(
+    (id: string | null) => {
+      if (selectedStakeholderId === undefined) setInternalSelected(id);
+      onStakeholderSelect?.(
+        stakeholders.find((item) => item.id === id) || null,
+      );
+    },
+    [onStakeholderSelect, selectedStakeholderId, stakeholders],
+  );
 
   useEffect(() => {
-    const automatic = activeMode === "hierarchy"
-      ? hierarchyPositions(stakeholders, relationships)
-      : influencePositions(stakeholders, sponsor?.id);
+    const automatic =
+      activeMode === "hierarchy"
+        ? hierarchyPositions(stakeholders, relationships)
+        : influencePositions(stakeholders, sponsor?.id);
     const current = positionsRef.current[activeMode] || {};
     const persisted = savedPositions?.[activeMode] || {};
     const positions = { ...automatic, ...persisted, ...current };
     positionsRef.current[activeMode] = positions;
 
-    setNodes(stakeholders.map((stakeholder) => ({
-      id: stakeholder.id,
-      type: "stakeholder",
-      position: positions[stakeholder.id] || { x: 0, y: 0 },
-      draggable: !readOnly,
-      connectable: !readOnly && Boolean(onCreateRelationship),
-      focusable: true,
-      ariaLabel: `${stakeholder.name}, ${stakeholder.role}`,
-      data: {
-        stakeholder,
-        selected: stakeholder.id === currentSelected,
-        onSelect: selectStakeholder,
-        pathToSponsor: sponsorPath.nodes.has(stakeholder.id),
-        sponsor: stakeholder.id === sponsor?.id,
-        missingRelationship: missingIds.has(stakeholder.id),
-        readOnly,
-      },
-    })));
-
-    setEdges(relationships.map((relationship, index) => {
-      const id = relationship.id || `${relationship.source}:${relationship.target}:${relationship.type}:${index}`;
-      const path = sponsorPath.edges.has(id);
-      const color = path ? "#f1c21b" : relationshipColors[relationship.type];
-      return {
-        id,
-        source: relationship.source,
-        target: relationship.target,
-        type: activeMode === "hierarchy" ? "smoothstep" : "default",
-        label: relationship.label || relationshipLabels[relationship.type],
-        ariaLabel: `${relationshipLabels[relationship.type]}: ${relationship.source} para ${relationship.target}`,
-        markerEnd: { type: MarkerType.ArrowClosed, color },
-        animated: path,
-        style: {
-          stroke: color,
-          strokeWidth: path ? 3 : relationship.confirmed === false ? 1.5 : 2,
-          strokeDasharray: relationship.confirmed === false ? "6 5" : undefined,
+    setNodes(
+      stakeholders.map((stakeholder) => ({
+        id: stakeholder.id,
+        type: "stakeholder",
+        position: positions[stakeholder.id] || { x: 0, y: 0 },
+        draggable: !readOnly,
+        connectable: !readOnly && Boolean(onCreateRelationship),
+        focusable: true,
+        ariaLabel: `${stakeholder.name}, ${stakeholder.role}`,
+        data: {
+          stakeholder,
+          selected: stakeholder.id === currentSelected,
+          onSelect: selectStakeholder,
+          pathToSponsor: sponsorPath.nodes.has(stakeholder.id),
+          sponsor: stakeholder.id === sponsor?.id,
+          missingRelationship: missingIds.has(stakeholder.id),
+          readOnly,
         },
-        labelStyle: { fill: "#525252", fontSize: 11, fontWeight: 600 },
-        labelBgStyle: { fill: "#f4f4f4", fillOpacity: 0.92 },
-        labelBgPadding: [5, 3] as [number, number],
-        labelBgBorderRadius: 0,
-      };
-    }));
+      })),
+    );
+
+    setEdges(
+      relationships.map((relationship, index) => {
+        const id =
+          relationship.id ||
+          `${relationship.source}:${relationship.target}:${relationship.type}:${index}`;
+        const path = sponsorPath.edges.has(id);
+        const color = path ? "#f1c21b" : relationshipColors[relationship.type];
+        return {
+          id,
+          source: relationship.source,
+          target: relationship.target,
+          type: activeMode === "hierarchy" ? "smoothstep" : "default",
+          label: relationship.label || relationshipLabels[relationship.type],
+          ariaLabel: t("relationship.edgeLabel", {
+            relationship: relationshipLabels[relationship.type],
+            source: relationship.source,
+            target: relationship.target,
+          }),
+          markerEnd: { type: MarkerType.ArrowClosed, color },
+          animated: path,
+          style: {
+            stroke: color,
+            strokeWidth: path ? 3 : relationship.confirmed === false ? 1.5 : 2,
+            strokeDasharray:
+              relationship.confirmed === false ? "6 5" : undefined,
+          },
+          labelStyle: { fill: "#525252", fontSize: 11, fontWeight: 600 },
+          labelBgStyle: { fill: "#f4f4f4", fillOpacity: 0.92 },
+          labelBgPadding: [5, 3] as [number, number],
+          labelBgBorderRadius: 0,
+        };
+      }),
+    );
   }, [
     activeMode,
     currentSelected,
@@ -403,6 +539,7 @@ export default function RelationshipGraph({
     onCreateRelationship,
     readOnly,
     relationships,
+    relationshipLabels,
     savedPositions,
     selectStakeholder,
     setEdges,
@@ -411,75 +548,155 @@ export default function RelationshipGraph({
     sponsorPath.edges,
     sponsorPath.nodes,
     stakeholders,
+    t,
   ]);
 
   const changeMode = (nextMode: RelationshipGraphMode) => {
     if (!mode) setInternalMode(nextMode);
     setRelationType(nextMode === "hierarchy" ? "reporta_para" : "influencia");
     onModeChange?.(nextMode);
-    requestAnimationFrame(() => flow?.fitView({ padding: 0.22, duration: 280, maxZoom: 1 }));
+    requestAnimationFrame(() =>
+      flow?.fitView({ padding: 0.22, duration: 280, maxZoom: 1 }),
+    );
   };
 
-  const persistPosition = useCallback((_event: unknown, node: RelationshipFlowNode) => {
-    const positions = {
-      ...(positionsRef.current[activeMode] || {}),
-      [node.id]: { x: node.position.x, y: node.position.y },
-    };
-    positionsRef.current[activeMode] = positions;
-    void onLayoutChange?.(activeMode, positions, node.id);
-  }, [activeMode, onLayoutChange]);
+  const persistPosition = useCallback(
+    (_event: unknown, node: RelationshipFlowNode) => {
+      const positions = {
+        ...(positionsRef.current[activeMode] || {}),
+        [node.id]: { x: node.position.x, y: node.position.y },
+      };
+      positionsRef.current[activeMode] = positions;
+      void onLayoutChange?.(activeMode, positions, node.id);
+    },
+    [activeMode, onLayoutChange],
+  );
 
-  const connect = useCallback((connection: Connection) => {
-    if (!connection.source || !connection.target || connection.source === connection.target || !onCreateRelationship) return;
-    void onCreateRelationship({
-      source: connection.source,
-      target: connection.target,
-      type: relationType,
-      confirmed: true,
-    });
-  }, [onCreateRelationship, relationType]);
+  const connect = useCallback(
+    (connection: Connection) => {
+      if (
+        !connection.source ||
+        !connection.target ||
+        connection.source === connection.target ||
+        !onCreateRelationship
+      )
+        return;
+      void onCreateRelationship({
+        source: connection.source,
+        target: connection.target,
+        type: relationType,
+        confirmed: true,
+      });
+    },
+    [onCreateRelationship, relationType],
+  );
 
   const resetLayout = () => {
     positionsRef.current[activeMode] = {};
-    const positions = activeMode === "hierarchy"
-      ? hierarchyPositions(stakeholders, relationships)
-      : influencePositions(stakeholders, sponsor?.id);
+    const positions =
+      activeMode === "hierarchy"
+        ? hierarchyPositions(stakeholders, relationships)
+        : influencePositions(stakeholders, sponsor?.id);
     positionsRef.current[activeMode] = positions;
-    setNodes((current) => current.map((node) => ({ ...node, position: positions[node.id] || node.position })));
+    setNodes((current) =>
+      current.map((node) => ({
+        ...node,
+        position: positions[node.id] || node.position,
+      })),
+    );
     const changedNodeId = stakeholders[0]?.id || "layout";
     void onLayoutChange?.(activeMode, positions, changedNodeId);
-    requestAnimationFrame(() => flow?.fitView({ padding: 0.22, duration: 280, maxZoom: 1 }));
+    requestAnimationFrame(() =>
+      flow?.fitView({ padding: 0.22, duration: 280, maxZoom: 1 }),
+    );
   };
 
-  const style = { "--graph-panel-width": selected ? "22rem" : "0rem" } as CSSProperties;
+  const style = {
+    "--graph-panel-width": selected ? "22rem" : "0rem",
+  } as CSSProperties;
 
   if (loading) {
     return (
-      <section className={`${styles.shell} ${styles.loading} ${className}`} aria-label="Carregando mapa de relacionamentos" aria-busy="true">
+      <section
+        className={`${styles.shell} ${styles.loading} ${className}`}
+        aria-label={d.relationship.loading}
+        aria-busy="true"
+      >
         <div className={styles.skeletonToolbar} />
-        <div className={styles.skeletonCanvas}><span /><span /><span /><span /></div>
+        <div className={styles.skeletonCanvas}>
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
       </section>
     );
   }
 
   return (
-    <section className={`${styles.shell} ${className}`} style={style} aria-label="Mapa interativo de relacionamentos da conta">
+    <section
+      className={`${styles.shell} ${className}`}
+      style={style}
+      aria-label={d.relationship.mapLabel}
+    >
       <header className={styles.toolbar}>
-        <div className={styles.modeGroup} role="group" aria-label="Visualização do mapa">
-          <button type="button" aria-pressed={activeMode === "hierarchy"} onClick={() => changeMode("hierarchy")}>Hierarquia</button>
-          <button type="button" aria-pressed={activeMode === "influence"} onClick={() => changeMode("influence")}>Rede de influência</button>
+        <div
+          className={styles.modeGroup}
+          role="group"
+          aria-label={d.relationship.viewLabel}
+        >
+          <button
+            type="button"
+            aria-pressed={activeMode === "hierarchy"}
+            onClick={() => changeMode("hierarchy")}
+          >
+            {d.relationship.hierarchy}
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeMode === "influence"}
+            onClick={() => changeMode("influence")}
+          >
+            {d.relationship.influenceNetwork}
+          </button>
         </div>
         <div className={styles.toolbarActions}>
           {!readOnly && onCreateRelationship && (
             <label>
-              <span>Nova relação</span>
-              <select value={relationType} onChange={(event) => setRelationType(event.target.value as RelationshipType)} aria-label="Tipo da nova relação">
-                {(Object.keys(relationshipLabels) as RelationshipType[]).map((type) => <option key={type} value={type}>{relationshipLabels[type]}</option>)}
+              <span>{d.relationship.newRelationship}</span>
+              <select
+                value={relationType}
+                onChange={(event) =>
+                  setRelationType(event.target.value as RelationshipType)
+                }
+                aria-label={d.relationship.relationshipType}
+              >
+                {(Object.keys(relationshipLabels) as RelationshipType[]).map(
+                  (type) => (
+                    <option key={type} value={type}>
+                      {relationshipLabels[type]}
+                    </option>
+                  ),
+                )}
               </select>
             </label>
           )}
-          <button type="button" className={styles.quietButton} onClick={resetLayout}>Reorganizar</button>
-          {onRequestAddStakeholder && !readOnly && <button type="button" className={styles.primaryButton} onClick={onRequestAddStakeholder}>Adicionar pessoa</button>}
+          <button
+            type="button"
+            className={styles.quietButton}
+            onClick={resetLayout}
+          >
+            {d.relationship.rearrange}
+          </button>
+          {onRequestAddStakeholder && !readOnly && (
+            <button
+              type="button"
+              className={styles.primaryButton}
+              onClick={onRequestAddStakeholder}
+            >
+              {d.relationship.addPerson}
+            </button>
+          )}
         </div>
       </header>
 
@@ -503,82 +720,195 @@ export default function RelationshipGraph({
             minZoom={0.25}
             maxZoom={1.8}
             defaultEdgeOptions={{ interactionWidth: 20 }}
-            connectionLineStyle={{ stroke: relationshipColors[relationType], strokeWidth: 2 }}
+            connectionLineStyle={{
+              stroke: relationshipColors[relationType],
+              strokeWidth: 2,
+            }}
             proOptions={{ hideAttribution: true }}
           >
             <Background color="#c6c6c6" gap={24} size={1} />
-            <Controls position="bottom-left" showInteractive={!readOnly} aria-label="Controles de zoom e enquadramento" />
+            <Controls
+              position="bottom-left"
+              showInteractive={!readOnly}
+              aria-label={d.relationship.zoomControls}
+            />
             <MiniMap
               position="bottom-right"
               pannable
               zoomable
-              nodeColor={(node) => node.data?.sponsor ? "#f1c21b" : node.data?.missingRelationship ? "#da1e28" : "#0f62fe"}
+              nodeColor={(node) =>
+                node.data?.sponsor
+                  ? "#f1c21b"
+                  : node.data?.missingRelationship
+                    ? "#da1e28"
+                    : "#0f62fe"
+              }
               maskColor="rgba(244, 244, 244, 0.78)"
-              aria-label="Minimapa dos relacionamentos"
+              aria-label={d.relationship.minimap}
             />
-            <div className={styles.legend} aria-label="Legenda">
-              <span><i className={styles.legendSponsor} />Caminho ao sponsor</span>
-              <span><i className={styles.legendGap} />Relação pendente</span>
-              {!readOnly && onCreateRelationship && <small>Arraste entre os conectores para criar a relação selecionada.</small>}
+            <div className={styles.legend} aria-label={d.relationship.legend}>
+              <span>
+                <i className={styles.legendSponsor} />
+                {d.relationship.sponsorPath}
+              </span>
+              <span>
+                <i className={styles.legendGap} />
+                {d.relationship.pendingRelationship}
+              </span>
+              {!readOnly && onCreateRelationship && (
+                <small>{d.relationship.dragHelp}</small>
+              )}
             </div>
           </ReactFlow>
         ) : (
           <div className={styles.empty}>
             <span aria-hidden="true">◎</span>
-            <h3>O mapa começa pelas pessoas</h3>
-            <p>Adicione decisores, influenciadores e contatos para construir a hierarquia e a rede de influência desta conta.</p>
-            {onRequestAddStakeholder && !readOnly && <button type="button" className={styles.primaryButton} onClick={onRequestAddStakeholder}>Adicionar primeiro stakeholder</button>}
+            <h3>{d.relationship.emptyTitle}</h3>
+            <p>{d.relationship.emptyHelp}</p>
+            {onRequestAddStakeholder && !readOnly && (
+              <button
+                type="button"
+                className={styles.primaryButton}
+                onClick={onRequestAddStakeholder}
+              >
+                {d.relationship.addFirst}
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {selected && (
-        <aside className={styles.contextPanel} aria-label={`Inteligência de ${selected.name}`}>
+        <aside
+          className={styles.contextPanel}
+          aria-label={t("relationship.intelligenceFor", {
+            name: selected.name,
+          })}
+        >
           <div className={styles.panelHeader}>
-            <span className={styles.panelAvatar} aria-hidden="true">{initials(selected.name)}</span>
-            <div><small>{selected.role}</small><h3>{selected.name}</h3><p>{selected.area || "Área não informada"}</p></div>
-            <button type="button" className={styles.closeButton} onClick={() => selectStakeholder(null)} aria-label="Fechar perfil">×</button>
+            <span className={styles.panelAvatar} aria-hidden="true">
+              {initials(selected.name)}
+            </span>
+            <div>
+              <small>{selected.role}</small>
+              <h3>{selected.name}</h3>
+              <p>{selected.area || d.relationship.unknownArea}</p>
+            </div>
+            <button
+              type="button"
+              className={styles.closeButton}
+              onClick={() => selectStakeholder(null)}
+              aria-label={d.relationship.closeProfile}
+            >
+              ×
+            </button>
           </div>
           <div className={styles.tags}>
-            <span>{selected.stance || "Postura não avaliada"}</span>
-            <span>Influência {selected.influence || "não avaliada"}</span>
-            {selected.id === sponsor?.id && <span className={styles.sponsorTag}>Sponsor</span>}
+            <span>
+              {selected.stance
+                ? localizeSystemValue(locale, selected.stance)
+                : d.relationship.stanceUnknown}
+            </span>
+            <span>
+              {t("relationship.influence", {
+                value: selected.influence
+                  ? localizeSystemValue(locale, selected.influence)
+                  : d.common.notAssessed.toLowerCase(),
+              })}
+            </span>
+            {selected.id === sponsor?.id && (
+              <span className={styles.sponsorTag}>
+                {d.relationship.sponsor}
+              </span>
+            )}
           </div>
           {sponsor && selected.id !== sponsor.id && (
             <div className={styles.sponsorPathSummary}>
-              <strong>{sponsorPath.edges.size ? `${sponsorPath.edges.size} conexão(ões) até o sponsor` : "Caminho ao sponsor incompleto"}</strong>
-              <span>{sponsor.name} · {sponsor.role}</span>
+              <strong>
+                {sponsorPath.edges.size
+                  ? t("relationship.connectionsToSponsor", {
+                      count: sponsorPath.edges.size,
+                    })
+                  : d.relationship.incompleteSponsorPath}
+              </strong>
+              <span>
+                {sponsor.name} · {sponsor.role}
+              </span>
             </div>
           )}
           <div className={styles.panelSection}>
-            <small>Prioridades conhecidas</small>
-            {selected.priorities?.length
-              ? <div className={styles.priorityList}>{selected.priorities.map((item) => <span key={item}>{item}</span>)}</div>
-              : <p className={styles.gapText}>Ainda não há prioridades confirmadas.</p>}
+            <small>{d.relationship.knownPriorities}</small>
+            {selected.priorities?.length ? (
+              <div className={styles.priorityList}>
+                {selected.priorities.map((item, index) => (
+                  <span key={`${index}-${item}`}>{item}</span>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.gapText}>{d.relationship.noPriorities}</p>
+            )}
           </div>
           <div className={styles.panelSection}>
-            <small>Abordagem recomendada</small>
-            <p>{approachFor(selected)}</p>
+            <small>{d.relationship.recommendedApproach}</small>
+            <p>{approachFor(selected, d)}</p>
           </div>
-          {selected.notes && <div className={styles.panelSection}><small>Anotações</small><p>{selected.notes}</p></div>}
+          {selected.notes && (
+            <div className={styles.panelSection}>
+              <small>{d.relationship.notes}</small>
+              <p>{selected.notes}</p>
+            </div>
+          )}
           <div className={styles.panelSection}>
-            <small>Evidências</small>
+            <small>{d.relationship.evidence}</small>
             {selected.evidence?.length ? (
               <ul className={styles.evidenceList}>
                 {selected.evidence.slice(0, 5).map((evidence) => (
                   <li key={evidence.id}>
-                    {evidence.href ? <a href={evidence.href}>{evidence.title}</a> : <strong>{evidence.title}</strong>}
+                    {evidence.href ? (
+                      <a href={evidence.href}>{evidence.title}</a>
+                    ) : (
+                      <strong>{evidence.title}</strong>
+                    )}
                     {evidence.excerpt && <p>{evidence.excerpt}</p>}
-                    <span>{[evidence.sourceType, evidence.confidence === undefined ? "" : `${evidence.confidence}% confiança`].filter(Boolean).join(" · ")}</span>
+                    <span>
+                      {[
+                        evidence.sourceType,
+                        evidence.confidence === undefined
+                          ? ""
+                          : t("relationship.evidenceConfidence", {
+                              value: evidence.confidence,
+                            }),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
                   </li>
                 ))}
               </ul>
-            ) : <p className={styles.gapText}>Perfil sem evidência vinculada. Confirme a informação em uma próxima interação.</p>}
+            ) : (
+              <p className={styles.gapText}>{d.relationship.noEvidence}</p>
+            )}
           </div>
           {!readOnly && (
             <div className={styles.panelActions}>
-              {onRequestEdit && <button type="button" className={styles.primaryButton} onClick={() => onRequestEdit(selected)}>Editar perfil</button>}
-              {onRequestRelationship && <button type="button" className={styles.quietButton} onClick={() => onRequestRelationship(selected.id)}>Adicionar relação</button>}
+              {onRequestEdit && (
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={() => onRequestEdit(selected)}
+                >
+                  {d.relationship.editProfile}
+                </button>
+              )}
+              {onRequestRelationship && (
+                <button
+                  type="button"
+                  className={styles.quietButton}
+                  onClick={() => onRequestRelationship(selected.id)}
+                >
+                  {d.relationship.addRelationship}
+                </button>
+              )}
             </div>
           )}
         </aside>

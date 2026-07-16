@@ -1,6 +1,8 @@
-# Watson CDI Account Intelligence
+# Watson CDI — Customer Discovery Intelligence
 
-Account Intelligence before CRM: a functional web platform to understand client context, maintain a grounded account memory, map relationships, identify IBM portfolio themes, and proactively qualify next steps before creating a formal CRM opportunity.
+Watson CDI is a bilingual Account Intelligence platform for the work that happens before CRM. It helps teams understand customer context, preserve grounded account memory, map relationships, identify IBM portfolio themes, and proactively qualify next steps before creating a formal opportunity.
+
+English (US) is the default interface language. Users can switch the entire product to Brazilian Portuguese from the global header, and the preference persists between sessions. Human-authored notes, documents, answers, evidence, company names, people, and product names always remain in their original language.
 
 Live demo: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
@@ -9,6 +11,11 @@ This is a portfolio/challenge project. It is not an official IBM product.
 ## What It Does
 
 - Provides a role-oriented Home with a daily briefing, prioritized action queue, meetings and accounts that need attention.
+- Shows three complementary, interactive health views instead of repeating the same heatmap:
+  - Home `Account Health`: accounts by opportunity potential, pre-CRM maturity, relationship coverage, evidence confidence, and discovery coverage.
+  - Account `Capability Health`: IBM pillars by alignment, business value, readiness, confidence, and discovery coverage.
+  - Radar `Portfolio Fit`: accounts by IBM capability, with search, combined filters, sorting, evidence details, and account drill-down.
+- Uses a typed `en-US` / `pt-BR` localization layer for navigation, forms, Carbon charts, guided discovery, relationship maps, API messages, deterministic intelligence, dates, and numbers.
 - Tracks a portfolio of client accounts before they become CRM opportunities.
 - Captures free-form meeting notes and turns them into account intelligence.
 - Generates summaries, business signals, IBM themes, next questions, next actions, risks, stakeholders, systems, and pain points.
@@ -29,14 +36,26 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Keeps discovery progress separate from evidence coverage, and records gaps, stale answers, contradictions and append-only revisions.
 - Recalculates account intelligence deterministically after each confirmed answer and reserves generative AI for explicit, cached checkpoints.
 
-## Guided Discovery V5.1
+## Bilingual Account Health V5.2
 
-Open `Inteligência de contas -> Estratégia -> Descoberta guiada` to run the account questionnaire. The `2026.1` catalog starts with six business and technology diagnosis questions, then ranks FinOps, Trusted Data, AI Governance, Hybrid Cloud, Automation and App Modernization by information value.
+The first visit starts in English, independently of the browser language. The `English / Português` selector writes the `watson-cdi-locale` preference and updates the application language, document language, localized request headers, and AI response locale. IDs, enums, scores, source references, and original customer content do not change when the language changes.
 
-Two modes are available:
+All health matrices use a consistent scale and always expose both the score and its semantic band:
 
-- `Adaptativo`: completes the base diagnosis, selects the two most relevant pillars and materializes the next route.
-- `Direto por pilar`: starts immediately in one or more selected technology themes.
+- `0–39`: low;
+- `40–69`: medium;
+- `70–100`: high.
+
+Cells are keyboard-accessible and open an evidence panel or the exact account context that explains the score. The public demo uses curated bilingual content and does not consume generative-AI quota when the user changes language.
+
+## Guided Discovery
+
+Open `Account intelligence -> Strategy -> Guided discovery` (or `Inteligência de contas -> Estratégia -> Descoberta guiada` in Portuguese) to run the account questionnaire. The localized `2026.1` catalog starts with six business and technology diagnosis questions, then ranks FinOps, Trusted Data, AI Governance, Hybrid Cloud, Automation and App Modernization by information value.
+
+Two modes are available in both languages:
+
+- `Adaptive / Adaptativo`: completes the base diagnosis, selects the two most relevant pillars and materializes the next route.
+- `Direct by pillar / Direto por pilar`: starts immediately in one or more selected technology themes.
 
 Each answer can include a structured value, free context, evidence nature, related stakeholder, source, date and confidence. Drafts do not change intelligence. Confirmed and unknown answers update the deterministic account model, while an AI-generated follow-up remains a proposal until a person accepts it.
 
@@ -96,7 +115,9 @@ Meeting notes / unified information / documents
   -> Home, account workspace, portfolio radar and settings
 ```
 
-The main product UI lives in `app/page.tsx`. The guided workspace lives in `app/GuidedDiscoveryWorkspace.tsx`, its versioned catalog and deterministic route engine in `lib/guided-discovery.ts`, and its scoped endpoints under `app/api/accounts/[id]/guided-discovery`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
+The main product UI lives in `app/page.tsx`. Typed translations and locale resolution live in `lib/i18n.ts`, with the client provider and Carbon language selector in `app/I18nProvider.tsx`. Health formulas live in `lib/account-health.ts`; the three semantic heatmap surfaces live in `app/HealthHeatmaps.tsx`.
+
+The guided workspace lives in `app/GuidedDiscoveryWorkspace.tsx`, its versioned, localized catalog and deterministic route engine in `lib/guided-discovery.ts`, and its scoped endpoints under `app/api/accounts/[id]/guided-discovery`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
 
 ## Getting Started
 
@@ -130,41 +151,25 @@ npm test
 
 ## Versioning And Rollback
 
-The rollback baseline for V5.1 is tagged as:
-
-```bash
-v5-proactive-copilot-gemini
-```
-
-The V5.1 version is developed on:
-
-```bash
-codex/guided-discovery-v5-1
-```
-
-After validation and deployment, tag the exact deployed commit:
-
-```bash
-v5.1-guided-discovery
-```
+V5.2 is developed on `codex/bilingual-account-health-v5-2`. Its validated rollback baseline is `v5.1-guided-discovery`; after production validation, the exact deployed V5.2 commit is tagged `v5.2-bilingual-account-health`.
 
 Application rollback:
 
 ```bash
-git checkout v5-proactive-copilot-gemini
+git switch --detach v5.1-guided-discovery
 npm install
 npm run build
 ```
 
-Then republish that validated source through OpenAI Sites.
+Republish that validated build through OpenAI Sites. To resume development afterward, switch back to a branch rather than committing from detached HEAD.
 
 Data rollback policy:
 
-- V5.1 migration `0006` is additive only.
-- Existing `discoveries` data remains compatible.
-- New guided-discovery sessions, questions and answer revisions can be ignored safely by V5.
-- New discovery and meeting fields are optional/defaulted, so legacy rows remain readable.
-- No destructive migration is included in this release.
+- V5.2 migration `0007` is additive only.
+- Existing discoveries, account content, guided-discovery answers, and user-authored sources are never rewritten by the language switch.
+- V5.1 safely ignores localized briefing variants, translation cache records, and AI-run locale audit data.
+- Existing `discoveries` and V5.1 guided-discovery records remain compatible.
+- No table, column, source, answer, or document is removed or renamed in this release.
 
 ## Repository Topics
 
