@@ -1,5 +1,30 @@
 # Changelog
 
+## v5.3-commercial-proof
+
+Status: validation and production deployment pending
+Branch: `codex/commercial-proof-v5-3`
+Deploy commit: pending
+OpenAI Sites version: pending
+Rollback tag: `v5.2-bilingual-account-health`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Added
+
+- End-to-end conversation-to-intelligence review with preserved original evidence and explicit before/after deltas for account progress, capability scores, account knowledge, stakeholders, hypotheses, and next actions.
+- Visible logical-agent pipeline for source normalization, account memory, stakeholder intelligence, capability fit, opportunity hypotheses, next-best action, and governance.
+- Honest engine disclosure: with no model API configured, every workflow stage is identified as deterministic rules and remains ready for IBM watsonx through the vendor-neutral adapter.
+- Human approval or rejection of proposed change sets before derived intelligence becomes accepted account memory.
+- Evidence navigation from analysis conclusions, recommendations, health matrices, and context relationships back to the supporting account activity.
+- Interactive Customer Context Map connecting objectives, initiatives, stakeholders, systems, pains, risks, and IBM capabilities.
+- Functional pre-CRM handoff with qualification gates, preview, copy, JSON export, audit status, and explicit human action to mark the handoff as completed.
+- Observed impact metrics for discovery duration, coverage, open gaps, evidence, meetings, and qualified hypotheses. No time-saving percentage is inferred without a measured baseline and comparable sessions.
+- Additive D1 migration `0008` for account change sets, commercial workflow runs, CRM handoffs, and account impact snapshots.
+
+### Rollback
+
+Use tag `v5.2-bilingual-account-health`, rebuild and republish it through OpenAI Sites. Migration `0008` is additive; V5.2 safely ignores commercial change sets, pipeline runs, handoffs, and impact metrics.
+
 ## v5.2-bilingual-account-health
 
 Status: published

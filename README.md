@@ -18,23 +18,50 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Uses a typed `en-US` / `pt-BR` localization layer for navigation, forms, Carbon charts, guided discovery, relationship maps, API messages, deterministic intelligence, dates, and numbers.
 - Tracks a portfolio of client accounts before they become CRM opportunities.
 - Captures free-form meeting notes and turns them into account intelligence.
+- Shows a before/after review after every analyzed conversation, including score deltas, new account knowledge, affected hypotheses and recalculated next actions.
 - Generates summaries, business signals, IBM themes, next questions, next actions, risks, stakeholders, systems, and pain points.
 - Provides a persistent, editable stakeholder organogram for every account, with reporting lines, influence, stance, priorities, notes, and a relationship plan.
 - Crosses stakeholder profiles with meeting evidence, pains, and IBM capability scores to suggest who to approach, what to discuss, and which question to ask.
-- Keeps the broader account map for systems, pains, risks, initiatives, and IBM capabilities.
+- Provides an interactive Customer Context Map that connects objectives, initiatives, stakeholders, systems, pains, risks, and IBM capabilities, with filters and evidence drill-down.
 - Shows a portfolio heatmap and account-level capability heatmap.
-- Produces a pre-CRM handoff that can be copied into Salesforce, Dynamics, HubSpot, or another CRM.
+- Produces a governed pre-CRM handoff that can be reviewed, copied, exported as JSON and explicitly marked as handed off by a person.
 - Maintains `Sabemos`, `Supomos`, `Falta descobrir` and `Desatualizado` account memory with clickable evidence.
 - Offers a grounded `Pergunte sobre esta conta` copilot, opportunity hypotheses and human-editable 30/60/90 Account Plan.
 - Accepts PDF, DOCX, TXT and Markdown sources in the private workspace, storing originals in R2 and chunks in D1.
-- Keeps audit history, human validation, and clear AI/fallback status.
+- Keeps audit history, human validation, and clear processing-engine status.
 - Keeps `/` as a synthetic read-only demo and protects `/workspace` with Sign in with ChatGPT plus server-side ownership checks.
 - Produces a proactive daily briefing, Next Best Actions, the next best conversation and the discovery question with the highest information value.
-- Combines keyword, recency and 768-dimensional semantic retrieval with account-scoped citations.
+- Uses account-scoped keyword and recency retrieval with citations today; semantic retrieval remains behind the provider adapter for later activation.
 - Provides a Carbon command palette (`Cmd/Ctrl + K`) and an interactive hierarchy/influence graph powered by React Flow.
 - Adds a dynamic guided-discovery workspace inside each account's Strategy mode, with adaptive and direct-by-pillar routes.
 - Keeps discovery progress separate from evidence coverage, and records gaps, stale answers, contradictions and append-only revisions.
-- Recalculates account intelligence deterministically after each confirmed answer and reserves generative AI for explicit, cached checkpoints.
+- Recalculates account intelligence deterministically after each confirmed answer and keeps future model-assisted checkpoints behind a vendor-neutral adapter.
+- Makes the logical analysis pipeline visible: source normalization, account memory, stakeholder intelligence, capability fit, opportunity hypotheses, next-best action, and governance. These are workflow roles, not independent models.
+- Links conclusions and recommendations back to their recorded evidence and measures only observed discovery coverage, gaps, evidence, meetings, qualification time, and qualified hypotheses.
+
+## Commercial Proof V5.3
+
+V5.3 closes the loop between information capture and a commercially useful decision. When a meeting or another source is recorded, Watson CDI preserves the original evidence, recalculates the account with transparent deterministic rules, and opens a review of what changed. Proposed changes remain pending until a person approves or rejects them.
+
+The visible workflow is:
+
+```text
+recorded conversation
+  -> original evidence
+  -> normalized account event
+  -> account-memory update
+  -> stakeholder and capability assessment
+  -> opportunity-hypothesis review
+  -> next-best-action proposal
+  -> human approval
+  -> optional pre-CRM handoff
+```
+
+The analysis panel calls these stages logical agents because each stage has a bounded role, sources, conclusion, confidence, and validation status. With no model credential configured, every stage is explicitly identified as `Deterministic rules`; the interface never implies that a generative model ran. The same workflow boundary is ready for IBM watsonx without changing the product experience.
+
+Evidence is navigable from the change review, pipeline, health views, recommendations, and Customer Context Map. Selecting a source moves the user to the account activity that supports the conclusion.
+
+Impact reporting is deliberately conservative. Watson CDI reports observed values from product records and never infers a time-saving percentage. A reduction claim, including any `65–70%` claim, requires a recorded manual baseline and comparable assisted sessions with a stated sample size.
 
 ## Bilingual Account Health V5.2
 
@@ -59,33 +86,18 @@ Two modes are available in both languages:
 
 Each answer can include a structured value, free context, evidence nature, related stakeholder, source, date and confidence. Drafts do not change intelligence. Confirmed and unknown answers update the deterministic account model, while an AI-generated follow-up remains a proposal until a person accepts it.
 
-## AI Behavior
+## Intelligence Engine
 
-The server-side AI adapter uses this precedence:
+The current release is fully usable without a model API. Deterministic rules persist sources, calculate scores, update memory, identify gaps, propose hypotheses and next actions, and expose every stage for human review.
 
-```text
-IBM watsonx -> Google Gemini -> deterministic fallback
-```
-
-IBM watsonx remains the target production provider and uses:
+IBM watsonx is the target model-assisted provider and, when enabled later, will use server-side secrets only:
 
 - `WATSONX_API_KEY`
 - `WATSONX_PROJECT_ID`
 - `WATSONX_URL`
 - `WATSONX_MODEL_ID`
 
-The temporary test provider uses:
-
-- `GEMINI_API_KEY` (secret; never expose it in source code or browser variables)
-- `GEMINI_MODEL_ID=gemini-3.1-flash-lite`
-- `GEMINI_EMBEDDING_MODEL_ID=gemini-embedding-2`
-- `AI_PROVIDER_MODE=auto`
-
-The public demo never calls Gemini. Accounts classified as `confidential` also block Gemini automatically. A test account may use Gemini only inside the authenticated workspace. If a provider is unavailable, over quota, returns invalid output or opens the circuit breaker, the app continues with the deterministic engine and exposes the active status without returning credentials.
-
-The key previously pasted into a chat is intentionally not present in this repository or deployment. Revoke it, create a new key restricted to the Gemini API, and save the replacement only as the `GEMINI_API_KEY` Sites secret. Until then, V5 operates safely in deterministic fallback mode.
-
-Free-tier Gemini processing is experimental. Do not mark real or confidential customer data as `test`; use watsonx or fallback for that content.
+Until those four values are configured, the application identifies the active engine as deterministic rules. The public demo does not call an external model. Account authorization, data classification, source citations, output validation, human approval and audit logging remain mandatory regardless of the active engine.
 
 ## Tech Stack
 
@@ -108,14 +120,14 @@ Free-tier Gemini processing is experimental. Do not mark real or confidential cu
 Meeting notes / unified information / documents
   -> /api/accounts
   -> guided discovery catalog, route and append-only evidence
-  -> selective retrieval (semantic + keyword + recency)
-  -> IBM watsonx, Gemini, or deterministic fallback
-  -> D1 memory, embeddings, cache, briefings, relationships, actions, plans and audit
+  -> selective account-scoped retrieval
+  -> deterministic workflow today; IBM watsonx through the provider adapter when configured
+  -> D1 memory, change sets, logical-agent runs, handoffs, impact metrics, relationships, actions, plans and audit
   -> R2 original documents
-  -> Home, account workspace, portfolio radar and settings
+  -> Home, account workspace, context map, portfolio radar and settings
 ```
 
-The main product UI lives in `app/page.tsx`. Typed translations and locale resolution live in `lib/i18n.ts`, with the client provider and Carbon language selector in `app/I18nProvider.tsx`. Health formulas live in `lib/account-health.ts`; the three semantic heatmap surfaces live in `app/HealthHeatmaps.tsx`.
+The main product UI lives in `app/page.tsx`. Typed translations and locale resolution live in `lib/i18n.ts`, with the client provider and Carbon language selector in `app/I18nProvider.tsx`. Health formulas live in `lib/account-health.ts`; the three semantic heatmap surfaces live in `app/HealthHeatmaps.tsx`. The conversation review, visible analysis pipeline, governed CRM handoff and observed metrics live in `app/CommercialProofPanels.tsx`; the relationship-oriented context view lives in `app/CustomerContextMap.tsx`. Commercial state comparisons and handoff/impact contracts live in `lib/commercial-proof.ts`.
 
 The guided workspace lives in `app/GuidedDiscoveryWorkspace.tsx`, its versioned, localized catalog and deterministic route engine in `lib/guided-discovery.ts`, and its scoped endpoints under `app/api/accounts/[id]/guided-discovery`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
 
@@ -151,12 +163,12 @@ npm test
 
 ## Versioning And Rollback
 
-V5.2 is developed on `codex/bilingual-account-health-v5-2`. Its validated rollback baseline is `v5.1-guided-discovery`; after production validation, the exact deployed V5.2 commit is tagged `v5.2-bilingual-account-health`.
+V5.3 is developed on `codex/commercial-proof-v5-3`. Its validated rollback baseline is `v5.2-bilingual-account-health`; after production validation, the exact deployed V5.3 commit is tagged `v5.3-commercial-proof`.
 
 Application rollback:
 
 ```bash
-git switch --detach v5.1-guided-discovery
+git switch --detach v5.2-bilingual-account-health
 npm install
 npm run build
 ```
@@ -165,10 +177,10 @@ Republish that validated build through OpenAI Sites. To resume development after
 
 Data rollback policy:
 
-- V5.2 migration `0007` is additive only.
+- V5.3 migration `0008` is additive only.
 - Existing discoveries, account content, guided-discovery answers, and user-authored sources are never rewritten by the language switch.
-- V5.1 safely ignores localized briefing variants, translation cache records, and AI-run locale audit data.
-- Existing `discoveries` and V5.1 guided-discovery records remain compatible.
+- V5.2 safely ignores change sets, commercial pipeline runs, CRM handoffs, and observed impact snapshots.
+- Existing `discoveries` and V5.2 records remain compatible.
 - No table, column, source, answer, or document is removed or renamed in this release.
 
 ## Repository Topics

@@ -73,7 +73,7 @@ const jsonResponse = (payload, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-test("documents Watson CDI V5.2 and its additive rollback path", async () => {
+test("documents Watson CDI V5.3 and its additive rollback path", async () => {
   const [readme, changelog, packageJson] = await Promise.all([
     readProjectFile("README.md"),
     readProjectFile("CHANGELOG.md"),
@@ -90,19 +90,23 @@ test("documents Watson CDI V5.2 and its additive rollback path", async () => {
   assert.match(readme, /Capability Health/);
   assert.match(readme, /Portfolio Fit/);
   assert.match(readme, /WATSONX_API_KEY/);
-  assert.match(readme, /v5\.1-guided-discovery/);
   assert.match(readme, /v5\.2-bilingual-account-health/);
-  assert.match(readme, /GEMINI_API_KEY/);
-  assert.match(readme, /gemini-3\.1-flash-lite/);
+  assert.match(readme, /v5\.3-commercial-proof/);
+  assert.match(readme, /Customer Context Map/);
+  assert.match(readme, /observed values/i);
   assert.match(changelog, /v5\.2-bilingual-account-health/);
-  assert.match(changelog, /production deployment pending/);
+  assert.match(changelog, /v5\.3-commercial-proof/);
+  assert.match(
+    changelog,
+    /Status: (?:published|validation and production deployment pending)/,
+  );
   assert.match(changelog, /v5-proactive-copilot-gemini/);
   assert.match(changelog, /v4-proactive-account-intelligence/);
   assert.match(changelog, /migrations are additive/i);
   assert.match(readme, /Live demo:/);
   assert.match(readme, /not an official IBM product/i);
   assert.match(packageJson, /"name": "watson-cdi"/);
-  assert.match(packageJson, /"version": "5\.2\.0"/);
+  assert.match(packageJson, /"version": "5\.3\.0"/);
 });
 
 test("keeps the V5 proactive account intelligence surfaces wired", async () => {
