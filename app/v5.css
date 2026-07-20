@@ -156,7 +156,7 @@
   border-radius: 50%;
   background: #42be65;
 }
-.v5-side-foot span i.gemini {
+.v5-side-foot span i.configured {
   background: #be95ff;
 }
 .v5-side-foot span i.watsonx {
@@ -960,6 +960,14 @@
 .v5-timeline small {
   color: #6f6f6f;
   font-size: 0.62rem;
+}
+.v5-evidence-focus {
+  outline: 2px solid #0f62fe;
+  outline-offset: 3px;
+  background: #edf5ff !important;
+  transition:
+    background 180ms ease,
+    outline-color 180ms ease;
 }
 .v5-translatable {
   display: grid;

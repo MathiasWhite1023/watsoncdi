@@ -25,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   });
   const title = messages[locale].brand.name;
   const description = messages[locale].brand.description;
-  const image = `${origin}/og.png`;
+  const image = `${origin}/og-v53.png`;
 
   return {
     title,

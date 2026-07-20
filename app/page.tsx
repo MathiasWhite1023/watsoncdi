@@ -74,6 +74,15 @@ import {
   CapabilityHealthHeatmap,
   PortfolioFitHeatmap,
 } from "./HealthHeatmaps";
+import CustomerContextMap from "./CustomerContextMap";
+import {
+  AnalysisPipelinePanel,
+  ConversationImpactPanel,
+  CrmHandoffModal,
+  ImpactMetricsPanel,
+  type CrmHandoffData,
+  type LogicalAgentRun,
+} from "./CommercialProofPanels";
 import { LanguageSwitcher, useI18n } from "./I18nProvider";
 import {
   buildAccountHealthPortfolio,
@@ -169,6 +178,27 @@ type Discovery = {
   challengeSummary: string;
   answers: Array<{ key: string; question: string; answer: string; at: string }>;
   meetings: Meeting[];
+  accountMap?: {
+    nodes: Array<{
+      id: string;
+      type: string;
+      label: string;
+      detail?: string;
+      strength?: number;
+      evidence?: Evidence[];
+      sourceCount?: number;
+      updatedAt?: string;
+    }>;
+    edges: Array<{
+      id?: string;
+      source: string;
+      target: string;
+      label?: string;
+      evidence?: Evidence[];
+      confirmed?: boolean;
+    }>;
+    updatedAt?: string;
+  };
   scores: Score[];
   recommendations: Array<{ type: string; name: string; rationale: string }>;
   nextEngagement: string;
@@ -324,6 +354,97 @@ type AIRun = {
   errorCode?: string | null;
   createdAt: string;
 };
+type CommercialChangeSet = {
+  id: string;
+  discoveryId: string;
+  sourceType: string;
+  sourceId: string;
+  triggerType: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  delta: Record<string, unknown>;
+  suggestions: {
+    stakeholders?: string[];
+    systems?: string[];
+    painPoints?: string[];
+    themes?: string[];
+    risks?: string[];
+    nextActions?: string[];
+  };
+  provider: string;
+  engineKind: "deterministic" | "model" | string;
+  status: "pending_review" | "approved" | "rejected" | string;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+type CommercialAgentRun = {
+  id: string;
+  discoveryId: string;
+  workflowId: string;
+  changeSetId?: string | null;
+  agent: string;
+  engineKind: "deterministic" | "model" | string;
+  provider: string;
+  model?: string;
+  status: string;
+  conclusion: string;
+  confidence: number;
+  sources: string[];
+  output: Record<string, unknown>;
+  humanValidationStatus: string;
+  startedAt: string;
+  completedAt?: string | null;
+  createdAt: string;
+};
+type CrmHandoffRecord = {
+  id: string;
+  discoveryId: string;
+  hypothesisId?: string | null;
+  version: number;
+  status: string;
+  payload: Record<string, unknown>;
+  qualification: Record<string, unknown>;
+  copyText: string;
+  exportPayload: Record<string, unknown>;
+  sources: string[];
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  handedOffAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+type AccountImpactMetric = {
+  id: string;
+  discoveryId: string;
+  discoveryStartedAt: string;
+  qualifiedAt?: string | null;
+  elapsedMinutes: number;
+  questionsAddressed: number;
+  questionsConfirmed: number;
+  discoveryCoverage: number;
+  openGaps: number;
+  evidenceCount: number;
+  confirmedEvidenceCount: number;
+  meetingCount: number;
+  qualifiedHypothesisCount: number;
+  methodology: Record<string, string>;
+  computedAt: string;
+};
+type CommercialProof = {
+  discoveryId: string;
+  latestChangeSet?: CommercialChangeSet | null;
+  changeSets: CommercialChangeSet[];
+  latestHandoff?: CrmHandoffRecord | null;
+  handoffs: CrmHandoffRecord[];
+  impact?: AccountImpactMetric | null;
+  agentPipeline: CommercialAgentRun[];
+  latestWorkflowId?: string | null;
+  requiresHumanApproval: boolean;
+  externalWritePerformed: boolean;
+  handoffRecorded?: boolean;
+};
 type ApiData = {
   discoveries: Discovery[];
   meetings: Meeting[];
@@ -349,6 +470,11 @@ type ApiData = {
   snapshots: Snapshot[];
   actionFeedback: unknown[];
   guidedDiscoveries: GuidedDiscovery[];
+  changeSets: CommercialChangeSet[];
+  crmHandoffs: CrmHandoffRecord[];
+  impactMetrics: AccountImpactMetric[];
+  agentPipelineRuns: CommercialAgentRun[];
+  commercialProof: CommercialProof[];
 };
 type Briefing = {
   headline: string;
@@ -512,6 +638,11 @@ const emptyData: ApiData = {
   snapshots: [],
   actionFeedback: [],
   guidedDiscoveries: [],
+  changeSets: [],
+  crmHandoffs: [],
+  impactMetrics: [],
+  agentPipelineRuns: [],
+  commercialProof: [],
 };
 const navItems = [
   { id: "home", key: "home", icon: Dashboard },
@@ -537,6 +668,448 @@ const statusTone = (status: string) =>
           : status === "snoozed"
             ? "warm-gray"
             : "purple";
+const isWatsonxProvider = (provider?: string | null) =>
+  Boolean(provider && provider.toLowerCase().includes("watsonx"));
+const isDeterministicProvider = (provider?: string | null) =>
+  !provider ||
+  provider === "fallback" ||
+  provider === "deterministic" ||
+  provider === "deterministic-rules";
+const visibleProviderLabel = (
+  provider: string | null | undefined,
+  copy: AppMessages,
+) =>
+  isWatsonxProvider(provider)
+    ? "IBM watsonx"
+    : isDeterministicProvider(provider)
+      ? copy.shell.deterministicFallback
+      : copy.shell.geminiExperimental;
+const objectValue = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+const listValue = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : [];
+const stringsValue = (value: unknown): string[] =>
+  listValue(value).map(String).filter(Boolean);
+const numberValue = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+function conversationImpactFromChangeSet(
+  changeSet: CommercialChangeSet | null | undefined,
+  locale: Locale,
+) {
+  if (!changeSet) return { scoreDeltas: [], addedFindings: [], changes: [] };
+  const delta = objectValue(changeSet.delta);
+  const progress = objectValue(delta.progress);
+  const scoreDeltas = [] as Array<{
+    id: string;
+    label: string;
+    before: number;
+    after: number;
+  }>;
+  if ("before" in progress || "after" in progress)
+    scoreDeltas.push({
+      id: "pre-crm-maturity",
+      label: locale === "pt-BR" ? "Maturidade pré-CRM" : "Pre-CRM maturity",
+      before: numberValue(progress.before),
+      after: numberValue(progress.after),
+    });
+  for (const capabilityValue of listValue(delta.capabilities)) {
+    const capability = objectValue(capabilityValue);
+    const before = objectValue(capability.before);
+    const after = objectValue(capability.after);
+    for (const metric of [
+      "alignment",
+      "value",
+      "readiness",
+      "confidence",
+    ] as const) {
+      const previous = numberValue(before[metric]);
+      const next = numberValue(after[metric]);
+      if (previous === next) continue;
+      const metricLabel =
+        locale === "pt-BR"
+          ? {
+              alignment: "alinhamento",
+              value: "valor",
+              readiness: "prontidão",
+              confidence: "confiança",
+            }[metric]
+          : metric;
+      scoreDeltas.push({
+        id: `${String(capability.key || capability.name)}-${metric}`,
+        label: `${String(capability.name || capability.key || "Capability")} · ${metricLabel}`,
+        before: previous,
+        after: next,
+      });
+    }
+  }
+  const entityDelta = objectValue(delta.entities);
+  const stakeholderDelta = objectValue(delta.stakeholders);
+  const rawFindings = [
+    ...listValue(entityDelta.added),
+    ...listValue(entityDelta.suggested),
+    ...listValue(stakeholderDelta.added).map((item) => ({
+      ...objectValue(item),
+      type: "stakeholder",
+    })),
+    ...listValue(stakeholderDelta.suggested).map((item) => ({
+      ...objectValue(item),
+      type: "stakeholder",
+    })),
+  ];
+  const allowedFindingKinds = new Set([
+    "fact",
+    "stakeholder",
+    "pain",
+    "initiative",
+    "system",
+    "risk",
+  ]);
+  const addedFindings = rawFindings.map((item, index) => {
+    const finding = objectValue(item);
+    const rawKind = String(finding.type || "fact").toLowerCase();
+    const kind = (allowedFindingKinds.has(rawKind) ? rawKind : "fact") as
+      | "fact"
+      | "stakeholder"
+      | "pain"
+      | "initiative"
+      | "system"
+      | "risk";
+    return {
+      id: String(finding.id || `${kind}-${index}`),
+      kind,
+      title: String(finding.name || finding.title || finding.label || "—"),
+      detail: String(finding.detail || finding.status || ""),
+      confidence:
+        finding.confidence === undefined
+          ? undefined
+          : numberValue(finding.confidence),
+    };
+  });
+  const changes = [
+    ...listValue(delta.hypotheses).map((item, index) => {
+      const hypothesis = objectValue(item);
+      const before = objectValue(hypothesis.before);
+      const after = objectValue(hypothesis.after);
+      const previousConfidence = numberValue(before.confidence);
+      const nextConfidence = numberValue(after.confidence);
+      return {
+        id: String(hypothesis.id || `hypothesis-${index}`),
+        kind: "hypothesis" as const,
+        state: (!hypothesis.before
+          ? "new"
+          : nextConfidence > previousConfidence
+            ? "strengthened"
+            : nextConfidence < previousConfidence
+              ? "weakened"
+              : "updated") as "new" | "strengthened" | "weakened" | "updated",
+        title: String(hypothesis.title || hypothesis.capabilityKey || "—"),
+        previous: hypothesis.before
+          ? `${String(before.stage || "draft")} · ${previousConfidence}%`
+          : undefined,
+        proposed: `${String(after.stage || "draft")} · ${nextConfidence}% · ${String(hypothesis.nextStep || "")}`,
+        confidence: nextConfidence,
+      };
+    }),
+    ...listValue(delta.actions).map((item, index) => {
+      const action = objectValue(item);
+      return {
+        id: String(action.id || `action-${index}`),
+        kind: "action" as const,
+        state: "updated" as const,
+        title: String(action.title || action.type || "—"),
+        proposed: String(action.nextStep || action.status || "—"),
+        confidence: numberValue(action.priorityScore),
+      };
+    }),
+  ];
+  return {
+    scoreDeltas: scoreDeltas
+      .sort(
+        (a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before),
+      )
+      .slice(0, 8),
+    addedFindings,
+    changes,
+  };
+}
+
+function crmHandoffDataFromRecord(
+  record: CrmHandoffRecord | null | undefined,
+  account?: Discovery,
+): CrmHandoffData {
+  const payload = objectValue(record?.payload);
+  const payloadAccount = objectValue(payload.account);
+  const opportunity = objectValue(payload.opportunity);
+  const qualification = objectValue(record?.qualification);
+  const gates = objectValue(qualification.gates);
+  const gate = (key: string) => objectValue(gates[key]);
+  const missingCriteria = Object.entries(gates)
+    .filter(([, value]) => !Boolean(objectValue(value).passed))
+    .map(([key]) => key);
+  return {
+    accountId: String(payloadAccount.id || account?.id || ""),
+    accountName: String(
+      payloadAccount.name || account?.customerName || "Watson CDI",
+    ),
+    opportunityName: String(opportunity.title || ""),
+    problem: String(opportunity.problem || account?.challengeSummary || ""),
+    businessObjective: stringsValue(opportunity.businessObjectives).join(" · "),
+    capabilities: opportunity.capability
+      ? [String(opportunity.capability)]
+      : [],
+    products: stringsValue(opportunity.products),
+    stakeholders: listValue(payload.stakeholders).map((value, index) => {
+      const person = objectValue(value);
+      return {
+        id: String(person.id || `stakeholder-${index}`),
+        name: String(person.name || "—"),
+        role: String(person.role || ""),
+        relationship: String(person.influence || ""),
+        isSponsor:
+          String(person.influence || "").toLowerCase() === "alta" ||
+          /chief|c-level|diretor|director|vp/i.test(String(person.role || "")),
+      };
+    }),
+    evidence: listValue(opportunity.evidence || payload.evidence).map(
+      (value, index) => {
+        const evidence = objectValue(value);
+        return {
+          id: String(evidence.sourceId || evidence.id || `source-${index}`),
+          title: String(evidence.title || evidence.sourceId || "Evidence"),
+          source: String(evidence.sourceId || evidence.source || "account"),
+          excerpt: String(evidence.excerpt || ""),
+          confidence:
+            evidence.confidence === undefined
+              ? undefined
+              : numberValue(evidence.confidence),
+        };
+      },
+    ),
+    gaps: stringsValue(opportunity.gaps),
+    successCriteria: stringsValue(opportunity.businessObjectives),
+    nextStep: String(opportunity.nextStep || ""),
+    qualification: {
+      qualified: Boolean(qualification.eligible),
+      alignment: numberValue(gate("alignment").value),
+      readiness: numberValue(gate("readiness").value),
+      confidence: numberValue(gate("confidence").value),
+      confirmedPain: Boolean(gate("confirmedPain").passed),
+      relevantStakeholder: Boolean(gate("relevantStakeholder").passed),
+      validatedNextStep: Boolean(gate("validatedNextStep").passed),
+      missingCriteria,
+    },
+    generatedAt: record?.createdAt,
+    approvedBy: record?.approvedBy || undefined,
+  };
+}
+
+function logicalPipelineForProof(
+  proof: CommercialProof | null | undefined,
+  data: ApiData,
+  locale: Locale,
+): LogicalAgentRun[] {
+  if (!proof) return [];
+  const latestWorkflowId = proof.latestWorkflowId;
+  const runs = latestWorkflowId
+    ? proof.agentPipeline.filter((item) => item.workflowId === latestWorkflowId)
+    : proof.agentPipeline;
+  const labels: Record<string, [string, string]> = {
+    "source-normalizer": ["Source intake", "Entrada de fontes"],
+    "account-memory": ["Account memory", "Memória da conta"],
+    "stakeholder-intelligence": [
+      "Stakeholder intelligence",
+      "Inteligência de stakeholders",
+    ],
+    "capability-fit": ["IBM capability fit", "Aderência às capacidades IBM"],
+    "opportunity-hypothesis": [
+      "Opportunity hypotheses",
+      "Hipóteses de oportunidade",
+    ],
+    "next-best-action": ["Next best action", "Próxima melhor ação"],
+    governance: ["Governance review", "Revisão de governança"],
+  };
+  const sourceFor = (sourceId: string) => {
+    const event = data.accountEvents.find(
+      (item) => item.id === sourceId || item.sourceId === sourceId,
+    );
+    const meeting = data.meetings.find((item) => item.id === sourceId);
+    const accountDocument = data.documents.find((item) => item.id === sourceId);
+    return {
+      id: sourceId,
+      label:
+        event?.title || meeting?.title || accountDocument?.name || sourceId,
+      sourceType:
+        event?.sourceType ||
+        (meeting ? "meeting" : accountDocument ? "document" : "source"),
+      excerpt:
+        event?.content ||
+        meeting?.summary ||
+        meeting?.notes ||
+        accountDocument?.summary ||
+        "",
+    };
+  };
+  return runs.map((run) => ({
+    id: run.id,
+    name: labels[run.agent]?.[locale === "pt-BR" ? 1 : 0] || run.agent,
+    status: ([
+      "pending",
+      "running",
+      "completed",
+      "fallback",
+      "needs-review",
+      "error",
+      "failed",
+    ].includes(run.status)
+      ? run.status
+      : "completed") as LogicalAgentRun["status"],
+    provider:
+      run.engineKind === "deterministic"
+        ? "deterministic"
+        : isWatsonxProvider(run.provider)
+          ? "watsonx"
+          : "configured-model",
+    model: isWatsonxProvider(run.provider) ? run.model : undefined,
+    sources: run.sources.map(sourceFor),
+    conclusion: run.conclusion,
+    confidence: run.confidence,
+    durationMs:
+      run.completedAt && run.startedAt
+        ? Math.max(
+            0,
+            new Date(run.completedAt).getTime() -
+              new Date(run.startedAt).getTime(),
+          )
+        : undefined,
+  }));
+}
+
+function deterministicPipelinePreview(
+  account: Discovery | undefined,
+  events: AccountEvent[],
+  locale: Locale,
+): LogicalAgentRun[] {
+  if (!account) return [];
+  const source = events[0]
+    ? [
+        {
+          id: events[0].sourceId || events[0].id,
+          label: events[0].title,
+          sourceType: events[0].sourceType,
+          excerpt: events[0].content,
+        },
+      ]
+    : [];
+  const entries: Array<[string, string, string, string, number]> = [
+    [
+      "source-normalizer",
+      "Source intake",
+      "Entrada de fontes",
+      "Recorded sources were normalized without changing the original content.",
+      100,
+    ],
+    [
+      "account-memory",
+      "Account memory",
+      "Memória da conta",
+      "Known facts, assumptions, gaps, and stale signals were recomputed.",
+      82,
+    ],
+    [
+      "stakeholder-intelligence",
+      "Stakeholder intelligence",
+      "Inteligência de stakeholders",
+      "Relationship coverage and missing executive roles were checked.",
+      76,
+    ],
+    [
+      "capability-fit",
+      "IBM capability fit",
+      "Aderência às capacidades IBM",
+      "Capability alignment, value, readiness, and confidence were recalculated.",
+      78,
+    ],
+    [
+      "opportunity-hypothesis",
+      "Opportunity hypotheses",
+      "Hipóteses de oportunidade",
+      "Opportunity hypotheses were checked against deterministic qualification gates.",
+      74,
+    ],
+    [
+      "next-best-action",
+      "Next best action",
+      "Próxima melhor ação",
+      "The action queue was reordered by impact, urgency, confidence, and maturity.",
+      79,
+    ],
+    [
+      "governance",
+      "Governance review",
+      "Revisão de governança",
+      "All derived changes remain subject to human approval and no external write occurred.",
+      100,
+    ],
+  ];
+  const ptConclusions: Record<string, string> = {
+    "source-normalizer":
+      "As fontes registradas foram normalizadas sem alterar o conteúdo original.",
+    "account-memory":
+      "Fatos, suposições, lacunas e sinais desatualizados foram recalculados.",
+    "stakeholder-intelligence":
+      "A cobertura de relacionamento e os papéis executivos ausentes foram verificados.",
+    "capability-fit":
+      "Alinhamento, valor, prontidão e confiança das capacidades foram recalculados.",
+    "opportunity-hypothesis":
+      "As hipóteses foram verificadas pelos critérios determinísticos de qualificação.",
+    "next-best-action":
+      "A fila foi reordenada por impacto, urgência, confiança e maturidade.",
+    governance:
+      "Toda mudança derivada exige aprovação humana e nenhuma escrita externa ocorreu.",
+  };
+  return entries.map(([id, enName, ptName, conclusion, confidence]) => ({
+    id: `demo-${account.id}-${id}`,
+    name: locale === "pt-BR" ? ptName : enName,
+    status: "completed",
+    provider: "deterministic",
+    sources: source,
+    conclusion: locale === "pt-BR" ? ptConclusions[id] : conclusion,
+    confidence,
+  }));
+}
+
+function impactDataForPanel(metric: AccountImpactMetric | null | undefined) {
+  if (!metric)
+    return {
+      discoveryCoverage: 0,
+      openGaps: 0,
+      resolvedGaps: 0,
+      confirmedEvidence: 0,
+      totalEvidence: 0,
+      qualifiedAccounts: 0,
+      observedAccounts: 0,
+    };
+  return {
+    baseline: null,
+    observedDiscoveryMinutes: metric.elapsedMinutes || null,
+    discoveryCoverage: metric.discoveryCoverage,
+    openGaps: metric.openGaps,
+    resolvedGaps: metric.questionsConfirmed,
+    confirmedEvidence: metric.confirmedEvidenceCount,
+    totalEvidence: metric.evidenceCount,
+    timeToQualificationDays: metric.qualifiedAt
+      ? Math.max(0, Math.round((metric.elapsedMinutes / 1440) * 10) / 10)
+      : null,
+    qualifiedAccounts: metric.qualifiedHypothesisCount > 0 ? 1 : 0,
+    observedAccounts: 1,
+    lastUpdated: metric.computedAt,
+  };
+}
 const pageLoadedAt = Date.now();
 const desktopNavMedia = "(min-width: 901px)";
 const subscribeDesktopNav = (onStoreChange: () => void) => {
@@ -685,6 +1258,12 @@ export default function Home({
   > | null>(null);
   const [radarFilter, setRadarFilter] = useState<"all" | Priority>("all");
   const [guidedOpen, setGuidedOpen] = useState(false);
+  const [latestConversationReview, setLatestConversationReview] =
+    useState<CommercialChangeSet | null>(null);
+  const [handoffRecord, setHandoffRecord] = useState<CrmHandoffRecord | null>(
+    null,
+  );
+  const [handoffOpen, setHandoffOpen] = useState(false);
 
   const endpoint = `/api/accounts?scope=${mode}`;
   const apiFetch = useCallback(
@@ -786,6 +1365,31 @@ export default function Home({
   const guidedDiscovery =
     data.guidedDiscoveries.find((item) => item.discoveryId === selected?.id) ||
     null;
+  const commercialProof =
+    data.commercialProof.find((item) => item.discoveryId === selected?.id) ||
+    null;
+  const conversationReview =
+    latestConversationReview?.discoveryId === selected?.id
+      ? latestConversationReview
+      : commercialProof?.latestChangeSet || null;
+  const activeHandoff =
+    handoffRecord?.discoveryId === selected?.id
+      ? handoffRecord
+      : commercialProof?.latestHandoff || null;
+  const conversationImpact = conversationImpactFromChangeSet(
+    conversationReview,
+    locale,
+  );
+  const recordedLogicalPipeline = logicalPipelineForProof(
+    commercialProof,
+    data,
+    locale,
+  );
+  const logicalPipeline = recordedLogicalPipeline.length
+    ? recordedLogicalPipeline
+    : !privateMode
+      ? deterministicPipelinePreview(selected, accountEvents, locale)
+      : [];
   const portfolioActions = [...data.actions]
     .filter(
       (item) => !["completed", "discarded", "snoozed"].includes(item.status),
@@ -898,15 +1502,73 @@ export default function Home({
     },
     [],
   );
+  const openEvidence = useCallback(
+    (accountId: string, sourceReference: string) => {
+      const normalized = sourceReference.trim().toLocaleLowerCase(locale);
+      const includesReference = (...values: Array<string | null | undefined>) =>
+        values.some((value) => {
+          const candidate = String(value || "").toLocaleLowerCase(locale);
+          return (
+            Boolean(candidate) &&
+            (candidate === normalized ||
+              (normalized.length > 3 &&
+                (candidate.includes(normalized) ||
+                  normalized.includes(candidate))))
+          );
+        });
+      const event = data.accountEvents.find(
+        (item) =>
+          item.discoveryId === accountId &&
+          includesReference(item.id, item.sourceId, item.title, item.content),
+      );
+      const meeting = data.meetings.find(
+        (item) =>
+          item.discoveryId === accountId &&
+          includesReference(item.id, item.title, item.summary, item.notes),
+      );
+      const accountDocument = data.documents.find(
+        (item) =>
+          item.discoveryId === accountId &&
+          includesReference(item.id, item.name, item.summary),
+      );
+      const targetId = event
+        ? `source-${event.sourceId || event.id}`
+        : meeting
+          ? `meeting-${meeting.id}`
+          : accountDocument
+            ? `document-${accountDocument.id}`
+            : "account-evidence-timeline";
+      setSelectedId(accountId);
+      setActive("accounts");
+      setAccountMode("activity");
+      window.setTimeout(() => {
+        const target = document.getElementById(targetId);
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        target?.classList.add("v5-evidence-focus");
+        if (target)
+          window.setTimeout(
+            () => target.classList.remove("v5-evidence-focus"),
+            2400,
+          );
+      }, 120);
+    },
+    [data.accountEvents, data.documents, data.meetings, locale],
+  );
   const ask = async (event?: FormEvent) => {
     event?.preventDefault();
     if (!selected || !question.trim()) return;
     if (!privateMode) {
       setChatResult({
         answer: copy.copilot.demoAnswer,
-        citations: [],
-        confidence: 100,
-        aiStatus: "demo",
+        citations: accountEvents.slice(0, 3).map((event) => ({
+          sourceType: event.sourceType,
+          sourceId: event.sourceId || event.id,
+          title: event.title,
+          excerpt: event.content,
+          occurredAt: event.occurredAt,
+        })),
+        confidence: accountEvents.length ? 72 : 40,
+        aiStatus: "deterministic",
         suggestedActions: [],
       });
       return;
@@ -958,6 +1620,141 @@ export default function Home({
       },
       copy.notifications.actionDecision,
     );
+  };
+  const saveMeeting = async (payload: Record<string, unknown>) => {
+    if (!selected) return;
+    const result = await mutate(
+      { action: "meeting", id: selected.id, ...payload },
+      copy.notifications.meetingSaved,
+    );
+    const changeSet = result?.changeSet as CommercialChangeSet | undefined;
+    if (changeSet) setLatestConversationReview(changeSet);
+  };
+  const reviewChangeSet = async (
+    changeSet: CommercialChangeSet,
+    status: "approved" | "rejected",
+  ) => {
+    const result = await mutate(
+      {
+        action: "change_set_status",
+        id: changeSet.discoveryId,
+        changeSetId: changeSet.id,
+        status,
+      },
+      locale === "pt-BR"
+        ? status === "approved"
+          ? "Mudanças propostas aprovadas."
+          : "Mudanças propostas rejeitadas; a fonte original foi preservada."
+        : status === "approved"
+          ? "Proposed changes approved."
+          : "Proposed changes rejected; the original source was preserved.",
+    );
+    if (!result) throw new Error(copy.notifications.genericError);
+    if (result.changeSet)
+      setLatestConversationReview(result.changeSet as CommercialChangeSet);
+  };
+  const previewCrmHandoff = async (hypothesisId?: string) => {
+    if (!selected) return;
+    if (!privateMode) {
+      const hypothesis =
+        hypotheses.find((item) => item.id === hypothesisId) ||
+        hypotheses[0] ||
+        null;
+      const score =
+        selected.scores.find(
+          (item) => item.short === hypothesis?.capabilityKey,
+        ) || selected.scores[0];
+      const relevantStakeholders = stakeholders.filter(
+        (person) =>
+          hypothesis?.stakeholderIds.includes(person.id) ||
+          person.influence === "Alta",
+      );
+      const gates = {
+        alignment: {
+          passed: Number(score?.alignment || 0) >= 75,
+          value: Number(score?.alignment || 0),
+        },
+        readiness: {
+          passed: Number(score?.readiness || 0) >= 60,
+          value: Number(score?.readiness || 0),
+        },
+        confidence: {
+          passed: Number(hypothesis?.confidence || 0) >= 70,
+          value: Number(hypothesis?.confidence || 0),
+        },
+        confirmedPain: { passed: Boolean(hypothesis?.evidence.length) },
+        relevantStakeholder: { passed: relevantStakeholders.length > 0 },
+        validatedNextStep: { passed: Boolean(hypothesis?.nextStep) },
+      };
+      const eligible =
+        hypothesis?.stage === "qualified" &&
+        Object.values(gates).every((gate) => gate.passed);
+      const createdAt = new Date().toISOString();
+      setHandoffRecord({
+        id: `demo-handoff-${selected.id}`,
+        discoveryId: selected.id,
+        hypothesisId: hypothesis?.id || null,
+        version: 1,
+        status: "preview",
+        payload: {
+          account: { id: selected.id, name: selected.customerName },
+          opportunity: {
+            title:
+              hypothesis?.title ||
+              (locale === "pt-BR"
+                ? "Hipótese ainda em descoberta"
+                : "Hypothesis still under discovery"),
+            problem: hypothesis?.problem || selected.challengeSummary,
+            businessObjectives: plan?.objectives || [],
+            capability: hypothesis?.capabilityKey || score?.short || null,
+            products: hypothesis?.products || [],
+            nextStep: hypothesis?.nextStep || "",
+            gaps: hypothesis?.gaps || [],
+            evidence: hypothesis?.evidence || [],
+          },
+          stakeholders: relevantStakeholders,
+        },
+        qualification: { eligible, gates },
+        copyText: "",
+        exportPayload: {},
+        sources: hypothesis?.evidence.map((item) => item.sourceId) || [],
+        createdAt,
+        updatedAt: createdAt,
+      });
+      setHandoffOpen(true);
+      return;
+    }
+    const result = await mutate(
+      {
+        action: "handoff_preview",
+        id: selected.id,
+        hypothesisId,
+      },
+      locale === "pt-BR"
+        ? "Prévia pré-CRM preparada para revisão."
+        : "Pre-CRM preview prepared for review.",
+    );
+    if (result?.handoff) {
+      setHandoffRecord(result.handoff as CrmHandoffRecord);
+      setHandoffOpen(true);
+    }
+  };
+  const markCrmHandoff = async () => {
+    if (!selected || !activeHandoff) return;
+    const result = await mutate(
+      {
+        action: "handoff_mark",
+        id: selected.id,
+        handoffId: activeHandoff.id,
+        operation: "mark_handed_off",
+        confirmHumanApproval: true,
+      },
+      locale === "pt-BR"
+        ? "Handoff humano registrado; nenhuma escrita externa foi realizada."
+        : "Human handoff recorded; no external write was performed.",
+    );
+    if (!result) throw new Error(copy.notifications.genericError);
+    if (result.handoff) setHandoffRecord(result.handoff as CrmHandoffRecord);
   };
 
   const hierarchyRelationships: GraphRelationship[] = relationships.length
@@ -1149,18 +1946,16 @@ export default function Home({
             <span>
               <i
                 className={
-                  aiStatus?.provider === "google-gemini"
-                    ? "gemini"
-                    : aiStatus?.provider === "ibm-watsonx"
-                      ? "watsonx"
-                      : "fallback"
+                  isWatsonxProvider(aiStatus?.provider)
+                    ? "watsonx"
+                    : isDeterministicProvider(aiStatus?.provider)
+                      ? "fallback"
+                      : "configured"
                 }
               />
-              {aiStatus?.provider === "google-gemini"
-                ? copy.shell.geminiExperimental
-                : aiStatus?.provider === "ibm-watsonx"
-                  ? copy.shell.watsonxActive
-                  : copy.shell.deterministicFallback}
+              {isWatsonxProvider(aiStatus?.provider)
+                ? copy.shell.watsonxActive
+                : visibleProviderLabel(aiStatus?.provider, copy)}
             </span>
             <small>
               {privateMode
@@ -1287,7 +2082,9 @@ export default function Home({
                       ? copy.account.confidentialBlocked
                       : copy.account.testEnvironment}
                   </Tag>
-                  <Tag type="gray">{memory?.aiStatus || "fallback"}</Tag>
+                  <Tag type="gray">
+                    {visibleProviderLabel(memory?.aiStatus, copy)}
+                  </Tag>
                   <Tag
                     type={
                       selected.priority === "Alta"
@@ -1354,12 +2151,16 @@ export default function Home({
                 documents={documents}
                 privateMode={privateMode}
                 saving={saving}
-                onMeeting={(payload) =>
-                  mutate(
-                    { action: "meeting", id: selected.id, ...payload },
-                    copy.notifications.meetingSaved,
-                  )
-                }
+                onMeeting={saveMeeting}
+                conversationReview={conversationReview}
+                conversationImpact={conversationImpact}
+                logicalPipeline={logicalPipeline}
+                impactMetric={commercialProof?.impact || null}
+                onReview={(status) => {
+                  if (conversationReview)
+                    return reviewChangeSet(conversationReview, status);
+                }}
+                onEvidence={(sourceId) => openEvidence(selected.id, sourceId)}
                 onUpload={(file) =>
                   uploadDocument(
                     file,
@@ -1467,6 +2268,66 @@ export default function Home({
                     setModal("stakeholder");
                   }}
                 />
+                <CustomerContextMap
+                  locale={locale}
+                  accountMap={
+                    selected.accountMap
+                      ? {
+                          ...selected.accountMap,
+                          nodes: selected.accountMap.nodes.map((node) => {
+                            const evidence = accountEvents
+                              .filter((event) => {
+                                const label = node.label.toLowerCase();
+                                return (
+                                  event.title.toLowerCase().includes(label) ||
+                                  event.content.toLowerCase().includes(label) ||
+                                  label.includes(event.title.toLowerCase())
+                                );
+                              })
+                              .map((event) => ({
+                                id: event.id,
+                                sourceId: event.sourceId || event.id,
+                                sourceType: event.sourceType,
+                                title: event.title,
+                                excerpt: event.content,
+                                confidence: event.confidence,
+                                occurredAt: event.occurredAt,
+                              }));
+                            return {
+                              ...node,
+                              evidence,
+                              sourceCount: evidence.length,
+                            };
+                          }),
+                        }
+                      : null
+                  }
+                  stakeholders={stakeholders.map((person) => ({
+                    ...person,
+                    isSponsor: person.id === sponsor?.id,
+                    evidence: accountEvents
+                      .filter(
+                        (event) =>
+                          event.sourceId === person.id ||
+                          event.content.includes(person.name),
+                      )
+                      .map((event) => ({
+                        id: event.id,
+                        sourceId: event.sourceId || event.id,
+                        sourceType: event.sourceType,
+                        title: event.title,
+                        excerpt: event.content,
+                        confidence: event.confidence,
+                        occurredAt: event.occurredAt,
+                      })),
+                  }))}
+                  onEvidenceActivate={(evidence) =>
+                    openEvidence(
+                      selected.id,
+                      evidence.sourceId || evidence.id || evidence.title,
+                    )
+                  }
+                />
               </div>
             )}
             {accountMode === "strategy" && (
@@ -1505,6 +2366,8 @@ export default function Home({
                     )
                   }
                   onResearch={() => setModal("research")}
+                  onEvidence={(source) => openEvidence(selected.id, source)}
+                  onHandoff={(hypothesisId) => previewCrmHandoff(hypothesisId)}
                 />
               </>
             )}
@@ -1541,6 +2404,9 @@ export default function Home({
               locale={locale}
               onAccountActivate={(row) => openAccount(row.accountId)}
               onCellActivate={(row) => openAccount(row.accountId, "strategy")}
+              onEvidenceActivate={(source, row) =>
+                openEvidence(row.accountId, source)
+              }
             />
             <div className="v5-chart-grid">
               <section className="v5-card v5-span-2">
@@ -1626,18 +2492,22 @@ export default function Home({
         onPrepare={prepareConversation}
         onNavigate={(sourceId) => {
           setCopilot(false);
-          setActive("accounts");
-          setAccountMode("activity");
-          window.setTimeout(
-            () =>
-              document
-                .getElementById(`source-${sourceId}`)
-                ?.scrollIntoView({ behavior: "smooth" }),
-            80,
-          );
+          if (selected) openEvidence(selected.id, sourceId);
         }}
         onDecision={actionStatus}
       />
+
+      {activeHandoff && (
+        <CrmHandoffModal
+          locale={locale}
+          open={handoffOpen}
+          data={crmHandoffDataFromRecord(activeHandoff, selected)}
+          busy={saving}
+          handedOff={activeHandoff.status === "handed_off"}
+          onClose={() => setHandoffOpen(false)}
+          onMarkHandedOff={privateMode ? markCrmHandoff : undefined}
+        />
+      )}
 
       {commandOpen && (
         <div
@@ -1918,14 +2788,14 @@ function HomeView({
           <div className="v5-heading-actions">
             <Tag
               type={
-                briefMeta?.provider === "google-gemini"
-                  ? "purple"
-                  : briefMeta?.provider === "ibm-watsonx"
-                    ? "blue"
-                    : "gray"
+                isWatsonxProvider(briefMeta?.provider)
+                  ? "blue"
+                  : isDeterministicProvider(briefMeta?.provider)
+                    ? "gray"
+                    : "purple"
               }
             >
-              {briefMeta?.provider || "fallback"}
+              {visibleProviderLabel(briefMeta?.provider, copy)}
               {briefMeta?.cached ? ` · ${copy.settings.cache}` : ""}
             </Tag>
             {privateMode && (
@@ -2420,6 +3290,12 @@ function AccountActivity({
   saving,
   onMeeting,
   onUpload,
+  conversationReview,
+  conversationImpact,
+  logicalPipeline,
+  impactMetric,
+  onReview,
+  onEvidence,
 }: {
   account: Discovery;
   memory?: Memory;
@@ -2428,8 +3304,14 @@ function AccountActivity({
   documents: AccountDocument[];
   privateMode: boolean;
   saving: boolean;
-  onMeeting: (payload: Record<string, unknown>) => void;
+  onMeeting: (payload: Record<string, unknown>) => void | Promise<void>;
   onUpload: (file: File) => void;
+  conversationReview: CommercialChangeSet | null;
+  conversationImpact: ReturnType<typeof conversationImpactFromChangeSet>;
+  logicalPipeline: LogicalAgentRun[];
+  impactMetric: AccountImpactMetric | null;
+  onReview: (status: "approved" | "rejected") => void | Promise<void>;
+  onEvidence: (sourceId: string) => void;
 }) {
   const { locale, copy, text, formatDate } = usePageCopy();
   return (
@@ -2438,7 +3320,11 @@ function AccountActivity({
         <CardHeader
           eyebrow={copy.activity.accountMemory}
           title={copy.activity.memoryTitle}
-          side={<Tag type="gray">{memory?.aiStatus || "fallback"}</Tag>}
+          side={
+            <Tag type="gray">
+              {visibleProviderLabel(memory?.aiStatus, copy)}
+            </Tag>
+          }
         />
         <div className="v5-memory-board">
           <MemoryColumn
@@ -2474,7 +3360,7 @@ function AccountActivity({
         />
         <div className="v5-meeting-list">
           {meetings.slice(0, 3).map((meeting) => (
-            <article key={meeting.id}>
+            <article id={`meeting-${meeting.id}`} key={meeting.id}>
               <Calendar />
               <span>
                 <strong>{meeting.title}</strong>
@@ -2525,7 +3411,7 @@ function AccountActivity({
         />
         <div className="v5-document-list">
           {documents.map((document) => (
-            <article key={document.id}>
+            <article id={`document-${document.id}`} key={document.id}>
               <Document />
               <span>
                 <strong>{document.name}</strong>
@@ -2548,7 +3434,52 @@ function AccountActivity({
           )}
         </div>
       </section>
-      <section className="v5-card v5-span-2">
+      {conversationReview && (
+        <ConversationImpactPanel
+          key={`${conversationReview.id}-${conversationReview.status}`}
+          className="v5-span-2"
+          locale={locale}
+          reviewId={conversationReview.id}
+          accountName={account.customerName}
+          sourceLabel={
+            meetings.find(
+              (meeting) => meeting.id === conversationReview.sourceId,
+            )?.title || conversationReview.sourceType
+          }
+          analyzedAt={conversationReview.createdAt}
+          scoreDeltas={conversationImpact.scoreDeltas}
+          addedFindings={conversationImpact.addedFindings}
+          changes={conversationImpact.changes}
+          readOnly={
+            !privateMode || conversationReview.status !== "pending_review"
+          }
+          busy={saving}
+          onApprove={() => onReview("approved")}
+          onReject={() => onReview("rejected")}
+        />
+      )}
+      <AnalysisPipelinePanel
+        className="v5-span-2"
+        locale={locale}
+        runs={logicalPipeline}
+        generatedAt={
+          logicalPipeline[0] ? conversationReview?.createdAt : undefined
+        }
+        fallbackReason={
+          locale === "pt-BR"
+            ? "Nenhuma credencial de modelo está configurada; os módulos executaram regras transparentes."
+            : "No model credential is configured; the modules ran transparent rules."
+        }
+        onSourceSelect={(source) => onEvidence(source.id)}
+      />
+      {impactMetric && (
+        <ImpactMetricsPanel
+          className="v5-span-2"
+          locale={locale}
+          metrics={impactDataForPanel(impactMetric)}
+        />
+      )}
+      <section className="v5-card v5-span-2" id="account-evidence-timeline">
         <CardHeader
           eyebrow={copy.activity.timeline}
           title={copy.activity.timelineTitle}
@@ -2668,7 +3599,7 @@ function TranslatableText({
     };
     if (response.ok && payload.translatedText) {
       setTranslatedText(payload.translatedText);
-      setProvider(payload.provider || "AI");
+      setProvider(visibleProviderLabel(payload.provider || "AI", copy));
       setExpanded(true);
     } else setTranslationError(payload.error || copy.translation.unavailable);
     setLoadingTranslation(false);
@@ -2729,6 +3660,8 @@ function AccountStrategy({
   onSuggest,
   onApply,
   onResearch,
+  onEvidence,
+  onHandoff,
 }: {
   account: Discovery;
   capabilityRows: CapabilityHealthRow[];
@@ -2747,6 +3680,8 @@ function AccountStrategy({
   onSuggest: () => void;
   onApply: () => void;
   onResearch: () => void;
+  onEvidence: (source: string) => void;
+  onHandoff: (hypothesisId?: string) => void | Promise<void>;
 }) {
   const { locale, copy, statusLabels, playbooks } = usePageCopy();
   const [draft, setDraft] = useState<Record<string, string>>(() =>
@@ -2813,6 +3748,7 @@ function AccountStrategy({
               .querySelector(".v5-playbooks")
               ?.scrollIntoView({ behavior: "smooth", block: "center" })
           }
+          onEvidenceActivate={(source) => onEvidence(source)}
         />
       </div>
       <section className="v5-card v5-span-2">
@@ -3031,6 +3967,22 @@ function AccountStrategy({
         <CardHeader
           eyebrow={copy.strategy.decisions}
           title={copy.strategy.actionsHandoff}
+          side={
+            <Button
+              size="sm"
+              kind="tertiary"
+              disabled={saving}
+              onClick={() =>
+                onHandoff(
+                  hypotheses.find(
+                    (hypothesis) => hypothesis.stage === "qualified",
+                  )?.id || hypotheses[0]?.id,
+                )
+              }
+            >
+              {copy.strategy.copyCrm}
+            </Button>
+          }
         />
         <div className="v5-action-table">
           {actions.map((action) => (
@@ -3056,9 +4008,12 @@ function AccountStrategy({
                 <Button
                   size="sm"
                   kind="tertiary"
-                  disabled={
-                    !hypotheses.some(
-                      (hypothesis) => hypothesis.stage === "qualified",
+                  disabled={saving}
+                  onClick={() =>
+                    onHandoff(
+                      hypotheses.find(
+                        (hypothesis) => hypothesis.stage === "qualified",
+                      )?.id || hypotheses[0]?.id,
                     )
                   }
                 >
@@ -3126,8 +4081,8 @@ function SettingsView({
               active={Boolean(aiStatus?.watsonx.configured)}
             />
             <ProviderRow
-              name="Google Gemini"
-              detail={`${aiStatus?.gemini.model || "gemini-3.1-flash-lite"} · embeddings ${aiStatus?.gemini.embeddingModel || "gemini-embedding-2"}`}
+              name={copy.shell.geminiExperimental}
+              detail={copy.settings.primaryEngine}
               active={Boolean(aiStatus?.gemini.configured)}
               experimental
             />
@@ -3258,8 +4213,10 @@ function SettingsView({
                   <small>{run.detail}</small>
                 </span>
                 <em>
-                  {run.provider}
-                  {run.model ? ` · ${run.model}` : ""}
+                  {visibleProviderLabel(run.provider, copy)}
+                  {isWatsonxProvider(run.provider) && run.model
+                    ? ` · ${run.model}`
+                    : ""}
                 </em>
                 <span>
                   <strong>{run.latencyMs || 0} ms</strong>
@@ -3363,14 +4320,19 @@ function CopilotPanel({
                 <header>
                   <Tag
                     type={
-                      result.aiStatus === "gemini"
-                        ? "purple"
-                        : result.aiStatus === "watsonx"
-                          ? "blue"
-                          : "gray"
+                      isWatsonxProvider(result.provider || result.aiStatus)
+                        ? "blue"
+                        : isDeterministicProvider(
+                              result.provider || result.aiStatus,
+                            )
+                          ? "gray"
+                          : "purple"
                     }
                   >
-                    {result.provider || result.aiStatus}
+                    {visibleProviderLabel(
+                      result.provider || result.aiStatus,
+                      copy,
+                    )}
                     {result.cached ? ` · ${copy.settings.cache}` : ""}
                   </Tag>
                   <strong>
@@ -3470,14 +4432,19 @@ function CopilotPanel({
               <div className="v5-preparation">
                 <Tag
                   type={
-                    String(preparation.provider).includes("gemini")
-                      ? "purple"
-                      : String(preparation.provider).includes("watsonx")
-                        ? "blue"
-                        : "gray"
+                    isWatsonxProvider(String(preparation.provider || ""))
+                      ? "blue"
+                      : isDeterministicProvider(
+                            String(preparation.provider || ""),
+                          )
+                        ? "gray"
+                        : "purple"
                   }
                 >
-                  {String(preparation.provider || "fallback")}
+                  {visibleProviderLabel(
+                    String(preparation.provider || "fallback"),
+                    copy,
+                  )}
                 </Tag>
                 <h3>
                   {String(
