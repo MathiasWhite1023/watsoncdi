@@ -2,10 +2,10 @@
 
 ## v5.3.1-open-authenticated-workspace
 
-Status: validation and production deployment pending
+Status: published
 Branch: `codex/open-workspace-v5-3-1`
-Deploy commit: pending
-OpenAI Sites version: pending
+Deploy commit: `e707c57f71fa398d5fd9a1ea5a581b2bfe3956d6`
+OpenAI Sites version: `10`
 Rollback tag: `v5.3-commercial-proof`
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
