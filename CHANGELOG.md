@@ -2,10 +2,10 @@
 
 ## v5.3-commercial-proof
 
-Status: validation and production deployment pending
+Status: published
 Branch: `codex/commercial-proof-v5-3`
-Deploy commit: pending
-OpenAI Sites version: pending
+Deploy commit: `5e304386bae6c51c244dc0696f6f909f72978ac0`
+OpenAI Sites version: `9`
 Rollback tag: `v5.2-bilingual-account-health`
 Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
