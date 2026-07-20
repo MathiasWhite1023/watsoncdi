@@ -55,6 +55,19 @@ import {
   type GuidedDiscoveryAnswerLike,
   type GuidedDiscoveryPillarKey,
 } from "../../../lib/guided-discovery";
+import {
+  buildAccountChangeSet,
+  buildCrmHandoff,
+  buildImpactMetrics,
+  buildLogicalPipeline,
+  type ChangeSetSuggestions,
+  type CommercialAction,
+  type CommercialEntity,
+  type CommercialHypothesis,
+  type CommercialScore,
+  type CommercialStakeholder,
+  type CommercialState,
+} from "../../../lib/commercial-proof";
 
 export const dynamic = "force-dynamic";
 
@@ -1130,6 +1143,18 @@ async function ensureSchema(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS guided_discovery_answers (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES guided_discovery_sessions(id) ON DELETE CASCADE, question_id TEXT NOT NULL REFERENCES guided_discovery_questions(id) ON DELETE CASCADE, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, structured_json TEXT NOT NULL DEFAULT '{}', answer_text TEXT NOT NULL DEFAULT '', evidence_status TEXT NOT NULL DEFAULT 'reported' CHECK(evidence_status IN ('confirmed','reported','hypothesis','unknown')), stakeholder_id TEXT REFERENCES stakeholders(id) ON DELETE SET NULL, source_type TEXT, source_id TEXT, source_date TEXT, confidence INTEGER NOT NULL DEFAULT 0 CHECK(confidence BETWEEN 0 AND 100), status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','confirmed','unknown')), supersedes_id TEXT REFERENCES guided_discovery_answers(id) ON DELETE SET NULL, is_current INTEGER NOT NULL DEFAULT 1 CHECK(is_current IN (0,1)), answered_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
+      "CREATE TABLE IF NOT EXISTS account_change_sets (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, source_type TEXT NOT NULL, source_id TEXT NOT NULL, trigger_type TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', delta_json TEXT NOT NULL DEFAULT '{}', suggestions_json TEXT NOT NULL DEFAULT '{}', provider TEXT NOT NULL DEFAULT 'deterministic-rules', engine_kind TEXT NOT NULL DEFAULT 'deterministic' CHECK(engine_kind IN ('deterministic','model')), status TEXT NOT NULL DEFAULT 'pending_review' CHECK(status IN ('pending_review','approved','rejected')), reviewed_by TEXT, reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS commercial_agent_runs (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, workflow_id TEXT NOT NULL, change_set_id TEXT REFERENCES account_change_sets(id) ON DELETE SET NULL, agent TEXT NOT NULL, engine_kind TEXT NOT NULL DEFAULT 'deterministic' CHECK(engine_kind IN ('deterministic','model')), provider TEXT NOT NULL DEFAULT 'deterministic-rules', model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, conclusion TEXT NOT NULL, confidence INTEGER NOT NULL DEFAULT 0, source_ids_json TEXT NOT NULL DEFAULT '[]', output_json TEXT NOT NULL DEFAULT '{}', human_validation_status TEXT NOT NULL DEFAULT 'pending', started_at TEXT NOT NULL, completed_at TEXT, created_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS crm_handoffs (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, hypothesis_id TEXT REFERENCES opportunity_hypotheses(id) ON DELETE SET NULL, version INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'preview' CHECK(status IN ('preview','approved','handed_off','returned')), payload_json TEXT NOT NULL DEFAULT '{}', qualification_json TEXT NOT NULL DEFAULT '{}', copy_text TEXT NOT NULL DEFAULT '', export_json TEXT NOT NULL DEFAULT '{}', source_ids_json TEXT NOT NULL DEFAULT '[]', approved_by TEXT, approved_at TEXT, handed_off_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS account_impact_metrics (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, discovery_started_at TEXT NOT NULL, qualified_at TEXT, elapsed_minutes INTEGER NOT NULL DEFAULT 0, questions_addressed INTEGER NOT NULL DEFAULT 0, questions_confirmed INTEGER NOT NULL DEFAULT 0, discovery_coverage INTEGER NOT NULL DEFAULT 0, open_gaps INTEGER NOT NULL DEFAULT 0, evidence_count INTEGER NOT NULL DEFAULT 0, confirmed_evidence_count INTEGER NOT NULL DEFAULT 0, meeting_count INTEGER NOT NULL DEFAULT 0, qualified_hypothesis_count INTEGER NOT NULL DEFAULT 0, methodology_json TEXT NOT NULL DEFAULT '{}', computed_at TEXT NOT NULL)",
+    ),
+    db.prepare(
       "CREATE INDEX IF NOT EXISTS discoveries_updated_idx ON discoveries(updated_at)",
     ),
     db.prepare(
@@ -1218,6 +1243,24 @@ async function ensureSchema(db: D1Database) {
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS guided_discovery_answers_account_idx ON guided_discovery_answers(discovery_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS account_change_sets_account_time_idx ON account_change_sets(discovery_id, created_at)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS account_change_sets_source_idx ON account_change_sets(discovery_id, source_type, source_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS commercial_agent_runs_account_time_idx ON commercial_agent_runs(discovery_id, created_at)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS commercial_agent_runs_workflow_idx ON commercial_agent_runs(workflow_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS crm_handoffs_account_time_idx ON crm_handoffs(discovery_id, updated_at)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS account_impact_metrics_account_time_idx ON account_impact_metrics(discovery_id, computed_at)",
     ),
   ]);
   await ensureColumn(db, "discoveries", "owner_email", "TEXT");
@@ -1878,6 +1921,216 @@ function mapPlan(row?: Record<string, unknown> | null): AccountPlan | null {
     approvalStatus: String(row.approval_status),
     suggestion: json<Record<string, string[]>>(row.suggestion_json, {}),
     updatedAt: String(row.updated_at),
+  };
+}
+
+function mapChangeSet(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    sourceType: String(row.source_type),
+    sourceId: String(row.source_id),
+    triggerType: String(row.trigger_type),
+    before: json<CommercialState>(row.before_json, {} as CommercialState),
+    after: json<CommercialState>(row.after_json, {} as CommercialState),
+    delta: json<Record<string, unknown>>(row.delta_json, {}),
+    suggestions: json<ChangeSetSuggestions>(row.suggestions_json, {
+      stakeholders: [],
+      systems: [],
+      painPoints: [],
+      themes: [],
+      risks: [],
+      nextActions: [],
+    }),
+    provider: String(row.provider || "deterministic-rules"),
+    engineKind: String(row.engine_kind || "deterministic"),
+    status: String(row.status || "pending_review"),
+    reviewedBy: row.reviewed_by ? String(row.reviewed_by) : null,
+    reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function mapCommercialAgentRun(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    workflowId: String(row.workflow_id),
+    changeSetId: row.change_set_id ? String(row.change_set_id) : null,
+    agent: String(row.agent),
+    engineKind: String(row.engine_kind || "deterministic"),
+    provider: String(row.provider || "deterministic-rules"),
+    model: String(row.model || ""),
+    status: String(row.status),
+    conclusion: String(row.conclusion),
+    confidence: Number(row.confidence || 0),
+    sources: json<string[]>(row.source_ids_json, []),
+    output: json<Record<string, unknown>>(row.output_json, {}),
+    humanValidationStatus: String(row.human_validation_status || "pending"),
+    startedAt: String(row.started_at),
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    createdAt: String(row.created_at),
+  };
+}
+
+function mapCrmHandoff(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    hypothesisId: row.hypothesis_id ? String(row.hypothesis_id) : null,
+    version: Number(row.version || 1),
+    status: String(row.status || "preview"),
+    payload: json<Record<string, unknown>>(row.payload_json, {}),
+    qualification: json<Record<string, unknown>>(row.qualification_json, {}),
+    copyText: String(row.copy_text || ""),
+    exportPayload: json<Record<string, unknown>>(row.export_json, {}),
+    sources: json<string[]>(row.source_ids_json, []),
+    approvedBy: row.approved_by ? String(row.approved_by) : null,
+    approvedAt: row.approved_at ? String(row.approved_at) : null,
+    handedOffAt: row.handed_off_at ? String(row.handed_off_at) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function mapImpactMetric(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    discoveryStartedAt: String(row.discovery_started_at),
+    qualifiedAt: row.qualified_at ? String(row.qualified_at) : null,
+    elapsedMinutes: Number(row.elapsed_minutes || 0),
+    questionsAddressed: Number(row.questions_addressed || 0),
+    questionsConfirmed: Number(row.questions_confirmed || 0),
+    discoveryCoverage: Number(row.discovery_coverage || 0),
+    openGaps: Number(row.open_gaps || 0),
+    evidenceCount: Number(row.evidence_count || 0),
+    confirmedEvidenceCount: Number(row.confirmed_evidence_count || 0),
+    meetingCount: Number(row.meeting_count || 0),
+    qualifiedHypothesisCount: Number(row.qualified_hypothesis_count || 0),
+    methodology: json<Record<string, string>>(row.methodology_json, {}),
+    computedAt: String(row.computed_at),
+  };
+}
+
+async function captureCommercialState(
+  db: D1Database,
+  discoveryId: string,
+): Promise<CommercialState> {
+  const [
+    account,
+    entityRows,
+    stakeholderRows,
+    hypothesisRows,
+    actionRows,
+    evidenceCount,
+    memory,
+  ] = await Promise.all([
+    db
+      .prepare("SELECT * FROM discoveries WHERE id = ?")
+      .bind(discoveryId)
+      .first<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT * FROM account_entities WHERE discovery_id = ? ORDER BY created_at",
+      )
+      .bind(discoveryId)
+      .all<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT * FROM stakeholders WHERE discovery_id = ? ORDER BY created_at",
+      )
+      .bind(discoveryId)
+      .all<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT * FROM opportunity_hypotheses WHERE discovery_id = ? ORDER BY confidence DESC",
+      )
+      .bind(discoveryId)
+      .all<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT * FROM account_actions WHERE discovery_id = ? ORDER BY priority_score DESC",
+      )
+      .bind(discoveryId)
+      .all<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM account_events WHERE discovery_id = ?",
+      )
+      .bind(discoveryId)
+      .first<{ count: number }>(),
+    db
+      .prepare("SELECT version FROM account_memory WHERE discovery_id = ?")
+      .bind(discoveryId)
+      .first<{ version: number }>(),
+  ]);
+  const row = account || {};
+  return {
+    progress: Number(row.progress || 0),
+    stage: String(row.stage || ""),
+    scores: json<Score[]>(row.scores_json, []).map(
+      (score) =>
+        ({
+          name: score.name,
+          short: score.short,
+          alignment: score.alignment,
+          value: score.value,
+          readiness: score.readiness,
+          confidence: score.confidence,
+        }) satisfies CommercialScore,
+    ),
+    entities: entityRows.results.map(
+      (item) =>
+        ({
+          id: String(item.id),
+          type: String(item.type),
+          name: String(item.name),
+          status: String(item.status || "active"),
+          confidence: Number(item.confidence || 0),
+        }) satisfies CommercialEntity,
+    ),
+    stakeholders: stakeholderRows.results.map((item) => {
+      const stakeholder = mapStakeholder(item);
+      return {
+        id: stakeholder.id,
+        name: stakeholder.name,
+        role: stakeholder.role,
+        influence: stakeholder.influence,
+        source: stakeholder.source,
+      } satisfies CommercialStakeholder;
+    }),
+    hypotheses: hypothesisRows.results.map((item) => {
+      const hypothesis = mapHypothesis(item);
+      return {
+        id: hypothesis.id,
+        capabilityKey: hypothesis.capabilityKey,
+        title: hypothesis.title,
+        problem: hypothesis.problem,
+        products: hypothesis.products,
+        stakeholderIds: hypothesis.stakeholderIds,
+        evidence: hypothesis.evidence,
+        gaps: hypothesis.gaps,
+        confidence: hypothesis.confidence,
+        stage: hypothesis.stage,
+        nextStep: hypothesis.nextStep,
+      } satisfies CommercialHypothesis;
+    }),
+    actions: actionRows.results.map((item) => {
+      const action = mapAction(item);
+      return {
+        id: action.id,
+        type: action.type,
+        title: action.title,
+        status: action.status,
+        priorityScore: action.priorityScore,
+        nextStep: action.nextStep,
+      } satisfies CommercialAction;
+    }),
+    evidenceCount: Number(evidenceCount?.count || 0),
+    memoryVersion: Number(memory?.version || 0),
+    updatedAt: String(row.updated_at || new Date().toISOString()),
   };
 }
 
@@ -2612,6 +2865,205 @@ async function recordAIRun<T>(
     .run();
 }
 
+async function persistImpactMetrics(
+  db: D1Database,
+  discoveryId: string,
+  computedAt: string,
+) {
+  const [
+    account,
+    eventCounts,
+    meetingCount,
+    guidedCounts,
+    guidedSession,
+    qualifiedCount,
+    memory,
+    previous,
+  ] = await Promise.all([
+    db
+      .prepare("SELECT created_at, answers_json FROM discoveries WHERE id = ?")
+      .bind(discoveryId)
+      .first<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT MIN(occurred_at) AS first_at, COUNT(*) AS total, SUM(CASE WHEN evidence_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed FROM account_events WHERE discovery_id = ?",
+      )
+      .bind(discoveryId)
+      .first<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM meetings WHERE discovery_id = ? AND meeting_status = 'completed'",
+      )
+      .bind(discoveryId)
+      .first<{ count: number }>(),
+    db
+      .prepare(
+        "SELECT COUNT(*) AS addressed, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed, SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END) AS unknown_count FROM guided_discovery_answers WHERE discovery_id = ? AND is_current = 1 AND status <> 'draft'",
+      )
+      .bind(discoveryId)
+      .first<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT coverage_percent FROM guided_discovery_sessions WHERE discovery_id = ? ORDER BY updated_at DESC LIMIT 1",
+      )
+      .bind(discoveryId)
+      .first<{ coverage_percent: number }>(),
+    db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM opportunity_hypotheses WHERE discovery_id = ? AND stage = 'qualified'",
+      )
+      .bind(discoveryId)
+      .first<{ count: number }>(),
+    db
+      .prepare("SELECT gaps_json FROM account_memory WHERE discovery_id = ?")
+      .bind(discoveryId)
+      .first<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT qualified_at FROM account_impact_metrics WHERE discovery_id = ? ORDER BY computed_at DESC LIMIT 1",
+      )
+      .bind(discoveryId)
+      .first<{ qualified_at: string | null }>(),
+  ]);
+  const legacyAnswers = json<Answer[]>(account?.answers_json, []);
+  const guidedAddressed = Number(guidedCounts?.addressed || 0);
+  const guidedConfirmed = Number(guidedCounts?.confirmed || 0);
+  const qualifiedHypothesisCount = Number(qualifiedCount?.count || 0);
+  const qualifiedAt = qualifiedHypothesisCount
+    ? previous?.qualified_at || computedAt
+    : previous?.qualified_at || null;
+  const discoveryStartedAt = String(
+    eventCounts?.first_at || account?.created_at || computedAt,
+  );
+  const gaps = json<string[]>(memory?.gaps_json, []);
+  const metric = buildImpactMetrics({
+    discoveryStartedAt,
+    qualifiedAt,
+    computedAt,
+    questionsAddressed: legacyAnswers.length + guidedAddressed,
+    questionsConfirmed: legacyAnswers.length + guidedConfirmed,
+    discoveryCoverage: Number(guidedSession?.coverage_percent || 0),
+    openGaps: gaps.length + Number(guidedCounts?.unknown_count || 0),
+    evidenceCount: Number(eventCounts?.total || 0),
+    confirmedEvidenceCount: Number(eventCounts?.confirmed || 0),
+    meetingCount: Number(meetingCount?.count || 0),
+    qualifiedHypothesisCount,
+  });
+  await db
+    .prepare(
+      "INSERT OR REPLACE INTO account_impact_metrics (id, discovery_id, discovery_started_at, qualified_at, elapsed_minutes, questions_addressed, questions_confirmed, discovery_coverage, open_gaps, evidence_count, confirmed_evidence_count, meeting_count, qualified_hypothesis_count, methodology_json, computed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(
+      `impact-${discoveryId}`,
+      discoveryId,
+      metric.discoveryStartedAt,
+      metric.qualifiedAt,
+      metric.elapsedMinutes,
+      metric.questionsAddressed,
+      metric.questionsConfirmed,
+      metric.discoveryCoverage,
+      metric.openGaps,
+      metric.evidenceCount,
+      metric.confirmedEvidenceCount,
+      metric.meetingCount,
+      metric.qualifiedHypothesisCount,
+      JSON.stringify(metric.methodology),
+      metric.computedAt,
+    )
+    .run();
+  return metric;
+}
+
+async function persistMeetingCommercialProof(input: {
+  db: D1Database;
+  discoveryId: string;
+  meetingId: string;
+  before: CommercialState;
+  insights: MeetingInsight;
+  meetingRun: AIResult<unknown>;
+  locale: ResponseLocale;
+  createdAt: string;
+}) {
+  const after = await captureCommercialState(input.db, input.discoveryId);
+  const suggestions: ChangeSetSuggestions = {
+    stakeholders: input.insights.stakeholders,
+    systems: input.insights.systems,
+    painPoints: input.insights.painPoints,
+    themes: input.insights.ibmThemes,
+    risks: input.insights.risks,
+    nextActions: input.insights.nextActions,
+  };
+  const delta = buildAccountChangeSet(input.before, after, suggestions);
+  const usedModel =
+    input.meetingRun.ok &&
+    (input.insights.aiStatus === "watsonx" ||
+      input.insights.aiStatus === "gemini");
+  const provider = usedModel
+    ? dbProviderName(input.meetingRun.provider)
+    : "deterministic-rules";
+  const engineKind = usedModel ? "model" : "deterministic";
+  const changeSetId = `changeset-${input.meetingId}`;
+  await input.db
+    .prepare(
+      "INSERT OR IGNORE INTO account_change_sets (id, discovery_id, source_type, source_id, trigger_type, before_json, after_json, delta_json, suggestions_json, provider, engine_kind, status, reviewed_by, reviewed_at, created_at, updated_at) VALUES (?, ?, 'meeting', ?, 'meeting_completed', ?, ?, ?, ?, ?, ?, 'pending_review', NULL, NULL, ?, ?)",
+    )
+    .bind(
+      changeSetId,
+      input.discoveryId,
+      input.meetingId,
+      JSON.stringify(input.before),
+      JSON.stringify(after),
+      JSON.stringify(delta),
+      JSON.stringify(suggestions),
+      provider,
+      engineKind,
+      input.createdAt,
+      input.createdAt,
+    )
+    .run();
+  const workflowId = `workflow-${input.meetingId}`;
+  const sourceIds = [input.meetingId];
+  const pipeline = buildLogicalPipeline({
+    provider,
+    model: input.meetingRun.model,
+    usedModel,
+    sourceIds,
+    changeSet: delta,
+    locale: input.locale,
+  });
+  for (const run of pipeline) {
+    await input.db
+      .prepare(
+        "INSERT OR IGNORE INTO commercial_agent_runs (id, discovery_id, workflow_id, change_set_id, agent, engine_kind, provider, model, status, conclusion, confidence, source_ids_json, output_json, human_validation_status, started_at, completed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        `${workflowId}-${run.agent}`,
+        input.discoveryId,
+        workflowId,
+        changeSetId,
+        run.agent,
+        run.engineKind,
+        run.provider,
+        run.model,
+        run.status,
+        run.conclusion,
+        run.confidence,
+        JSON.stringify(run.sourceIds),
+        JSON.stringify(run.output),
+        run.humanValidationStatus,
+        input.createdAt,
+        input.createdAt,
+        input.createdAt,
+      )
+      .run();
+  }
+  const stored = await input.db
+    .prepare("SELECT * FROM account_change_sets WHERE id = ?")
+    .bind(changeSetId)
+    .first<Record<string, unknown>>();
+  return stored ? mapChangeSet(stored) : null;
+}
+
 async function cacheKeyFor(parts: string[]) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -3091,6 +3543,7 @@ export async function recomputeAccount(
     .prepare("UPDATE discoveries SET last_analyzed_at = ? WHERE id = ?")
     .bind(memory.updatedAt, id)
     .run();
+  await persistImpactMetrics(db, id, memory.updatedAt);
   if (!recomputeOptions.skipEmbeddings)
     await refreshAccountEmbeddings(db, row, undefined, responseLocale).catch(
       () => undefined,
@@ -3556,6 +4009,11 @@ async function accountPayload(
       snapshots: [],
       actionFeedback: [],
       guidedDiscoveries: [],
+      changeSets: [],
+      crmHandoffs: [],
+      impactMetrics: [],
+      agentPipelineRuns: [],
+      commercialProof: [],
     };
   const placeholders = ids.map(() => "?").join(",");
   const queries = [
@@ -3659,6 +4117,26 @@ async function accountPayload(
         `SELECT * FROM guided_discovery_answers WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`,
       )
       .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM account_change_sets WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 120`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM crm_handoffs WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC LIMIT 120`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM account_impact_metrics WHERE discovery_id IN (${placeholders}) ORDER BY computed_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM commercial_agent_runs WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 280`,
+      )
+      .bind(...ids),
   ];
   const [
     meetingRows,
@@ -3681,6 +4159,10 @@ async function accountPayload(
     guidedSessionRows,
     guidedQuestionRows,
     guidedAnswerRows,
+    changeSetRows,
+    handoffRows,
+    impactRows,
+    commercialAgentRows,
   ] = await Promise.all(
     queries.map((query) => query.all<Record<string, unknown>>()),
   );
@@ -3699,6 +4181,12 @@ async function accountPayload(
   const guidedSessions = guidedSessionRows.results.map(mapGuidedSession);
   const guidedQuestions = guidedQuestionRows.results.map(mapGuidedQuestion);
   const guidedAnswers = guidedAnswerRows.results.map(mapGuidedAnswer);
+  const changeSets = changeSetRows.results.map(mapChangeSet);
+  const crmHandoffs = handoffRows.results.map(mapCrmHandoff);
+  const impactMetrics = impactRows.results.map(mapImpactMetric);
+  const agentPipelineRuns = commercialAgentRows.results.map(
+    mapCommercialAgentRun,
+  );
   return {
     discoveries: discoveryRows.map((row) =>
       mapDiscovery(
@@ -3830,6 +4318,39 @@ async function accountPayload(
         stakeholders: mappedStakeholders,
       }),
     ),
+    changeSets,
+    crmHandoffs,
+    impactMetrics,
+    agentPipelineRuns,
+    commercialProof: discoveryRows.map((row) => {
+      const discoveryId = String(row.id);
+      const accountChangeSets = changeSets.filter(
+        (item) => item.discoveryId === discoveryId,
+      );
+      const accountHandoffs = crmHandoffs.filter(
+        (item) => item.discoveryId === discoveryId,
+      );
+      const pipeline = agentPipelineRuns.filter(
+        (item) => item.discoveryId === discoveryId,
+      );
+      return {
+        discoveryId,
+        latestChangeSet: accountChangeSets[0] || null,
+        changeSets: accountChangeSets,
+        handoffs: accountHandoffs,
+        latestHandoff: accountHandoffs[0] || null,
+        impact:
+          impactMetrics.find((item) => item.discoveryId === discoveryId) ||
+          null,
+        agentPipeline: pipeline,
+        latestWorkflowId: pipeline[0]?.workflowId || null,
+        requiresHumanApproval: true,
+        externalWritePerformed: false,
+        handoffRecorded: accountHandoffs.some(
+          (handoff) => handoff.status === "handed_off",
+        ),
+      };
+    }),
   };
 }
 
@@ -4281,6 +4802,337 @@ async function handlePOST(request: Request) {
       { error: "Conta não encontrada ou acesso não autorizado." },
       { status: 404 },
     );
+  if (body.action === "commercial_proof") {
+    await persistImpactMetrics(db, id, now);
+    const [changeSets, handoffs, impact, pipeline] = await Promise.all([
+      db
+        .prepare(
+          "SELECT * FROM account_change_sets WHERE discovery_id = ? ORDER BY created_at DESC LIMIT 20",
+        )
+        .bind(id)
+        .all<Record<string, unknown>>(),
+      db
+        .prepare(
+          "SELECT * FROM crm_handoffs WHERE discovery_id = ? ORDER BY updated_at DESC LIMIT 20",
+        )
+        .bind(id)
+        .all<Record<string, unknown>>(),
+      db
+        .prepare(
+          "SELECT * FROM account_impact_metrics WHERE discovery_id = ? ORDER BY computed_at DESC LIMIT 1",
+        )
+        .bind(id)
+        .first<Record<string, unknown>>(),
+      db
+        .prepare(
+          "SELECT * FROM commercial_agent_runs WHERE discovery_id = ? ORDER BY created_at DESC LIMIT 70",
+        )
+        .bind(id)
+        .all<Record<string, unknown>>(),
+    ]);
+    const mappedChangeSets = changeSets.results.map(mapChangeSet);
+    const mappedHandoffs = handoffs.results.map(mapCrmHandoff);
+    const agentPipeline = pipeline.results.map(mapCommercialAgentRun);
+    return Response.json({
+      commercialProof: {
+        discoveryId: id,
+        latestChangeSet: mappedChangeSets[0] || null,
+        changeSets: mappedChangeSets,
+        latestHandoff: mappedHandoffs[0] || null,
+        handoffs: mappedHandoffs,
+        impact: impact ? mapImpactMetric(impact) : null,
+        agentPipeline,
+        latestWorkflowId: agentPipeline[0]?.workflowId || null,
+        requiresHumanApproval: true,
+        externalWritePerformed: false,
+      },
+    });
+  }
+  if (body.action === "change_set_status") {
+    const changeSetId = String(body.changeSetId || "");
+    const status =
+      String(body.status) === "approved"
+        ? "approved"
+        : String(body.status) === "rejected"
+          ? "rejected"
+          : null;
+    if (!changeSetId || !status)
+      return localizedApiError(locale, "INVALID_CHANGE_SET_REVIEW", 400, {
+        en: "Choose a change set and approve or reject it.",
+        pt: "Selecione um conjunto de mudanças e aprove ou rejeite.",
+      });
+    const existing = await db
+      .prepare(
+        "SELECT * FROM account_change_sets WHERE id = ? AND discovery_id = ?",
+      )
+      .bind(changeSetId, id)
+      .first<Record<string, unknown>>();
+    if (!existing)
+      return localizedApiError(locale, "CHANGE_SET_NOT_FOUND", 404, {
+        en: "Change set not found for this account.",
+        pt: "Conjunto de mudanças não encontrado nesta conta.",
+      });
+    await db.batch([
+      db
+        .prepare(
+          "UPDATE account_change_sets SET status = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND discovery_id = ?",
+        )
+        .bind(status, identity.email, now, now, changeSetId, id),
+      db
+        .prepare(
+          "UPDATE commercial_agent_runs SET human_validation_status = ? WHERE change_set_id = ? AND discovery_id = ?",
+        )
+        .bind(status, changeSetId, id),
+      db
+        .prepare(
+          "INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, 'commercial_change_review', ?, ?)",
+        )
+        .bind(
+          id,
+          localizedText(
+            locale,
+            status === "approved"
+              ? "Derived changes approved by the account owner"
+              : "Derived changes rejected by the account owner",
+            status === "approved"
+              ? "Mudanças derivadas aprovadas pelo responsável da conta"
+              : "Mudanças derivadas rejeitadas pelo responsável da conta",
+          ),
+          now,
+        ),
+    ]);
+    const updated = await db
+      .prepare("SELECT * FROM account_change_sets WHERE id = ?")
+      .bind(changeSetId)
+      .first<Record<string, unknown>>();
+    return Response.json({
+      ok: true,
+      changeSet: updated ? mapChangeSet(updated) : null,
+      appliedToHumanAuthoredContent: false,
+    });
+  }
+  if (body.action === "handoff_preview") {
+    const [hypothesisRows, stakeholderRows, planRow, eventRows, versionRow] =
+      await Promise.all([
+        db
+          .prepare(
+            "SELECT * FROM opportunity_hypotheses WHERE discovery_id = ? ORDER BY CASE WHEN stage = 'qualified' THEN 0 ELSE 1 END, confidence DESC",
+          )
+          .bind(id)
+          .all<Record<string, unknown>>(),
+        db
+          .prepare(
+            "SELECT * FROM stakeholders WHERE discovery_id = ? ORDER BY created_at",
+          )
+          .bind(id)
+          .all<Record<string, unknown>>(),
+        db
+          .prepare("SELECT * FROM account_plans WHERE discovery_id = ?")
+          .bind(id)
+          .first<Record<string, unknown>>(),
+        db
+          .prepare(
+            "SELECT * FROM account_events WHERE discovery_id = ? AND evidence_status = 'confirmed' ORDER BY occurred_at DESC LIMIT 12",
+          )
+          .bind(id)
+          .all<Record<string, unknown>>(),
+        db
+          .prepare(
+            "SELECT COALESCE(MAX(version), 0) + 1 AS version FROM crm_handoffs WHERE discovery_id = ?",
+          )
+          .bind(id)
+          .first<{ version: number }>(),
+      ]);
+    const hypotheses = hypothesisRows.results.map(mapHypothesis);
+    const requestedHypothesisId = String(body.hypothesisId || "");
+    const selected =
+      hypotheses.find((item) => item.id === requestedHypothesisId) ||
+      hypotheses[0] ||
+      null;
+    const hypothesis: CommercialHypothesis | null = selected
+      ? {
+          id: selected.id,
+          capabilityKey: selected.capabilityKey,
+          title: selected.title,
+          problem: selected.problem,
+          products: selected.products,
+          stakeholderIds: selected.stakeholderIds,
+          evidence: selected.evidence,
+          gaps: selected.gaps,
+          confidence: selected.confidence,
+          stage: selected.stage,
+          nextStep: selected.nextStep,
+        }
+      : null;
+    const scores = json<Score[]>(row.scores_json, []);
+    const matchingScore =
+      scores.find((item) => item.short === hypothesis?.capabilityKey) ||
+      scores[0] ||
+      null;
+    const score: CommercialScore | null = matchingScore
+      ? {
+          name: matchingScore.name,
+          short: matchingScore.short,
+          alignment: matchingScore.alignment,
+          value: matchingScore.value,
+          readiness: matchingScore.readiness,
+          confidence: matchingScore.confidence,
+        }
+      : null;
+    const stakeholders: CommercialStakeholder[] = stakeholderRows.results.map(
+      (item) => {
+        const person = mapStakeholder(item);
+        return {
+          id: person.id,
+          name: person.name,
+          role: person.role,
+          influence: person.influence,
+          source: person.source,
+        };
+      },
+    );
+    const plan = mapPlan(planRow);
+    const sourceIds = hypothesis?.evidence.length
+      ? hypothesis.evidence.map((evidence) => evidence.sourceId)
+      : eventRows.results.map((event) => String(event.source_id || event.id));
+    const built = buildCrmHandoff({
+      account: {
+        id,
+        name: String(row.customer_name),
+        industry: String(row.industry),
+        owner: String(row.owner),
+        stage: String(row.stage),
+        progress: Number(row.progress),
+        summary: String(row.challenge_summary),
+      },
+      hypothesis,
+      score,
+      stakeholders,
+      objectives: [
+        ...(plan?.priorities || []),
+        ...(plan?.objectives || []),
+      ].slice(0, 8),
+      sourceIds,
+      locale,
+    });
+    const handoffId = `handoff-${id}-${Number(versionRow?.version || 1)}`;
+    const exportPayload = {
+      schema: "watson-cdi/pre-crm-handoff@2026.1",
+      generatedAt: now,
+      locale,
+      data: built.payload,
+    };
+    await db
+      .prepare(
+        "INSERT INTO crm_handoffs (id, discovery_id, hypothesis_id, version, status, payload_json, qualification_json, copy_text, export_json, source_ids_json, approved_by, approved_at, handed_off_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'preview', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)",
+      )
+      .bind(
+        handoffId,
+        id,
+        hypothesis?.id || null,
+        Number(versionRow?.version || 1),
+        JSON.stringify(built.payload),
+        JSON.stringify(built.qualification),
+        built.copyText,
+        JSON.stringify(exportPayload),
+        JSON.stringify(sourceIds),
+        now,
+        now,
+      )
+      .run();
+    const saved = await db
+      .prepare("SELECT * FROM crm_handoffs WHERE id = ?")
+      .bind(handoffId)
+      .first<Record<string, unknown>>();
+    return Response.json(
+      {
+        ok: true,
+        handoff: saved ? mapCrmHandoff(saved) : null,
+        eligibleForHandoff: built.qualification.eligible,
+        requiresHumanApproval: true,
+        externalWritePerformed: false,
+      },
+      { status: 201 },
+    );
+  }
+  if (body.action === "handoff_mark") {
+    const handoffId = String(body.handoffId || "");
+    const operation = String(body.operation || "mark_handed_off");
+    const handoff = await db
+      .prepare("SELECT * FROM crm_handoffs WHERE id = ? AND discovery_id = ?")
+      .bind(handoffId, id)
+      .first<Record<string, unknown>>();
+    if (!handoff)
+      return localizedApiError(locale, "HANDOFF_NOT_FOUND", 404, {
+        en: "Handoff preview not found for this account.",
+        pt: "Prévia de handoff não encontrada nesta conta.",
+      });
+    const qualification = json<{ eligible?: boolean }>(
+      handoff.qualification_json,
+      {},
+    );
+    if (
+      (operation === "approve" || operation === "mark_handed_off") &&
+      !qualification.eligible
+    )
+      return localizedApiError(locale, "HANDOFF_GATES_NOT_MET", 409, {
+        en: "The hypothesis has not met every pre-CRM qualification gate.",
+        pt: "A hipótese ainda não atingiu todos os critérios de qualificação pré-CRM.",
+      });
+    let status: "approved" | "handed_off" | "returned";
+    if (operation === "return") status = "returned";
+    else if (operation === "approve") status = "approved";
+    else {
+      const explicitlyConfirmed = body.confirmHumanApproval === true;
+      if (String(handoff.status) !== "approved" && !explicitlyConfirmed)
+        return localizedApiError(locale, "HANDOFF_APPROVAL_REQUIRED", 409, {
+          en: "Approve the handoff or explicitly confirm human approval before marking it handed off.",
+          pt: "Aprove o handoff ou confirme explicitamente a aprovação humana antes de marcá-lo como enviado.",
+        });
+      status = "handed_off";
+    }
+    const approvedAt =
+      status === "approved" || status === "handed_off"
+        ? String(handoff.approved_at || now)
+        : null;
+    await db.batch([
+      db
+        .prepare(
+          "UPDATE crm_handoffs SET status = ?, approved_by = ?, approved_at = ?, handed_off_at = ?, updated_at = ? WHERE id = ? AND discovery_id = ?",
+        )
+        .bind(
+          status,
+          status === "returned" ? null : identity.email,
+          approvedAt,
+          status === "handed_off" ? now : null,
+          now,
+          handoffId,
+          id,
+        ),
+      db
+        .prepare(
+          "INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, 'crm_handoff_status', ?, ?)",
+        )
+        .bind(
+          id,
+          localizedText(
+            locale,
+            `Pre-CRM handoff marked as ${status}; no external CRM write was performed.`,
+            `Handoff pré-CRM marcado como ${status}; nenhuma gravação externa no CRM foi realizada.`,
+          ),
+          now,
+        ),
+    ]);
+    const updated = await db
+      .prepare("SELECT * FROM crm_handoffs WHERE id = ?")
+      .bind(handoffId)
+      .first<Record<string, unknown>>();
+    return Response.json({
+      ok: true,
+      handoff: updated ? mapCrmHandoff(updated) : null,
+      externalWritePerformed: false,
+    });
+  }
   if (body.action === "translate") {
     if ("text" in body || "content" in body || "rawText" in body) {
       return localizedApiError(locale, "RAW_TRANSLATION_TEXT_REJECTED", 400, {
@@ -4800,6 +5652,7 @@ async function handlePOST(request: Request) {
     }
     const afterScores = json<Score[]>(updatedRow.scores_json, []);
     const snapshot = await guidedSnapshotForAccount(db, updatedRow);
+    if (answerStatus !== "draft") await persistImpactMetrics(db, id, now);
     return Response.json({
       ok: true,
       answerId,
@@ -5217,13 +6070,14 @@ async function handlePOST(request: Request) {
     await recomputeAccount(db, id, { responseLocale: locale });
     return Response.json({ ok: true });
   }
-  if (body.action === "meeting") {
+  if (body.action === "meeting" || body.action === "meeting_create") {
     const notes = String(body.notes || "").trim();
     if (!notes)
       return Response.json(
         { error: "As notas da reunião são obrigatórias." },
         { status: 400 },
       );
+    const commercialBefore = await captureCommercialState(db, id);
     let insights: MeetingInsight;
     const meetingQuota = await quotaAllows(db, "generative");
     let meetingRun: AIResult<unknown> = {
@@ -5369,7 +6223,39 @@ async function handlePOST(request: Request) {
       skipGenerative: true,
       responseLocale: locale,
     });
-    return Response.json({ ok: true, aiStatus: insights.aiStatus });
+    const changeSet = await persistMeetingCommercialProof({
+      db,
+      discoveryId: id,
+      meetingId,
+      before: commercialBefore,
+      insights,
+      meetingRun,
+      locale,
+      createdAt: now,
+    });
+    await persistImpactMetrics(db, id, now);
+    const impactRow = await db
+      .prepare(
+        "SELECT * FROM account_impact_metrics WHERE discovery_id = ? ORDER BY computed_at DESC LIMIT 1",
+      )
+      .bind(id)
+      .first<Record<string, unknown>>();
+    return Response.json({
+      ok: true,
+      meetingId,
+      aiStatus: insights.aiStatus,
+      provider:
+        meetingRun.ok && insights.aiStatus !== "fallback"
+          ? dbProviderName(meetingRun.provider)
+          : "deterministic-rules",
+      engineKind:
+        meetingRun.ok && insights.aiStatus !== "fallback"
+          ? "model"
+          : "deterministic",
+      requiresHumanApproval: true,
+      changeSet,
+      impact: impactRow ? mapImpactMetric(impactRow) : null,
+    });
   }
   if (body.action === "information") {
     const kind = String(body.kind || "note");
@@ -5468,6 +6354,7 @@ async function handlePOST(request: Request) {
       .bind(now, id)
       .run();
     await recomputeAccount(db, id, { responseLocale: locale });
+    await persistImpactMetrics(db, id, now);
     return Response.json({ ok: true, eventId });
   }
   if (body.action === "information_preview") {

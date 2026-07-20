@@ -57,6 +57,13 @@
       "when": 1784226528028,
       "tag": "0007_bilingual_account_health",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1784554958750,
+      "tag": "0008_minor_thunderbird",
+      "breakpoints": true
     }
   ]
 }
