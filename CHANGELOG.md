@@ -1,5 +1,27 @@
 # Changelog
 
+## v5.3.1-open-authenticated-workspace
+
+Status: validation and production deployment pending
+Branch: `codex/open-workspace-v5-3-1`
+Deploy commit: pending
+OpenAI Sites version: pending
+Rollback tag: `v5.3-commercial-proof`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Changed
+
+- Removed the manual email pre-authorization requirement from the authenticated workspace.
+- Any user with a verified Sign in with ChatGPT identity can enter `/workspace` and create a private account portfolio without administrator setup.
+- Preserved strict server-side owner isolation for account reads, mutations, documents, guided discovery, analysis, and deletion.
+- Kept unauthenticated private requests rejected and the synthetic public demonstration read-only.
+- Removed current product messaging that suggested an email authorization list was required.
+- No schema or data migration is required for this access-policy change.
+
+### Rollback
+
+Use tag `v5.3-commercial-proof`, rebuild and republish it through OpenAI Sites. V5.3.1 does not alter the schema or account ownership data, so rollback restores the previous access gate without a data migration.
+
 ## v5.3-commercial-proof
 
 Status: published

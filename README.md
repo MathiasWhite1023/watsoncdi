@@ -29,7 +29,7 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Offers a grounded `Pergunte sobre esta conta` copilot, opportunity hypotheses and human-editable 30/60/90 Account Plan.
 - Accepts PDF, DOCX, TXT and Markdown sources in the private workspace, storing originals in R2 and chunks in D1.
 - Keeps audit history, human validation, and clear processing-engine status.
-- Keeps `/` as a synthetic read-only demo and protects `/workspace` with Sign in with ChatGPT plus server-side ownership checks.
+- Keeps `/` as a synthetic read-only demo and opens `/workspace` to any user authenticated with ChatGPT, while server-side ownership checks keep every user's private accounts isolated.
 - Produces a proactive daily briefing, Next Best Actions, the next best conversation and the discovery question with the highest information value.
 - Uses account-scoped keyword and recency retrieval with citations today; semantic retrieval remains behind the provider adapter for later activation.
 - Provides a Carbon command palette (`Cmd/Ctrl + K`) and an interactive hierarchy/influence graph powered by React Flow.
@@ -62,6 +62,12 @@ The analysis panel calls these stages logical agents because each stage has a bo
 Evidence is navigable from the change review, pipeline, health views, recommendations, and Customer Context Map. Selecting a source moves the user to the account activity that supports the conclusion.
 
 Impact reporting is deliberately conservative. Watson CDI reports observed values from product records and never infers a time-saving percentage. A reduction claim, including any `65–70%` claim, requires a recorded manual baseline and comparable assisted sessions with a stated sample size.
+
+## Open Authenticated Workspace V5.3.1
+
+The private workspace no longer requires an administrator to pre-authorize an email address. Any person who signs in with ChatGPT can enter `/workspace` and create a personal portfolio immediately. Authentication is still mandatory: requests without a verified ChatGPT identity are rejected by the server.
+
+Opening registration does not make customer data public or shared. Each private account is assigned to the authenticated email that created it, and every private read, update, document operation, analysis, and deletion remains filtered by that owner identity. A different authenticated user cannot retrieve or mutate another user's accounts by changing an account ID. The public demonstration at `/` remains synthetic and read-only.
 
 ## Bilingual Account Health V5.2
 
@@ -163,12 +169,12 @@ npm test
 
 ## Versioning And Rollback
 
-V5.3 is developed on `codex/commercial-proof-v5-3`. Its validated rollback baseline is `v5.2-bilingual-account-health`; after production validation, the exact deployed V5.3 commit is tagged `v5.3-commercial-proof`.
+V5.3.1 is developed on `codex/open-workspace-v5-3-1`. Its validated rollback baseline is `v5.3-commercial-proof`. The access change does not require a database migration: it removes the administrative email pre-authorization gate while preserving authentication and owner-scoped queries.
 
 Application rollback:
 
 ```bash
-git switch --detach v5.2-bilingual-account-health
+git switch --detach v5.3-commercial-proof
 npm install
 npm run build
 ```
@@ -177,10 +183,10 @@ Republish that validated build through OpenAI Sites. To resume development after
 
 Data rollback policy:
 
-- V5.3 migration `0008` is additive only.
+- V5.3.1 has no database migration; V5.3 migration `0008` remains additive only.
 - Existing discoveries, account content, guided-discovery answers, and user-authored sources are never rewritten by the language switch.
-- V5.2 safely ignores change sets, commercial pipeline runs, CRM handoffs, and observed impact snapshots.
-- Existing `discoveries` and V5.2 records remain compatible.
+- Returning to V5.3 restores the previous access policy without changing account ownership or deleting records.
+- Existing `discoveries` and V5.3 records remain compatible.
 - No table, column, source, answer, or document is removed or renamed in this release.
 
 ## Repository Topics

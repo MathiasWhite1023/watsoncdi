@@ -73,7 +73,7 @@ const jsonResponse = (payload, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-test("documents Watson CDI V5.3 and its additive rollback path", async () => {
+test("documents Watson CDI V5.3.1 and its non-destructive rollback path", async () => {
   const [readme, changelog, packageJson] = await Promise.all([
     readProjectFile("README.md"),
     readProjectFile("CHANGELOG.md"),
@@ -90,8 +90,8 @@ test("documents Watson CDI V5.3 and its additive rollback path", async () => {
   assert.match(readme, /Capability Health/);
   assert.match(readme, /Portfolio Fit/);
   assert.match(readme, /WATSONX_API_KEY/);
-  assert.match(readme, /v5\.2-bilingual-account-health/);
   assert.match(readme, /v5\.3-commercial-proof/);
+  assert.match(readme, /codex\/open-workspace-v5-3-1/);
   assert.match(readme, /Customer Context Map/);
   assert.match(readme, /observed values/i);
   assert.match(changelog, /v5\.2-bilingual-account-health/);
@@ -106,7 +106,7 @@ test("documents Watson CDI V5.3 and its additive rollback path", async () => {
   assert.match(readme, /Live demo:/);
   assert.match(readme, /not an official IBM product/i);
   assert.match(packageJson, /"name": "watson-cdi"/);
-  assert.match(packageJson, /"version": "5\.3\.0"/);
+  assert.match(packageJson, /"version": "5\.3\.1"/);
 });
 
 test("keeps the V5 proactive account intelligence surfaces wired", async () => {
@@ -401,7 +401,7 @@ test("uses the transparent 45/30/15/10 information-value ranking", async () => {
   );
 });
 
-test("keeps public reads isolated and the private workspace fail-closed", async () => {
+test("keeps public reads isolated and the authenticated workspace fail-closed", async () => {
   const [api, documents, aiStatus] = await Promise.all([
     readProjectFile("app/api/discoveries/route.ts"),
     readProjectFile("app/api/accounts/[id]/documents/route.ts"),
@@ -418,10 +418,11 @@ test("keeps public reads isolated and the private workspace fail-closed", async 
     /backfillV4\(\s*db: D1Database,\s*discoveryRows: Record<string, unknown>\[\],\s*responseLocale: ResponseLocale,\s*\)/,
   );
   assert.match(api, /skipGenerative:\s*true,\s*skipEmbeddings:\s*true/);
-  assert.match(api, /allowlistConfigured: allowed\.length > 0/);
-  assert.match(api, /if \(!identity\.allowlistConfigured\)/);
-  assert.match(documents, /if \(!allowlist\.length\)/);
-  assert.match(aiStatus, /if \(!allowlist\.length\)/);
+  assert.match(api, /if \(!identity\.email\)/);
+  assert.doesNotMatch(api, /PRIVATE_ALLOWED_EMAILS/);
+  assert.doesNotMatch(api, /WORKSPACE_ALLOWLIST_NOT_CONFIGURED/);
+  assert.doesNotMatch(documents, /PRIVATE_ALLOWED_EMAILS/);
+  assert.doesNotMatch(aiStatus, /PRIVATE_ALLOWED_EMAILS/);
 });
 
 test("keeps Gemini behind the server-side provider boundary and policy gates", async () => {
@@ -467,8 +468,9 @@ test("keeps Gemini behind the server-side provider boundary and policy gates", a
 
   assert.doesNotMatch(page, /GEMINI_API_KEY/);
   assert.match(statusRoute, /secretsExposed: false/);
-  assert.match(statusRoute, /PRIVATE_ALLOWED_EMAILS/);
-  assert.match(statusRoute, /!allowlist\.includes\(email\)/);
+  assert.match(statusRoute, /if \(!email\)/);
+  assert.doesNotMatch(statusRoute, /PRIVATE_ALLOWED_EMAILS/);
+  assert.doesNotMatch(statusRoute, /WORKSPACE_EMAIL_NOT_ALLOWED/);
   assert.doesNotMatch(statusRoute, /apiKey:/);
 });
 
