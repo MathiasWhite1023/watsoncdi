@@ -8,12 +8,6 @@ async function handleGET(request: Request) {
   const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
   if (!email) return localizedApiError(locale, "AUTH_REQUIRED", 401, { en: "Authentication is required.", pt: "Autenticação necessária." });
   const runtime = env as unknown as Record<string, string | undefined>;
-  const allowlist = String(runtime.PRIVATE_ALLOWED_EMAILS || "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  if (!allowlist.length) return localizedApiError(locale, "WORKSPACE_ALLOWLIST_NOT_CONFIGURED", 503, { en: "The private workspace allowlist has not been configured yet.", pt: "A allowlist do workspace privado ainda não foi configurada." });
-  if (!allowlist.includes(email)) return localizedApiError(locale, "WORKSPACE_EMAIL_NOT_ALLOWED", 403, { en: "This email is not authorized.", pt: "E-mail não autorizado." });
   const watsonxConfigured = Boolean(
     runtime.WATSONX_API_KEY && runtime.WATSONX_PROJECT_ID && runtime.WATSONX_URL && runtime.WATSONX_MODEL_ID,
   );

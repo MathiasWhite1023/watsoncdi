@@ -38,32 +38,6 @@ async function authorize(
       }),
     };
   }
-  const runtime = env as unknown as Record<string, unknown>;
-  const allowlist = String(runtime.PRIVATE_ALLOWED_EMAILS || "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  if (!allowlist.length) {
-    return {
-      error: localizedApiError(
-        locale,
-        "WORKSPACE_ALLOWLIST_NOT_CONFIGURED",
-        503,
-        {
-          en: "The private workspace allowlist has not been configured yet.",
-          pt: "A allowlist do workspace privado ainda não foi configurada.",
-        },
-      ),
-    };
-  }
-  if (!allowlist.includes(email)) {
-    return {
-      error: localizedApiError(locale, "WORKSPACE_EMAIL_NOT_ALLOWED", 403, {
-        en: "This email is not authorized.",
-        pt: "E-mail não autorizado.",
-      }),
-    };
-  }
   const db = (env as unknown as { DB: D1Database }).DB;
   const account = await db
     .prepare(

@@ -49,6 +49,7 @@ import {
   Document,
   Watson,
   Launch,
+  Logout,
   Menu,
   Renew,
   Search,
@@ -1910,9 +1911,32 @@ export default function Home({
             >
               <Chat />
             </HeaderGlobalAction>
-            <HeaderGlobalAction aria-label={userName || copy.shell.visitor}>
+            <HeaderGlobalAction
+              aria-label={
+                privateMode ? userName || copy.shell.visitor : copy.shell.signIn
+              }
+              onClick={() => {
+                if (!privateMode) {
+                  window.location.assign(
+                    "/signin-with-chatgpt?return_to=%2Fworkspace",
+                  );
+                }
+              }}
+            >
               <UserAvatar />
             </HeaderGlobalAction>
+            {privateMode && (
+              <HeaderGlobalAction
+                aria-label={copy.shell.signOut}
+                onClick={() =>
+                  window.location.assign(
+                    "/signout-with-chatgpt?return_to=%2F",
+                  )
+                }
+              >
+                <Logout />
+              </HeaderGlobalAction>
+            )}
           </HeaderGlobalBar>
         </Header>
         <SideNav

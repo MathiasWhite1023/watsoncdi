@@ -2532,17 +2532,7 @@ function requestIdentity(request: Request) {
   const email =
     request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() ||
     "";
-  const allowed = String(
-    (env as unknown as Record<string, unknown>).PRIVATE_ALLOWED_EMAILS || "",
-  )
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  return {
-    email,
-    allowed: allowed.length > 0 && allowed.includes(email),
-    allowlistConfigured: allowed.length > 0,
-  };
+  return { email };
 }
 
 function scopeFor(request: Request, body?: Record<string, unknown>) {
@@ -2593,21 +2583,6 @@ function privateGate(request: Request) {
     return localizedApiError(locale, "AUTH_REQUIRED", 401, {
       en: "Sign in with ChatGPT to access the private workspace.",
       pt: "Faça login com ChatGPT para acessar o workspace privado.",
-    });
-  if (!identity.allowlistConfigured)
-    return localizedApiError(
-      locale,
-      "WORKSPACE_ALLOWLIST_NOT_CONFIGURED",
-      503,
-      {
-        en: "The private workspace allowlist has not been configured yet.",
-        pt: "A allowlist do workspace privado ainda não foi configurada.",
-      },
-    );
-  if (!identity.allowed)
-    return localizedApiError(locale, "WORKSPACE_EMAIL_NOT_ALLOWED", 403, {
-      en: "This email is not authorized for the workspace.",
-      pt: "Este e-mail não está autorizado para o workspace.",
     });
   return null;
 }
