@@ -1,3 +1,7 @@
+import type { PortableDatabase } from "../db/contracts";
+
+type RetrievalDatabase = PortableDatabase;
+
 export type RetrievalSource = {
   id: string;
   accountId: string;
@@ -68,42 +72,43 @@ const sourceFromRow = (accountId: string, row: Record<string, unknown>): Retriev
 });
 
 export async function collectAccountSources(
-  db: D1Database,
+  db: RetrievalDatabase,
   accountId: string,
   documentLimit = 60,
 ): Promise<RetrievalSource[]> {
+  const database = db;
   const [events, chunks, stakeholders, hypotheses, actions, plan] = await Promise.all([
-    db
+    database
       .prepare(
         "SELECT id, type AS kind, title, content, COALESCE(source_id, id) AS source_id, NULL AS page, occurred_at, confidence FROM account_events WHERE discovery_id = ? ORDER BY occurred_at DESC LIMIT 120",
       )
       .bind(accountId)
       .all<Record<string, unknown>>(),
-    db
+    database
       .prepare(
-        "SELECT id, 'document' AS kind, ('Documento' || CASE WHEN page IS NOT NULL THEN ' · pág. ' || page ELSE '' END) AS title, content, document_id AS source_id, page, created_at AS occurred_at, 82 AS confidence FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY ordinal ASC) AS document_rank FROM document_chunks WHERE discovery_id = ?) WHERE document_rank <= ? ORDER BY created_at DESC, ordinal ASC LIMIT 300",
+        "SELECT id, 'document' AS kind, ('Documento' || CASE WHEN page IS NOT NULL THEN ' · pág. ' || page ELSE '' END) AS title, content, document_id AS source_id, page, created_at AS occurred_at, 82 AS confidence FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY ordinal ASC) AS document_rank FROM document_chunks WHERE discovery_id = ?) AS ranked_chunks WHERE document_rank <= ? ORDER BY created_at DESC, ordinal ASC LIMIT 300",
       )
       .bind(accountId, documentLimit)
       .all<Record<string, unknown>>(),
-    db
+    database
       .prepare(
         "SELECT id, 'stakeholder' AS kind, (name || ' · ' || role) AS title, (notes || ' Prioridades: ' || priorities_json || ' Área: ' || area || ' Influência: ' || influence || ' Postura: ' || stance) AS content, id AS source_id, NULL AS page, updated_at AS occurred_at, CASE WHEN source = 'manual' THEN 90 ELSE 55 END AS confidence FROM stakeholders WHERE discovery_id = ? ORDER BY updated_at DESC",
       )
       .bind(accountId)
       .all<Record<string, unknown>>(),
-    db
+    database
       .prepare(
         "SELECT id, 'hypothesis' AS kind, title, (problem || ' Próximo passo: ' || next_step || ' Lacunas: ' || gaps_json) AS content, id AS source_id, NULL AS page, updated_at AS occurred_at, confidence FROM opportunity_hypotheses WHERE discovery_id = ? ORDER BY confidence DESC",
       )
       .bind(accountId)
       .all<Record<string, unknown>>(),
-    db
+    database
       .prepare(
         "SELECT id, 'action' AS kind, title, (rationale || ' Próximo passo: ' || next_step) AS content, id AS source_id, NULL AS page, updated_at AS occurred_at, confidence FROM account_actions WHERE discovery_id = ? ORDER BY priority_score DESC LIMIT 30",
       )
       .bind(accountId)
       .all<Record<string, unknown>>(),
-    db
+    database
       .prepare(
         "SELECT discovery_id AS id, 'account_plan' AS kind, 'Account Plan' AS title, (priorities_json || ' ' || initiatives_json || ' ' || objectives_json || ' ' || risks_json || ' ' || ecosystem_json || ' ' || relationship_json || ' ' || plan_30_json || ' ' || plan_60_json || ' ' || plan_90_json) AS content, discovery_id AS source_id, NULL AS page, updated_at AS occurred_at, 88 AS confidence FROM account_plans WHERE discovery_id = ?",
       )
@@ -122,16 +127,17 @@ export async function collectAccountSources(
 }
 
 export async function retrieveAccountSources(
-  db: D1Database,
+  db: RetrievalDatabase,
   accountId: string,
   query: string,
   queryVector?: number[] | null,
   limit = 12,
 ): Promise<RankedSource[]> {
-  const sources = await collectAccountSources(db, accountId);
+  const database = db as PortableDatabase;
+  const sources = await collectAccountSources(database, accountId);
   const queryTokens = tokens(query);
   const vectors = queryVector?.length
-    ? await db
+    ? await database
         .prepare(
           "SELECT source_id, vector_json FROM account_embeddings WHERE discovery_id = ? AND dimensions = ?",
         )
@@ -174,18 +180,19 @@ export async function evidenceFingerprint(sources: RetrievalSource[]) {
 }
 
 export async function persistEmbeddings(
-  db: D1Database,
+  db: RetrievalDatabase,
   accountId: string,
   sources: RetrievalSource[],
   vectors: number[][],
   model: string,
 ) {
+  const database = db as PortableDatabase;
   const now = new Date().toISOString();
   const statements = sources
     .slice(0, vectors.length)
     .filter((_, index) => vectors[index]?.length)
     .map((source, index) =>
-      db
+      database
         .prepare(
           "INSERT OR REPLACE INTO account_embeddings (id, discovery_id, source_type, source_id, chunk_ordinal, content_hash, model, dimensions, vector_json, content_preview, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
@@ -205,6 +212,6 @@ export async function persistEmbeddings(
         ),
     );
   for (let index = 0; index < statements.length; index += 50) {
-    await db.batch(statements.slice(index, index + 50));
+    await database.batch(statements.slice(index, index + 50));
   }
 }
