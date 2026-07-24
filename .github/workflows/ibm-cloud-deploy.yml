@@ -1,0 +1,201 @@
+name: Deploy Watson CDI to IBM Cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected GitHub Environment
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ibm-cloud-watson-cdi-pilot
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, migrate, and deploy
+    runs-on: [self-hosted, linux, x64, watson-cdi-ibm-cloud]
+    timeout-minutes: 45
+    environment: ibm-cloud-${{ inputs.environment }}
+    env:
+      IBM_REGION: ${{ vars.IBM_REGION }}
+      IBM_RESOURCE_GROUP: ${{ vars.IBM_RESOURCE_GROUP }}
+      IBM_CODE_ENGINE_PROJECT: ${{ vars.IBM_CODE_ENGINE_PROJECT }}
+      IBM_CODE_ENGINE_APP: ${{ vars.IBM_CODE_ENGINE_APP }}
+      IBM_CODE_ENGINE_MIGRATION_JOB: ${{ vars.IBM_CODE_ENGINE_MIGRATION_JOB }}
+      IBM_CR_NAMESPACE: ${{ vars.IBM_CR_NAMESPACE }}
+      IBM_CR_HOST: ${{ vars.IBM_CR_HOST }}
+      IBM_CLOUD_CLI_VERSION: "2.46.0"
+      IBM_CODE_ENGINE_PLUGIN_VERSION: "1.62.7"
+      IBM_CONTAINER_REGISTRY_PLUGIN_VERSION: "1.3.22"
+    steps:
+      - name: Require a tag for production
+        if: inputs.environment == 'production' && github.ref_type != 'tag'
+        run: |
+          echo "Production deployments must be dispatched from a Git tag." >&2
+          exit 1
+
+      - name: Check required configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in IBM_REGION IBM_RESOURCE_GROUP IBM_CODE_ENGINE_PROJECT IBM_CODE_ENGINE_APP IBM_CODE_ENGINE_MIGRATION_JOB IBM_CR_NAMESPACE IBM_CR_HOST; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required GitHub Environment variable: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Check out selected commit or tag
+        uses: actions/checkout@v4.2.2
+
+      - name: Verify pinned IBM Cloud tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ibmcloud >/dev/null 2>&1; then
+            echo "This deployment requires the prebuilt watson-cdi-ibm-cloud runner toolchain." >&2
+            echo "Do not install the IBM Cloud CLI with an unverified curl-to-shell command." >&2
+            exit 1
+          fi
+
+          core_version="$(ibmcloud version | awk '/^ibmcloud version / { print $3; exit }')"
+          code_engine_version="$(ibmcloud plugin show code-engine | awk '$1 == "Plugin" && $2 == "Version" { print $3; exit }')"
+          registry_version="$(ibmcloud plugin show container-registry | awk '$1 == "Plugin" && $2 == "Version" { print $3; exit }')"
+
+          [[ "${core_version}" == "${IBM_CLOUD_CLI_VERSION}" ]] || {
+            echo "Expected IBM Cloud CLI ${IBM_CLOUD_CLI_VERSION}, found ${core_version:-missing}." >&2
+            exit 1
+          }
+          [[ "${code_engine_version}" == "${IBM_CODE_ENGINE_PLUGIN_VERSION}" ]] || {
+            echo "Expected Code Engine plug-in ${IBM_CODE_ENGINE_PLUGIN_VERSION}, found ${code_engine_version:-missing}." >&2
+            exit 1
+          }
+          [[ "${registry_version}" == "${IBM_CONTAINER_REGISTRY_PLUGIN_VERSION}" ]] || {
+            echo "Expected Container Registry plug-in ${IBM_CONTAINER_REGISTRY_PLUGIN_VERSION}, found ${registry_version:-missing}." >&2
+            exit 1
+          }
+
+      - name: Authenticate and select Code Engine project
+        shell: bash
+        env:
+          IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
+          IBM_CR_PULL_API_KEY: ${{ secrets.IBM_CR_PULL_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${IBM_CLOUD_API_KEY:-}" || -z "${IBM_CR_PULL_API_KEY:-}" ]]; then
+            echo "Missing IBM_CLOUD_API_KEY or IBM_CR_PULL_API_KEY in the protected GitHub Environment." >&2
+            exit 1
+          fi
+          ibmcloud login --apikey "${IBM_CLOUD_API_KEY}" -r "${IBM_REGION}" -g "${IBM_RESOURCE_GROUP}"
+          ibmcloud ce project select --name "${IBM_CODE_ENGINE_PROJECT}"
+          ibmcloud cr region-set "${IBM_REGION}"
+          ibmcloud cr login
+          if ibmcloud ce registry get --name watson-cdi-icr >/dev/null 2>&1; then
+            ibmcloud ce registry update \
+              --name watson-cdi-icr \
+              --server "private.${IBM_CR_HOST}" \
+              --username iamapikey \
+              --password "${IBM_CR_PULL_API_KEY}"
+          else
+            ibmcloud ce registry create \
+              --name watson-cdi-icr \
+              --server "private.${IBM_CR_HOST}" \
+              --username iamapikey \
+              --password "${IBM_CR_PULL_API_KEY}"
+          fi
+
+      - name: Build and push immutable image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${IBM_CR_HOST}/${IBM_CR_NAMESPACE}/watson-cdi:${GITHUB_SHA}"
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg "APP_VERSION=${GITHUB_SHA}" \
+            --tag "${image}" \
+            --metadata-file /tmp/watson-cdi-build-metadata.json \
+            --push .
+          digest="$(jq -r '."containerimage.digest"' /tmp/watson-cdi-build-metadata.json)"
+          if [[ -z "${digest}" || "${digest}" == "null" ]]; then
+            echo "Could not resolve the pushed image digest." >&2
+            exit 1
+          fi
+          immutable_image="private.${IBM_CR_HOST}/${IBM_CR_NAMESPACE}/watson-cdi@${digest}"
+          echo "reference=${immutable_image}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run forward-only migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          ibmcloud ce job update \
+            --name "${IBM_CODE_ENGINE_MIGRATION_JOB}" \
+            --image "${{ steps.image.outputs.reference }}" \
+            --registry-secret watson-cdi-icr
+          run_name="migrate-${GITHUB_SHA:0:12}"
+          ibmcloud ce jobrun submit \
+            --job "${IBM_CODE_ENGINE_MIGRATION_JOB}" \
+            --name "${run_name}" \
+            --registry-secret watson-cdi-icr \
+            --wait \
+            --wait-timeout 900
+
+      - name: Deploy application revision
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ibmcloud ce application update \
+            --name "${IBM_CODE_ENGINE_APP}" \
+            --image "${{ steps.image.outputs.reference }}" \
+            --registry-secret watson-cdi-icr \
+            --wait
+          app_url="$(ibmcloud ce application get --name "${IBM_CODE_ENGINE_APP}" --output url)"
+          if [[ -z "${app_url}" || "${app_url}" == "null" ]]; then
+            echo "Code Engine did not return an application URL." >&2
+            exit 1
+          fi
+          echo "url=${app_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent \
+            --retry 8 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            "${{ steps.deploy.outputs.url }}/api/health/live"
+          curl --fail --show-error --silent \
+            --retry 8 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            "${{ steps.deploy.outputs.url }}/api/health/ready"
+
+      - name: Deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## IBM Cloud deployment"
+            echo
+            echo "- Environment: \`${{ inputs.environment }}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Image: \`${{ steps.image.outputs.reference }}\`"
+            echo "- URL: ${{ steps.deploy.outputs.url }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Clear deployment credentials
+        if: always()
+        shell: bash
+        run: |
+          ibmcloud logout >/dev/null 2>&1 || true
+          docker logout "${IBM_CR_HOST}" >/dev/null 2>&1 || true
