@@ -1,0 +1,44 @@
+region                  = "br-sao"
+resource_group_name     = "watson-cdi"
+name_prefix             = "watson-cdi"
+code_engine_project_name = "watson-cdi-pilot"
+code_engine_app_name     = "watson-cdi-pilot"
+
+# This public image creates the shell workload. The deployment workflow replaces
+# it with an immutable Watson CDI image tagged by the Git commit SHA.
+bootstrap_image_reference = "icr.io/codeengine/helloworld"
+bootstrap_mode            = true
+container_registry_host    = "br.icr.io"
+
+app_cpu          = "1"
+app_memory       = "2G"
+app_min_instances = 0
+app_max_instances = 2
+
+# Minimum Shared Compute allocations per PostgreSQL member.
+postgres_memory_mb_per_member = 4096
+postgres_disk_mb_per_member   = 5120
+postgres_service_endpoints    = "public-and-private"
+
+cos_plan          = "standard"
+cos_storage_class = "standard"
+appid_plan         = "lite"
+
+# Leave empty only for the first infrastructure bootstrap. After it completes,
+# copy the code_engine_application_url output here and apply a second reviewed
+# plan before testing sign-up or login.
+app_base_url = ""
+
+additional_appid_redirect_urls = []
+
+# Optional watsonx configuration. Supply WATSONX_API_KEY only as a protected,
+# sensitive Schematics variable; never add it to this file.
+watsonx_url        = ""
+watsonx_project_id = ""
+watsonx_model_id   = ""
+
+tags = [
+  "application:watson-cdi",
+  "environment:pilot",
+  "managed-by:terraform",
+]
