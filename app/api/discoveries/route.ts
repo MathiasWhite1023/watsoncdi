@@ -1,4 +1,8 @@
-import { env } from "cloudflare:workers";
+import {
+  getRuntimeEnvironment,
+  getRuntimeDatabase,
+  type PortableDatabase,
+} from "../../../db/runtime";
 import {
   answerFromEvidence,
   buildActions,
@@ -68,6 +72,11 @@ import {
   type CommercialStakeholder,
   type CommercialState,
 } from "../../../lib/commercial-proof";
+import {
+  identityFromRequest,
+  type RequestIdentity,
+} from "../../../lib/auth/session";
+import { rejectInvalidMutationOrigin } from "../../../lib/auth/csrf";
 
 export const dynamic = "force-dynamic";
 
@@ -589,8 +598,7 @@ const compact = (items: Array<string | false | null | undefined>) =>
   Array.from(new Set(items.filter(Boolean) as string[])).slice(0, 6);
 
 const aiAdapter = () => {
-  const runtime = env as unknown as Record<string, string | undefined>;
-  return createAIProviderFromEnv(runtime);
+  return createAIProviderFromEnv(getRuntimeEnvironment());
 };
 
 const classificationOf = (
@@ -1056,7 +1064,7 @@ function buildAccountMap(
   return { nodes, edges, updatedAt: new Date().toISOString() };
 }
 
-async function ensureSchema(db: D1Database) {
+async function ensureSchema(db: PortableDatabase) {
   await db.batch([
     db.prepare(
       "CREATE TABLE IF NOT EXISTS discoveries (id TEXT PRIMARY KEY, customer_name TEXT NOT NULL, industry TEXT NOT NULL, company_size TEXT NOT NULL, owner TEXT NOT NULL, stage TEXT NOT NULL, progress INTEGER NOT NULL, priority TEXT NOT NULL, challenge_summary TEXT NOT NULL, answers_json TEXT NOT NULL, scores_json TEXT NOT NULL, recommendations_json TEXT NOT NULL, next_engagement TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -1110,10 +1118,10 @@ async function ensureSchema(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS ai_cache (id TEXT PRIMARY KEY, cache_key TEXT NOT NULL, discovery_id TEXT, task TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, usage_json TEXT NOT NULL DEFAULT '{}', expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
-      "CREATE TABLE IF NOT EXISTS daily_briefings (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, briefing_date TEXT NOT NULL, account_ids_json TEXT NOT NULL DEFAULT '[]', content_json TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, generated_at TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS daily_briefings (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, owner_subject TEXT, briefing_date TEXT NOT NULL, account_ids_json TEXT NOT NULL DEFAULT '[]', content_json TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, generated_at TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
-      "CREATE TABLE IF NOT EXISTS daily_briefing_variants (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, briefing_date TEXT NOT NULL, locale TEXT NOT NULL DEFAULT 'en-US', account_ids_json TEXT NOT NULL DEFAULT '[]', content_json TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, generated_at TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS daily_briefing_variants (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, owner_subject TEXT, briefing_date TEXT NOT NULL, locale TEXT NOT NULL DEFAULT 'en-US', account_ids_json TEXT NOT NULL DEFAULT '[]', content_json TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, evidence_fingerprint TEXT NOT NULL, generated_at TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
       "CREATE TABLE IF NOT EXISTS content_translations (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_fingerprint TEXT NOT NULL, source_locale TEXT, target_locale TEXT NOT NULL, translated_text TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'completed', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -1134,7 +1142,7 @@ async function ensureSchema(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS action_feedback (id TEXT PRIMARY KEY, action_id TEXT NOT NULL, discovery_id TEXT NOT NULL, feedback_type TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', adjustment INTEGER NOT NULL DEFAULT 0, previous_status TEXT NOT NULL DEFAULT '', new_status TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)",
     ),
     db.prepare(
-      "CREATE TABLE IF NOT EXISTS guided_discovery_sessions (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, owner_email TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'adaptive' CHECK(mode IN ('adaptive','direct')), catalog_version TEXT NOT NULL, selected_pillars_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'in_progress' CHECK(status IN ('in_progress','paused','completed')), progress_percent INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100), coverage_percent INTEGER NOT NULL DEFAULT 0 CHECK(coverage_percent BETWEEN 0 AND 100), current_question_id TEXT, checkpoint_count INTEGER NOT NULL DEFAULT 0 CHECK(checkpoint_count >= 0), ai_status TEXT, started_at TEXT NOT NULL, completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS guided_discovery_sessions (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, owner_email TEXT NOT NULL, owner_subject TEXT, mode TEXT NOT NULL DEFAULT 'adaptive' CHECK(mode IN ('adaptive','direct')), catalog_version TEXT NOT NULL, selected_pillars_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'in_progress' CHECK(status IN ('in_progress','paused','completed')), progress_percent INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100), coverage_percent INTEGER NOT NULL DEFAULT 0 CHECK(coverage_percent BETWEEN 0 AND 100), current_question_id TEXT, checkpoint_count INTEGER NOT NULL DEFAULT 0 CHECK(checkpoint_count >= 0), ai_status TEXT, started_at TEXT NOT NULL, completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
       "CREATE TABLE IF NOT EXISTS guided_discovery_questions (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES guided_discovery_sessions(id) ON DELETE CASCADE, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, catalog_question_id TEXT, pillar TEXT NOT NULL, prompt TEXT NOT NULL, hint TEXT, input_schema_json TEXT NOT NULL DEFAULT '{}', source TEXT NOT NULL DEFAULT 'catalog' CHECK(source IN ('catalog','ai')), rationale TEXT, citations_json TEXT NOT NULL DEFAULT '[]', sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0), status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','accepted','active','answered','dismissed')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -1264,6 +1272,10 @@ async function ensureSchema(db: D1Database) {
     ),
   ]);
   await ensureColumn(db, "discoveries", "owner_email", "TEXT");
+  await ensureColumn(db, "discoveries", "owner_subject", "TEXT");
+  await ensureColumn(db, "daily_briefings", "owner_subject", "TEXT");
+  await ensureColumn(db, "daily_briefing_variants", "owner_subject", "TEXT");
+  await ensureColumn(db, "guided_discovery_sessions", "owner_subject", "TEXT");
   await ensureColumn(
     db,
     "discoveries",
@@ -1350,7 +1362,7 @@ async function ensureSchema(db: D1Database) {
 }
 
 async function ensureColumn(
-  db: D1Database,
+  db: PortableDatabase,
   table: string,
   column: string,
   definition: string,
@@ -1382,7 +1394,10 @@ function mapStakeholder(row: Record<string, unknown>): Stakeholder {
   };
 }
 
-async function seedStakeholderTrees(db: D1Database, discoveryIds: string[]) {
+async function seedStakeholderTrees(
+  db: PortableDatabase,
+  discoveryIds: string[],
+) {
   if (!discoveryIds.length) return;
   const placeholders = discoveryIds.map(() => "?").join(",");
   const discoveries = await db
@@ -1480,7 +1495,7 @@ async function seedStakeholderTrees(db: D1Database, discoveryIds: string[]) {
   }
 }
 
-async function seed(db: D1Database) {
+async function seed(db: PortableDatabase) {
   const count = await db
     .prepare("SELECT COUNT(*) AS count FROM discoveries")
     .first<{ count: number }>();
@@ -2015,7 +2030,7 @@ function mapImpactMetric(row: Record<string, unknown>) {
 }
 
 async function captureCommercialState(
-  db: D1Database,
+  db: PortableDatabase,
   discoveryId: string,
 ): Promise<CommercialState> {
   const [
@@ -2528,13 +2543,6 @@ function mapDiscovery(
   };
 }
 
-function requestIdentity(request: Request) {
-  const email =
-    request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() ||
-    "";
-  return { email };
-}
-
 function scopeFor(request: Request, body?: Record<string, unknown>) {
   return String(
     body?.scope || new URL(request.url).searchParams.get("scope") || "demo",
@@ -2576,28 +2584,29 @@ function normalizeCompanyDomain(value: unknown): string | null {
   }
 }
 
-function privateGate(request: Request) {
-  const identity = requestIdentity(request);
+async function privateGate(request: Request) {
+  const identity = await identityFromRequest(request);
   const locale = resolveResponseLocale(request);
-  if (!identity.email)
+  if (!identity)
     return localizedApiError(locale, "AUTH_REQUIRED", 401, {
-      en: "Sign in with ChatGPT to access the private workspace.",
-      pt: "Faça login com ChatGPT para acessar o workspace privado.",
+      en: "Sign in to Watson CDI to access the private workspace.",
+      pt: "Entre no Watson CDI para acessar o workspace privado.",
     });
   return null;
 }
 
 async function accountForMutation(
-  db: D1Database,
+  db: PortableDatabase,
   id: string,
   request: Request,
 ) {
-  const identity = requestIdentity(request);
+  const identity = await identityFromRequest(request);
+  if (!identity) return null;
   const row = await db
     .prepare(
-      "SELECT * FROM discoveries WHERE id = ? AND visibility = 'private' AND owner_email = ?",
+      "SELECT * FROM discoveries WHERE id = ? AND visibility = 'private' AND owner_subject = ?",
     )
-    .bind(id, identity.email)
+    .bind(id, identity.subject)
     .first<Record<string, unknown>>();
   return row || null;
 }
@@ -2619,7 +2628,7 @@ type TranslatableSource = {
 };
 
 async function translatableSourceForAccount(
-  db: D1Database,
+  db: PortableDatabase,
   discoveryId: string,
   sourceType: TranslatableSourceType,
   sourceId: string,
@@ -2715,7 +2724,7 @@ async function translatableSourceForAccount(
 }
 
 async function addEvent(
-  db: D1Database,
+  db: PortableDatabase,
   input: Omit<AccountEvent, "createdAt"> & { createdAt?: string },
 ) {
   const createdAt = input.createdAt || new Date().toISOString();
@@ -2746,7 +2755,7 @@ const dbProviderName = (provider: "watsonx" | "gemini" | "fallback") =>
       ? "google-gemini"
       : "deterministic-fallback";
 
-async function quotaAllows(db: D1Database, kind: "generative" | "embedding") {
+async function quotaAllows(db: PortableDatabase, kind: "generative" | "embedding") {
   const now = Date.now();
   const minuteAgo = new Date(now - 60_000).toISOString();
   const dayAgo = new Date(now - 86_400_000).toISOString();
@@ -2794,7 +2803,7 @@ async function quotaAllows(db: D1Database, kind: "generative" | "embedding") {
 }
 
 async function recordAIRun<T>(
-  db: D1Database,
+  db: PortableDatabase,
   accountId: string,
   agent: string,
   result: AIResult<T>,
@@ -2841,7 +2850,7 @@ async function recordAIRun<T>(
 }
 
 async function persistImpactMetrics(
-  db: D1Database,
+  db: PortableDatabase,
   discoveryId: string,
   computedAt: string,
 ) {
@@ -2950,7 +2959,7 @@ async function persistImpactMetrics(
 }
 
 async function persistMeetingCommercialProof(input: {
-  db: D1Database;
+  db: PortableDatabase;
   discoveryId: string;
   meetingId: string;
   before: CommercialState;
@@ -3069,7 +3078,7 @@ function providerCacheSignature(
 }
 
 async function cachedAI<T>(
-  db: D1Database,
+  db: PortableDatabase,
   cacheKey: string,
 ): Promise<{
   data: T;
@@ -3094,7 +3103,7 @@ async function cachedAI<T>(
 }
 
 async function putAICache<T>(
-  db: D1Database,
+  db: PortableDatabase,
   input: {
     cacheKey: string;
     accountId: string | null;
@@ -3132,7 +3141,7 @@ async function putAICache<T>(
 }
 
 async function refreshAccountEmbeddings(
-  db: D1Database,
+  db: PortableDatabase,
   row: Record<string, unknown>,
   sources?: RetrievalSource[],
   responseLocale: ResponseLocale = "en-US",
@@ -3214,7 +3223,7 @@ async function refreshAccountEmbeddings(
 }
 
 export async function recomputeAccount(
-  db: D1Database,
+  db: PortableDatabase,
   id: string,
   recomputeOptions: {
     skipGenerative?: boolean;
@@ -3526,7 +3535,7 @@ export async function recomputeAccount(
 }
 
 async function backfillV4(
-  db: D1Database,
+  db: PortableDatabase,
   discoveryRows: Record<string, unknown>[],
   responseLocale: ResponseLocale,
 ) {
@@ -3632,7 +3641,7 @@ async function backfillV4(
 }
 
 async function guidedSnapshotForAccount(
-  db: D1Database,
+  db: PortableDatabase,
   row: Record<string, unknown>,
 ) {
   const id = String(row.id);
@@ -3673,7 +3682,7 @@ async function guidedSnapshotForAccount(
 }
 
 async function insertCatalogQuestion(
-  db: D1Database,
+  db: PortableDatabase,
   input: {
     sessionId: string;
     discoveryId: string;
@@ -3710,7 +3719,7 @@ async function insertCatalogQuestion(
 }
 
 async function refreshGuidedSession(
-  db: D1Database,
+  db: PortableDatabase,
   row: Record<string, unknown>,
   sessionId: string,
   now = new Date().toISOString(),
@@ -3887,7 +3896,7 @@ async function refreshGuidedSession(
 }
 
 async function materializeLegacyGuidedAnswers(
-  db: D1Database,
+  db: PortableDatabase,
   row: Record<string, unknown>,
   sessionId: string,
   now: string,
@@ -3960,7 +3969,7 @@ async function materializeLegacyGuidedAnswers(
 }
 
 async function accountPayload(
-  db: D1Database,
+  db: PortableDatabase,
   discoveryRows: Record<string, unknown>[],
 ) {
   const ids = discoveryRows.map((row) => String(row.id));
@@ -4330,25 +4339,29 @@ async function accountPayload(
 }
 
 async function handleGET(request: Request) {
-  const db = (env as unknown as { DB: D1Database }).DB;
-  await ensureSchema(db);
-  await seed(db);
+  const db = await getRuntimeDatabase();
+  if (db.kind === "d1") {
+    await ensureSchema(db);
+    await seed(db);
+  }
   const scope = scopeFor(request);
   const responseLocale = resolveResponseLocale(request);
   let rows;
   if (scope === "private") {
-    const denied = privateGate(request);
+    const denied = await privateGate(request);
     if (denied) return denied;
-    const { email } = requestIdentity(request);
+    const identity = (await identityFromRequest(request)) as RequestIdentity;
     rows = await db
       .prepare(
-        "SELECT * FROM discoveries WHERE visibility = 'private' AND owner_email = ? ORDER BY updated_at DESC",
+        "SELECT * FROM discoveries WHERE visibility = 'private' AND owner_subject = ? ORDER BY updated_at DESC",
       )
-      .bind(email)
+      .bind(identity.subject)
       .all<Record<string, unknown>>();
-    const accountIds = rows.results.map((row) => String(row.id));
-    await seedStakeholderTrees(db, accountIds);
-    await backfillV4(db, rows.results, responseLocale);
+    if (db.kind === "d1") {
+      const accountIds = rows.results.map((row) => String(row.id));
+      await seedStakeholderTrees(db, accountIds);
+      await backfillV4(db, rows.results, responseLocale);
+    }
     for (const row of rows.results) {
       const last = row.last_analyzed_at
         ? new Date(String(row.last_analyzed_at)).getTime()
@@ -4381,9 +4394,11 @@ async function handleGET(request: Request) {
         "SELECT * FROM discoveries WHERE visibility = 'demo' OR visibility IS NULL ORDER BY updated_at DESC",
       )
       .all<Record<string, unknown>>();
-    const accountIds = rows.results.map((row) => String(row.id));
-    await seedStakeholderTrees(db, accountIds);
-    await backfillV4(db, rows.results, "pt-BR");
+    if (db.kind === "d1") {
+      const accountIds = rows.results.map((row) => String(row.id));
+      await seedStakeholderTrees(db, accountIds);
+      await backfillV4(db, rows.results, "pt-BR");
+    }
   }
   const accountId = new URL(request.url).searchParams.get("accountId");
   const payload = await accountPayload(
@@ -4410,8 +4425,10 @@ const list = (value: unknown) =>
 
 async function handlePOST(request: Request) {
   const locale = resolveResponseLocale(request);
-  const db = (env as unknown as { DB: D1Database }).DB;
-  await ensureSchema(db);
+  const invalidOrigin = rejectInvalidMutationOrigin(request);
+  if (invalidOrigin) return invalidOrigin;
+  const db = await getRuntimeDatabase();
+  if (db.kind === "d1") await ensureSchema(db);
   const parsedBody = await parseLocalizedJsonObject(request, locale);
   if (!parsedBody.ok) return parsedBody.response;
   const body = parsedBody.value;
@@ -4424,17 +4441,33 @@ async function handlePOST(request: Request) {
       },
       { status: 403 },
     );
-  const denied = privateGate(request);
+  const denied = await privateGate(request);
   if (denied) return denied;
-  const identity = requestIdentity(request);
+  const identity = (await identityFromRequest(request)) as RequestIdentity;
   const now = new Date().toISOString();
   if (body.action === "create") {
-    const name = String(body.customerName || "").trim();
+    const name = String(body.customerName || "").trim().slice(0, 160);
     if (!name)
       return Response.json(
         { error: "Informe o nome da conta." },
         { status: 400 },
       );
+    const accountUsage = await db
+      .prepare(
+        "SELECT COUNT(*) AS total, SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS recent FROM discoveries WHERE visibility = 'private' AND owner_subject = ?",
+      )
+      .bind(new Date(Date.now() - 3600_000).toISOString(), identity.subject)
+      .first<{ total: number | string; recent: number | string | null }>();
+    if (Number(accountUsage?.total ?? 0) >= 25)
+      return localizedApiError(locale, "ACCOUNT_LIMIT_REACHED", 429, {
+        en: "This pilot workspace has reached its limit of 25 accounts.",
+        pt: "Este workspace piloto atingiu o limite de 25 contas.",
+      });
+    if (Number(accountUsage?.recent ?? 0) >= 10)
+      return localizedApiError(locale, "ACCOUNT_CREATION_RATE_LIMITED", 429, {
+        en: "Too many accounts were created recently. Try again in one hour.",
+        pt: "Muitas contas foram criadas recentemente. Tente novamente em uma hora.",
+      });
     const defaultIndustry = localizedText(
       locale,
       "Not provided",
@@ -4466,7 +4499,7 @@ async function handlePOST(request: Request) {
       );
     await db
       .prepare(
-        "INSERT INTO discoveries (id, customer_name, industry, company_size, owner, stage, progress, priority, challenge_summary, answers_json, scores_json, recommendations_json, next_engagement, created_at, updated_at, owner_email, visibility, data_classification, company_domain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO discoveries (id, customer_name, industry, company_size, owner, stage, progress, priority, challenge_summary, answers_json, scores_json, recommendations_json, next_engagement, created_at, updated_at, owner_email, owner_subject, visibility, data_classification, company_domain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .bind(
         id,
@@ -4493,6 +4526,7 @@ async function handlePOST(request: Request) {
         now,
         now,
         identity.email,
+        identity.subject,
         "private",
         classification,
         domain,
@@ -4540,9 +4574,9 @@ async function handlePOST(request: Request) {
     ]);
     const existing = await db
       .prepare(
-        "SELECT * FROM daily_briefing_variants WHERE owner_email = ? AND briefing_date = ? AND locale = ? AND expires_at > ? AND provider <> 'deterministic-fallback' AND model <> '' AND evidence_fingerprint LIKE ?",
+        "SELECT * FROM daily_briefing_variants WHERE owner_subject = ? AND briefing_date = ? AND locale = ? AND expires_at > ? AND provider <> 'deterministic-fallback' AND model <> '' AND evidence_fingerprint LIKE ?",
       )
-      .bind(identity.email, briefingDate, locale, now, `${briefingConfig}:%`)
+      .bind(identity.subject, briefingDate, locale, now, `${briefingConfig}:%`)
       .first<Record<string, unknown>>();
     if (existing && !body.force)
       return Response.json({
@@ -4554,9 +4588,9 @@ async function handlePOST(request: Request) {
       });
     const rows = await db
       .prepare(
-        "SELECT * FROM discoveries WHERE visibility = 'private' AND owner_email = ? ORDER BY progress DESC, updated_at DESC LIMIT 5",
+        "SELECT * FROM discoveries WHERE visibility = 'private' AND owner_subject = ? ORDER BY progress DESC, updated_at DESC LIMIT 5",
       )
-      .bind(identity.email)
+      .bind(identity.subject)
       .all<Record<string, unknown>>();
     const accountIds = rows.results.map((item) => String(item.id));
     if (!accountIds.length)
@@ -4726,11 +4760,12 @@ async function handlePOST(request: Request) {
     if (generated.ok && generated.model)
       await db
         .prepare(
-          "INSERT OR REPLACE INTO daily_briefing_variants (id, owner_email, briefing_date, locale, account_ids_json, content_json, provider, model, status, evidence_fingerprint, generated_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT OR REPLACE INTO daily_briefing_variants (id, owner_email, owner_subject, briefing_date, locale, account_ids_json, content_json, provider, model, status, evidence_fingerprint, generated_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(
-          `brief-${identity.email}-${briefingDate}-${locale}`,
+          `brief-${identity.userId}-${briefingDate}-${locale}`,
           identity.email,
+          identity.subject,
           briefingDate,
           locale,
           JSON.stringify(accountIds),
@@ -4852,7 +4887,7 @@ async function handlePOST(request: Request) {
         .prepare(
           "UPDATE account_change_sets SET status = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND discovery_id = ?",
         )
-        .bind(status, identity.email, now, now, changeSetId, id),
+        .bind(status, identity.subject, now, now, changeSetId, id),
       db
         .prepare(
           "UPDATE commercial_agent_runs SET human_validation_status = ? WHERE change_set_id = ? AND discovery_id = ?",
@@ -5077,7 +5112,7 @@ async function handlePOST(request: Request) {
         )
         .bind(
           status,
-          status === "returned" ? null : identity.email,
+          status === "returned" ? null : identity.subject,
           approvedAt,
           status === "handed_off" ? now : null,
           now,
@@ -5231,8 +5266,8 @@ async function handlePOST(request: Request) {
           "TRANSLATION_PROVIDER_POLICY_BLOCKED",
           403,
           {
-            en: "Gemini cannot process confidential accounts. Configure watsonx or keep the original content.",
-            pt: "O Gemini não pode processar contas confidenciais. Configure o watsonx ou mantenha o conteúdo original.",
+            en: "No approved AI service can process this confidential account. Configure watsonx or keep the original content.",
+            pt: "Nenhum serviço de IA aprovado pode processar esta conta confidencial. Configure o watsonx ou mantenha o conteúdo original.",
           },
           {
             provider: dbProviderName(generated.provider),
@@ -5312,9 +5347,9 @@ async function handlePOST(request: Request) {
       );
     const existing = await db
       .prepare(
-        "SELECT * FROM guided_discovery_sessions WHERE discovery_id = ? AND owner_email = ? AND status IN ('in_progress','paused') ORDER BY updated_at DESC LIMIT 1",
+        "SELECT * FROM guided_discovery_sessions WHERE discovery_id = ? AND owner_subject = ? AND status IN ('in_progress','paused') ORDER BY updated_at DESC LIMIT 1",
       )
-      .bind(id, identity.email)
+      .bind(id, identity.subject)
       .first<Record<string, unknown>>();
     if (existing) {
       await db
@@ -5333,12 +5368,13 @@ async function handlePOST(request: Request) {
     const sessionId = `gds-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await db
       .prepare(
-        "INSERT INTO guided_discovery_sessions (id, discovery_id, owner_email, mode, catalog_version, selected_pillars_json, status, progress_percent, coverage_percent, current_question_id, checkpoint_count, ai_status, started_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'in_progress', 0, 0, NULL, 0, 'deterministic', ?, NULL, ?, ?)",
+        "INSERT INTO guided_discovery_sessions (id, discovery_id, owner_email, owner_subject, mode, catalog_version, selected_pillars_json, status, progress_percent, coverage_percent, current_question_id, checkpoint_count, ai_status, started_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', 0, 0, NULL, 0, 'deterministic', ?, NULL, ?, ?)",
       )
       .bind(
         sessionId,
         id,
         identity.email,
+        identity.subject,
         parsed.data.mode,
         GUIDED_DISCOVERY_CATALOG_VERSION,
         JSON.stringify(selectedPillars),
@@ -5402,9 +5438,9 @@ async function handlePOST(request: Request) {
     const input = parsed.data;
     const sessionRow = await db
       .prepare(
-        "SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ? AND owner_email = ?",
+        "SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ? AND owner_subject = ?",
       )
-      .bind(input.sessionId, id, identity.email)
+      .bind(input.sessionId, id, identity.subject)
       .first<Record<string, unknown>>();
     if (!sessionRow)
       return Response.json(
@@ -5661,9 +5697,9 @@ async function handlePOST(request: Request) {
     const sessionId = String(body.sessionId || "");
     const sessionRow = await db
       .prepare(
-        "SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ? AND owner_email = ?",
+        "SELECT * FROM guided_discovery_sessions WHERE id = ? AND discovery_id = ? AND owner_subject = ?",
       )
-      .bind(sessionId, id, identity.email)
+      .bind(sessionId, id, identity.subject)
       .first<Record<string, unknown>>();
     if (!sessionRow)
       return Response.json(
@@ -5683,7 +5719,7 @@ async function handlePOST(request: Request) {
           )
           .bind(sessionId)
           .first<{ count: number }>();
-        if (!count?.count)
+        if (Number(count?.count ?? 0) === 0)
           return Response.json(
             {
               error:
@@ -7005,16 +7041,18 @@ async function handlePOST(request: Request) {
       "decide",
       "possui_iniciativa",
     ];
-    const relationshipId = String(
-      body.relationshipId ||
-        `rel-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    );
+    const requestedRelationshipId = String(body.relationshipId || "");
     if (String(body.operation) === "delete") {
+      if (!requestedRelationshipId)
+        return Response.json(
+          { error: "Informe a relação que deve ser removida." },
+          { status: 400 },
+        );
       await db
         .prepare(
           "DELETE FROM account_relationships WHERE id = ? AND discovery_id = ?",
         )
-        .bind(relationshipId, id)
+        .bind(requestedRelationshipId, id)
         .run();
       return Response.json({ ok: true });
     }
@@ -7052,7 +7090,9 @@ async function handlePOST(request: Request) {
       )
       .bind(id, sourceId, targetId, relationType)
       .first<Record<string, unknown>>();
-    const savedId = String(existing?.id || relationshipId);
+    // IDs supplied by the client are never used to create a record. This
+    // prevents a caller from selecting an ID owned by another tenant.
+    const savedId = String(existing?.id || `rel-${crypto.randomUUID()}`);
     await db
       .prepare(
         "INSERT OR REPLACE INTO account_relationships (id, discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type, label, confidence, evidence_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -7120,7 +7160,7 @@ async function handlePOST(request: Request) {
       return Response.json(
         {
           error:
-            "Pesquisa com Gemini está bloqueada para contas confidenciais. Use watsonx ou registre fontes aprovadas manualmente.",
+            "Pesquisa externa por IA está bloqueada para contas confidenciais. Use watsonx ou registre fontes aprovadas manualmente.",
         },
         { status: 403 },
       );
@@ -7160,7 +7200,7 @@ async function handlePOST(request: Request) {
           confidence: signal.confidence,
         })),
         cached: true,
-        provider: "google-gemini",
+        provider: String(saved.results[0]?.provider || "cached"),
       });
     const quota = await quotaAllows(db, "generative");
     if (!quota.allowed)
@@ -7328,11 +7368,11 @@ async function handlePOST(request: Request) {
     await db.batch([
       db.prepare("DELETE FROM ai_cache WHERE discovery_id = ?").bind(id),
       db
-        .prepare("DELETE FROM daily_briefings WHERE owner_email = ?")
-        .bind(identity.email),
+        .prepare("DELETE FROM daily_briefings WHERE owner_subject = ?")
+        .bind(identity.subject),
       db
-        .prepare("DELETE FROM daily_briefing_variants WHERE owner_email = ?")
-        .bind(identity.email),
+        .prepare("DELETE FROM daily_briefing_variants WHERE owner_subject = ?")
+        .bind(identity.subject),
       ...(classification === "confidential"
         ? [
             db
@@ -7348,26 +7388,48 @@ async function handlePOST(request: Request) {
     });
   }
   if (body.action === "stakeholder_upsert") {
-    const stakeholderId = String(body.stakeholderId || `stk-${Date.now()}`);
-    const name = String(body.name || "").trim();
-    const role = String(body.role || "").trim();
+    const requestedStakeholderId = String(body.stakeholderId || "");
+    const name = String(body.name || "").trim().slice(0, 160);
+    const role = String(body.role || "").trim().slice(0, 160);
     if (!name || !role)
       return Response.json(
         { error: "Nome e cargo são obrigatórios." },
         { status: 400 },
       );
+    const existing = requestedStakeholderId
+      ? await db
+          .prepare(
+            "SELECT created_at FROM stakeholders WHERE id = ? AND discovery_id = ?",
+          )
+          .bind(requestedStakeholderId, id)
+          .first<Record<string, unknown>>()
+      : null;
+    if (requestedStakeholderId && !existing)
+      return localizedApiError(locale, "STAKEHOLDER_NOT_FOUND", 404, {
+        en: "The stakeholder was not found in this account.",
+        pt: "O stakeholder não foi encontrado nesta conta.",
+      });
+    const stakeholderId =
+      requestedStakeholderId || `stk-${crypto.randomUUID()}`;
     const reportsToId = body.reportsToId ? String(body.reportsToId) : null;
     if (reportsToId === stakeholderId)
       return Response.json(
         { error: "Uma pessoa não pode reportar a si mesma." },
         { status: 400 },
       );
-    const existing = await db
-      .prepare(
-        "SELECT created_at FROM stakeholders WHERE id = ? AND discovery_id = ?",
-      )
-      .bind(stakeholderId, id)
-      .first<Record<string, unknown>>();
+    if (reportsToId) {
+      const manager = await db
+        .prepare(
+          "SELECT id FROM stakeholders WHERE id = ? AND discovery_id = ?",
+        )
+        .bind(reportsToId, id)
+        .first();
+      if (!manager)
+        return localizedApiError(locale, "INVALID_REPORTING_LINE", 400, {
+          en: "The manager must belong to the same account.",
+          pt: "A liderança precisa pertencer à mesma conta.",
+        });
+    }
     await db
       .prepare(
         "INSERT OR REPLACE INTO stakeholders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -7379,12 +7441,16 @@ async function handlePOST(request: Request) {
         role,
         String(
           body.area || localizedText(locale, "Not provided", "Não informada"),
-        ),
+        ).slice(0, 160),
         reportsToId,
         String(body.influence || "Média"),
         String(body.stance || "Desconhecido"),
-        JSON.stringify(list(body.priorities).slice(0, 8)),
-        String(body.notes || ""),
+        JSON.stringify(
+          list(body.priorities)
+            .slice(0, 8)
+            .map((item) => item.slice(0, 240)),
+        ),
+        String(body.notes || "").slice(0, 5000),
         "manual",
         String(existing?.created_at || now),
         now,
@@ -7403,7 +7469,7 @@ async function handlePOST(request: Request) {
       occurredAt: now,
     });
     await recomputeAccount(db, id, { responseLocale: locale });
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, stakeholderId });
   }
   if (body.action === "stakeholder_delete") {
     const stakeholderId = String(body.stakeholderId || "");

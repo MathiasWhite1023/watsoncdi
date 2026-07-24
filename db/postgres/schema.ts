@@ -1,0 +1,1022 @@
+import { sql } from "drizzle-orm";
+import {
+  AnyPgColumn,
+  check,
+  index,
+  integer,
+  pgTable,
+  serial,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+export const discoveries = pgTable(
+  "discoveries",
+  {
+    id: text("id").primaryKey(),
+    customerName: text("customer_name").notNull(),
+    industry: text("industry").notNull(),
+    companySize: text("company_size").notNull(),
+    owner: text("owner").notNull(),
+    stage: text("stage").notNull(),
+    progress: integer("progress").notNull(),
+    priority: text("priority").notNull(),
+    challengeSummary: text("challenge_summary").notNull(),
+    answersJson: text("answers_json").notNull(),
+    scoresJson: text("scores_json").notNull(),
+    recommendationsJson: text("recommendations_json").notNull(),
+    nextEngagement: text("next_engagement").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    ownerEmail: text("owner_email"),
+    ownerSubject: text("owner_subject"),
+    visibility: text("visibility").notNull().default("demo"),
+    dataClassification: text("data_classification").notNull().default("test"),
+    companyDomain: text("company_domain"),
+    lastAnalyzedAt: text("last_analyzed_at"),
+  },
+  (table) => ({
+    ownerScopeIdx: index("discoveries_owner_scope_idx").on(
+      table.ownerSubject,
+      table.visibility,
+      table.updatedAt,
+    ),
+    visibilityIdx: index("discoveries_visibility_idx").on(
+      table.visibility,
+      table.updatedAt,
+    ),
+  }),
+);
+
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: serial("id").primaryKey(),
+    discoveryId: text("discovery_id").notNull(),
+    type: text("type").notNull(),
+    detail: text("detail").notNull(),
+    createdAt: text("created_at").notNull(),
+    scheduledAt: text("scheduled_at"),
+    attendeesJson: text("attendees_json").notNull().default("[]"),
+    objective: text("objective").notNull().default(""),
+    preparationJson: text("preparation_json").notNull().default("{}"),
+    meetingStatus: text("meeting_status").notNull().default("completed"),
+  },
+  (table) => ({
+    accountTimeIdx: index("audit_events_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const meetings = pgTable(
+  "meetings",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id").notNull(),
+    title: text("title").notNull(),
+    notes: text("notes").notNull(),
+    summary: text("summary").notNull(),
+    insightsJson: text("insights_json").notNull(),
+    aiStatus: text("ai_status").notNull(),
+    createdAt: text("created_at").notNull(),
+    scheduledAt: text("scheduled_at"),
+    attendeesJson: text("attendees_json").notNull().default("[]"),
+    objective: text("objective").notNull().default(""),
+    preparationJson: text("preparation_json").notNull().default("{}"),
+    meetingStatus: text("meeting_status").notNull().default("completed"),
+  },
+  (table) => ({
+    accountTimeIdx: index("meetings_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+    scheduleIdx: index("meetings_schedule_idx").on(
+      table.discoveryId,
+      table.meetingStatus,
+      table.scheduledAt,
+    ),
+  }),
+);
+
+export const accountMaps = pgTable("account_maps", {
+  discoveryId: text("discovery_id").primaryKey(),
+  nodesJson: text("nodes_json").notNull(),
+  edgesJson: text("edges_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const stakeholders = pgTable(
+  "stakeholders",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id").notNull(),
+    name: text("name").notNull(),
+    role: text("role").notNull(),
+    area: text("area").notNull(),
+    reportsToId: text("reports_to_id"),
+    influence: text("influence").notNull(),
+    stance: text("stance").notNull(),
+    prioritiesJson: text("priorities_json").notNull(),
+    notes: text("notes").notNull(),
+    source: text("source").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountHierarchyIdx: index("stakeholders_account_hierarchy_idx").on(
+      table.discoveryId,
+      table.reportsToId,
+    ),
+  }),
+);
+
+export const accountEvents = pgTable(
+  "account_events",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id").notNull(),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id"),
+    evidenceStatus: text("evidence_status").notNull(),
+    confidence: integer("confidence").notNull(),
+    occurredAt: text("occurred_at").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    accountTimeIdx: index("account_events_account_time_idx").on(
+      table.discoveryId,
+      table.occurredAt,
+    ),
+  }),
+);
+
+export const accountEntities = pgTable("account_entities", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull(),
+  type: text("type").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id"),
+  confidence: integer("confidence").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const accountMemory = pgTable("account_memory", {
+  discoveryId: text("discovery_id").primaryKey(),
+  executiveSummary: text("executive_summary").notNull(),
+  knownJson: text("known_json").notNull(),
+  assumptionsJson: text("assumptions_json").notNull(),
+  gapsJson: text("gaps_json").notNull(),
+  changesJson: text("changes_json").notNull(),
+  aiStatus: text("ai_status").notNull(),
+  version: integer("version").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const accountActions = pgTable(
+  "account_actions",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id").notNull(),
+    stakeholderId: text("stakeholder_id"),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    rationale: text("rationale").notNull(),
+    nextStep: text("next_step").notNull(),
+    impact: integer("impact").notNull(),
+    urgency: integer("urgency").notNull(),
+    confidence: integer("confidence").notNull(),
+    maturity: integer("maturity").notNull(),
+    priorityScore: integer("priority_score").notNull(),
+    status: text("status").notNull(),
+    dueAt: text("due_at"),
+    evidenceJson: text("evidence_json").notNull(),
+    whyNow: text("why_now").notNull().default(""),
+    effort: integer("effort").notNull().default(50),
+    expectedOutcome: text("expected_outcome").notNull().default(""),
+    conversationJson: text("conversation_json").notNull().default("{}"),
+    snoozedUntil: text("snoozed_until"),
+    feedbackReason: text("feedback_reason"),
+    rankAdjustment: integer("rank_adjustment").notNull().default(0),
+    dedupeKey: text("dedupe_key").notNull(),
+    evidenceFingerprint: text("evidence_fingerprint").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    dedupeIdx: uniqueIndex("account_actions_dedupe_idx").on(
+      table.discoveryId,
+      table.dedupeKey,
+    ),
+    queueIdx: index("account_actions_queue_idx").on(
+      table.discoveryId,
+      table.status,
+      table.priorityScore,
+    ),
+  }),
+);
+
+export const opportunityHypotheses = pgTable(
+  "opportunity_hypotheses",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id").notNull(),
+    capabilityKey: text("capability_key").notNull(),
+    title: text("title").notNull(),
+    problem: text("problem").notNull(),
+    productsJson: text("products_json").notNull(),
+    stakeholderIdsJson: text("stakeholder_ids_json").notNull(),
+    evidenceJson: text("evidence_json").notNull(),
+    gapsJson: text("gaps_json").notNull(),
+    confidence: integer("confidence").notNull(),
+    stage: text("stage").notNull(),
+    nextStep: text("next_step").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    capabilityIdx: uniqueIndex("opportunity_hypotheses_capability_idx").on(
+      table.discoveryId,
+      table.capabilityKey,
+    ),
+    accountStageIdx: index("opportunity_hypotheses_account_stage_idx").on(
+      table.discoveryId,
+      table.stage,
+    ),
+  }),
+);
+
+export const accountPlans = pgTable("account_plans", {
+  discoveryId: text("discovery_id").primaryKey(),
+  prioritiesJson: text("priorities_json").notNull(),
+  initiativesJson: text("initiatives_json").notNull(),
+  objectivesJson: text("objectives_json").notNull(),
+  risksJson: text("risks_json").notNull(),
+  ecosystemJson: text("ecosystem_json").notNull(),
+  relationshipJson: text("relationship_json").notNull(),
+  plan30Json: text("plan_30_json").notNull(),
+  plan60Json: text("plan_60_json").notNull(),
+  plan90Json: text("plan_90_json").notNull(),
+  approvalStatus: text("approval_status").notNull(),
+  suggestionJson: text("suggestion_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const documents = pgTable("documents", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull(),
+  name: text("name").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  r2Key: text("r2_key").notNull(),
+  status: text("status").notNull(),
+  summary: text("summary").notNull(),
+  sha256: text("sha256").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const documentChunks = pgTable("document_chunks", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id").notNull(),
+  discoveryId: text("discovery_id").notNull(),
+  ordinal: integer("ordinal").notNull(),
+  content: text("content").notNull(),
+  page: integer("page"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const accountChatMessages = pgTable("account_chat_messages", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  citationsJson: text("citations_json").notNull(),
+  aiStatus: text("ai_status").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const aiRuns = pgTable("ai_runs", {
+  id: text("id").primaryKey(),
+  discoveryId: text("discovery_id").notNull(),
+  agent: text("agent").notNull(),
+  provider: text("provider").notNull(),
+  status: text("status").notNull(),
+  confidence: integer("confidence").notNull(),
+  sourceIdsJson: text("source_ids_json").notNull(),
+  validated: integer("validated").notNull(),
+  detail: text("detail").notNull(),
+  model: text("model").notNull().default(""),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  cacheHit: integer("cache_hit").notNull().default(0),
+  errorCode: text("error_code"),
+  locale: text("locale").notNull().default("en-US"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const accountEmbeddings = pgTable(
+  "account_embeddings",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    chunkOrdinal: integer("chunk_ordinal").notNull().default(0),
+    contentHash: text("content_hash").notNull(),
+    model: text("model").notNull(),
+    dimensions: integer("dimensions").notNull().default(768),
+    vectorJson: text("vector_json").notNull(),
+    contentPreview: text("content_preview").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountIdx: index("account_embeddings_discovery_idx").on(table.discoveryId),
+    sourceIdx: uniqueIndex("account_embeddings_source_idx").on(
+      table.discoveryId,
+      table.sourceType,
+      table.sourceId,
+      table.chunkOrdinal,
+      table.model,
+    ),
+    contentHashIdx: index("account_embeddings_content_hash_idx").on(
+      table.contentHash,
+    ),
+  }),
+);
+
+export const aiCache = pgTable(
+  "ai_cache",
+  {
+    id: text("id").primaryKey(),
+    cacheKey: text("cache_key").notNull(),
+    discoveryId: text("discovery_id").references(() => discoveries.id, {
+      onDelete: "cascade",
+    }),
+    task: text("task").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    evidenceFingerprint: text("evidence_fingerprint").notNull(),
+    responseJson: text("response_json").notNull(),
+    usageJson: text("usage_json").notNull().default("{}"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    cacheKeyIdx: uniqueIndex("ai_cache_key_idx").on(table.cacheKey),
+    accountTaskIdx: index("ai_cache_account_task_idx").on(
+      table.discoveryId,
+      table.task,
+    ),
+    expiresAtIdx: index("ai_cache_expires_at_idx").on(table.expiresAt),
+  }),
+);
+
+export const dailyBriefings = pgTable(
+  "daily_briefings",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    ownerSubject: text("owner_subject").notNull(),
+    briefingDate: text("briefing_date").notNull(),
+    accountIdsJson: text("account_ids_json").notNull().default("[]"),
+    contentJson: text("content_json").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull().default(""),
+    status: text("status").notNull(),
+    evidenceFingerprint: text("evidence_fingerprint").notNull(),
+    generatedAt: text("generated_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    ownerDateIdx: uniqueIndex("daily_briefings_owner_subject_date_idx").on(
+      table.ownerSubject,
+      table.briefingDate,
+    ),
+    expiryIdx: index("daily_briefings_expires_at_idx").on(table.expiresAt),
+  }),
+);
+
+/**
+ * Locale-aware briefing cache. The legacy daily_briefings table remains in
+ * place so V5.1 can safely roll back and ignore this additive V5.2 surface.
+ */
+export const dailyBriefingVariants = pgTable(
+  "daily_briefing_variants",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    ownerSubject: text("owner_subject").notNull(),
+    briefingDate: text("briefing_date").notNull(),
+    locale: text("locale").notNull().default("en-US"),
+    accountIdsJson: text("account_ids_json").notNull().default("[]"),
+    contentJson: text("content_json").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull().default(""),
+    status: text("status").notNull(),
+    evidenceFingerprint: text("evidence_fingerprint").notNull(),
+    generatedAt: text("generated_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    ownerDateLocaleIdx: uniqueIndex(
+      "daily_briefing_variants_subject_date_locale_idx",
+    ).on(table.ownerSubject, table.briefingDate, table.locale),
+    expiryIdx: index("daily_briefing_variants_expires_at_idx").on(
+      table.expiresAt,
+    ),
+  }),
+);
+
+/**
+ * Translations are derived artifacts keyed to an authorized account source.
+ * Original user-authored content is never overwritten.
+ */
+export const contentTranslations = pgTable(
+  "content_translations",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    sourceFingerprint: text("source_fingerprint").notNull(),
+    sourceLocale: text("source_locale"),
+    targetLocale: text("target_locale").notNull(),
+    translatedText: text("translated_text").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull().default(""),
+    status: text("status").notNull().default("completed"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    sourceLocaleIdx: uniqueIndex("content_translations_source_locale_idx").on(
+      table.discoveryId,
+      table.sourceType,
+      table.sourceId,
+      table.sourceFingerprint,
+      table.targetLocale,
+    ),
+    accountIdx: index("content_translations_discovery_idx").on(
+      table.discoveryId,
+    ),
+  }),
+);
+
+export const accountSnapshots = pgTable(
+  "account_snapshots",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+    confidence: integer("confidence").notNull().default(0),
+    sourceFingerprint: text("source_fingerprint").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    accountTimeIdx: index("account_snapshots_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+    fingerprintIdx: index("account_snapshots_fingerprint_idx").on(
+      table.sourceFingerprint,
+    ),
+  }),
+);
+
+export const accountRelationships = pgTable(
+  "account_relationships",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    sourceStakeholderId: text("source_stakeholder_id")
+      .notNull()
+      .references(() => stakeholders.id, { onDelete: "cascade" }),
+    targetStakeholderId: text("target_stakeholder_id")
+      .notNull()
+      .references(() => stakeholders.id, { onDelete: "cascade" }),
+    relationType: text("relation_type").notNull(),
+    label: text("label").notNull().default(""),
+    confidence: integer("confidence").notNull().default(50),
+    evidenceJson: text("evidence_json").notNull().default("[]"),
+    status: text("status").notNull().default("confirmed"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountIdx: index("account_relationships_discovery_idx").on(
+      table.discoveryId,
+    ),
+    relationIdx: uniqueIndex("account_relationships_relation_idx").on(
+      table.discoveryId,
+      table.sourceStakeholderId,
+      table.targetStakeholderId,
+      table.relationType,
+    ),
+  }),
+);
+
+export const accountGraphLayouts = pgTable(
+  "account_graph_layouts",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(),
+    nodesJson: text("nodes_json").notNull().default("[]"),
+    viewportJson: text("viewport_json").notNull().default("{}"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountModeIdx: uniqueIndex("account_graph_layouts_account_mode_idx").on(
+      table.discoveryId,
+      table.mode,
+    ),
+  }),
+);
+
+export const externalSignals = pgTable(
+  "external_signals",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    queryFingerprint: text("query_fingerprint").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    publisher: text("publisher").notNull().default(""),
+    publishedAt: text("published_at"),
+    citationJson: text("citation_json").notNull().default("{}"),
+    status: text("status").notNull().default("proposed"),
+    confidence: integer("confidence").notNull().default(0),
+    approvedAt: text("approved_at"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountStatusIdx: index("external_signals_account_status_idx").on(
+      table.discoveryId,
+      table.status,
+    ),
+    queryIdx: index("external_signals_query_idx").on(
+      table.discoveryId,
+      table.queryFingerprint,
+    ),
+    expiryIdx: index("external_signals_expires_at_idx").on(table.expiresAt),
+  }),
+);
+
+export const actionFeedback = pgTable(
+  "action_feedback",
+  {
+    id: text("id").primaryKey(),
+    actionId: text("action_id")
+      .notNull()
+      .references(() => accountActions.id, { onDelete: "cascade" }),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    feedbackType: text("feedback_type").notNull(),
+    reason: text("reason").notNull().default(""),
+    adjustment: integer("adjustment").notNull().default(0),
+    previousStatus: text("previous_status").notNull().default(""),
+    newStatus: text("new_status").notNull().default(""),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    actionTimeIdx: index("action_feedback_action_time_idx").on(
+      table.actionId,
+      table.createdAt,
+    ),
+    accountTimeIdx: index("action_feedback_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const guidedDiscoverySessions = pgTable(
+  "guided_discovery_sessions",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    ownerEmail: text("owner_email").notNull(),
+    ownerSubject: text("owner_subject").notNull(),
+    mode: text("mode").notNull().default("adaptive"),
+    catalogVersion: text("catalog_version").notNull(),
+    selectedPillarsJson: text("selected_pillars_json").notNull().default("[]"),
+    status: text("status").notNull().default("in_progress"),
+    progressPercent: integer("progress_percent").notNull().default(0),
+    coveragePercent: integer("coverage_percent").notNull().default(0),
+    currentQuestionId: text("current_question_id"),
+    checkpointCount: integer("checkpoint_count").notNull().default(0),
+    aiStatus: text("ai_status"),
+    startedAt: text("started_at").notNull(),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountStatusIdx: index("guided_discovery_sessions_account_status_idx").on(
+      table.discoveryId,
+      table.status,
+    ),
+    ownerIdx: index("guided_discovery_sessions_owner_subject_idx").on(
+      table.ownerSubject,
+    ),
+    modeCheck: check(
+      "guided_discovery_sessions_mode_check",
+      sql`${table.mode} in ('adaptive', 'direct')`,
+    ),
+    statusCheck: check(
+      "guided_discovery_sessions_status_check",
+      sql`${table.status} in ('in_progress', 'paused', 'completed')`,
+    ),
+    progressCheck: check(
+      "guided_discovery_sessions_progress_check",
+      sql`${table.progressPercent} between 0 and 100`,
+    ),
+    coverageCheck: check(
+      "guided_discovery_sessions_coverage_check",
+      sql`${table.coveragePercent} between 0 and 100`,
+    ),
+    checkpointCheck: check(
+      "guided_discovery_sessions_checkpoint_check",
+      sql`${table.checkpointCount} >= 0`,
+    ),
+  }),
+);
+
+export const guidedDiscoveryQuestions = pgTable(
+  "guided_discovery_questions",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => guidedDiscoverySessions.id, { onDelete: "cascade" }),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    catalogQuestionId: text("catalog_question_id"),
+    pillar: text("pillar").notNull(),
+    prompt: text("prompt").notNull(),
+    hint: text("hint"),
+    inputSchemaJson: text("input_schema_json").notNull().default("{}"),
+    source: text("source").notNull().default("catalog"),
+    rationale: text("rationale"),
+    citationsJson: text("citations_json").notNull().default("[]"),
+    sequence: integer("sequence").notNull().default(0),
+    status: text("status").notNull().default("proposed"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    catalogQuestionIdx: uniqueIndex(
+      "guided_discovery_questions_catalog_idx",
+    ).on(table.sessionId, table.catalogQuestionId),
+    sessionSequenceIdx: index(
+      "guided_discovery_questions_session_sequence_idx",
+    ).on(table.sessionId, table.sequence),
+    accountPillarIdx: index("guided_discovery_questions_account_pillar_idx").on(
+      table.discoveryId,
+      table.pillar,
+    ),
+    sessionStatusIdx: index("guided_discovery_questions_session_status_idx").on(
+      table.sessionId,
+      table.status,
+    ),
+    sourceCheck: check(
+      "guided_discovery_questions_source_check",
+      sql`${table.source} in ('catalog', 'ai')`,
+    ),
+    statusCheck: check(
+      "guided_discovery_questions_status_check",
+      sql`${table.status} in ('proposed', 'accepted', 'active', 'answered', 'dismissed')`,
+    ),
+    sequenceCheck: check(
+      "guided_discovery_questions_sequence_check",
+      sql`${table.sequence} >= 0`,
+    ),
+  }),
+);
+
+export const guidedDiscoveryAnswers = pgTable(
+  "guided_discovery_answers",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => guidedDiscoverySessions.id, { onDelete: "cascade" }),
+    questionId: text("question_id")
+      .notNull()
+      .references(() => guidedDiscoveryQuestions.id, { onDelete: "cascade" }),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    structuredJson: text("structured_json").notNull().default("{}"),
+    answerText: text("answer_text").notNull().default(""),
+    evidenceStatus: text("evidence_status").notNull().default("reported"),
+    stakeholderId: text("stakeholder_id").references(() => stakeholders.id, {
+      onDelete: "set null",
+    }),
+    sourceType: text("source_type"),
+    sourceId: text("source_id"),
+    sourceDate: text("source_date"),
+    confidence: integer("confidence").notNull().default(0),
+    status: text("status").notNull().default("draft"),
+    supersedesId: text("supersedes_id").references(
+      (): AnyPgColumn => guidedDiscoveryAnswers.id,
+      { onDelete: "set null" },
+    ),
+    isCurrent: integer("is_current")
+      .notNull()
+      .default(1),
+    answeredAt: text("answered_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    sessionQuestionCurrentIdx: index(
+      "guided_discovery_answers_session_question_current_idx",
+    ).on(table.sessionId, table.questionId, table.isCurrent),
+    accountIdx: index("guided_discovery_answers_account_idx").on(
+      table.discoveryId,
+    ),
+    evidenceStatusCheck: check(
+      "guided_discovery_answers_evidence_status_check",
+      sql`${table.evidenceStatus} in ('confirmed', 'reported', 'hypothesis', 'unknown')`,
+    ),
+    statusCheck: check(
+      "guided_discovery_answers_status_check",
+      sql`${table.status} in ('draft', 'confirmed', 'unknown')`,
+    ),
+    confidenceCheck: check(
+      "guided_discovery_answers_confidence_check",
+      sql`${table.confidence} between 0 and 100`,
+    ),
+    currentCheck: check(
+      "guided_discovery_answers_current_check",
+      sql`${table.isCurrent} in (0, 1)`,
+    ),
+  }),
+);
+
+/**
+ * Human-reviewable before/after records created when a meeting or another
+ * material source changes the account assessment.  The source remains the
+ * system of record; this table stores only a derived proposal.
+ */
+export const accountChangeSets = pgTable(
+  "account_change_sets",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    triggerType: text("trigger_type").notNull(),
+    beforeJson: text("before_json").notNull().default("{}"),
+    afterJson: text("after_json").notNull().default("{}"),
+    deltaJson: text("delta_json").notNull().default("{}"),
+    suggestionsJson: text("suggestions_json").notNull().default("{}"),
+    provider: text("provider").notNull().default("deterministic-rules"),
+    engineKind: text("engine_kind").notNull().default("deterministic"),
+    status: text("status").notNull().default("pending_review"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: text("reviewed_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountTimeIdx: index("account_change_sets_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+    sourceIdx: uniqueIndex("account_change_sets_source_idx").on(
+      table.discoveryId,
+      table.sourceType,
+      table.sourceId,
+    ),
+    statusCheck: check(
+      "account_change_sets_status_check",
+      sql`${table.status} in ('pending_review', 'approved', 'rejected')`,
+    ),
+    engineCheck: check(
+      "account_change_sets_engine_check",
+      sql`${table.engineKind} in ('deterministic', 'model')`,
+    ),
+  }),
+);
+
+/** Logical modules are observable even while no external model is configured. */
+export const commercialAgentRuns = pgTable(
+  "commercial_agent_runs",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    workflowId: text("workflow_id").notNull(),
+    changeSetId: text("change_set_id").references(() => accountChangeSets.id, {
+      onDelete: "set null",
+    }),
+    agent: text("agent").notNull(),
+    engineKind: text("engine_kind").notNull().default("deterministic"),
+    provider: text("provider").notNull().default("deterministic-rules"),
+    model: text("model").notNull().default(""),
+    status: text("status").notNull(),
+    conclusion: text("conclusion").notNull(),
+    confidence: integer("confidence").notNull().default(0),
+    sourceIdsJson: text("source_ids_json").notNull().default("[]"),
+    outputJson: text("output_json").notNull().default("{}"),
+    humanValidationStatus: text("human_validation_status")
+      .notNull()
+      .default("pending"),
+    startedAt: text("started_at").notNull(),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    accountTimeIdx: index("commercial_agent_runs_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+    workflowIdx: index("commercial_agent_runs_workflow_idx").on(
+      table.workflowId,
+    ),
+    engineCheck: check(
+      "commercial_agent_runs_engine_check",
+      sql`${table.engineKind} in ('deterministic', 'model')`,
+    ),
+  }),
+);
+
+/** Structured pre-CRM export. No record in this table performs an external write. */
+export const crmHandoffs = pgTable(
+  "crm_handoffs",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    hypothesisId: text("hypothesis_id").references(
+      () => opportunityHypotheses.id,
+      { onDelete: "set null" },
+    ),
+    version: integer("version").notNull().default(1),
+    status: text("status").notNull().default("preview"),
+    payloadJson: text("payload_json").notNull().default("{}"),
+    qualificationJson: text("qualification_json").notNull().default("{}"),
+    copyText: text("copy_text").notNull().default(""),
+    exportJson: text("export_json").notNull().default("{}"),
+    sourceIdsJson: text("source_ids_json").notNull().default("[]"),
+    approvedBy: text("approved_by"),
+    approvedAt: text("approved_at"),
+    handedOffAt: text("handed_off_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountTimeIdx: index("crm_handoffs_account_time_idx").on(
+      table.discoveryId,
+      table.updatedAt,
+    ),
+    statusCheck: check(
+      "crm_handoffs_status_check",
+      sql`${table.status} in ('preview', 'approved', 'handed_off', 'returned')`,
+    ),
+  }),
+);
+
+/** Auditable measurements only; no unmeasured percentage claims are stored. */
+export const accountImpactMetrics = pgTable(
+  "account_impact_metrics",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    discoveryStartedAt: text("discovery_started_at").notNull(),
+    qualifiedAt: text("qualified_at"),
+    elapsedMinutes: integer("elapsed_minutes").notNull().default(0),
+    questionsAddressed: integer("questions_addressed").notNull().default(0),
+    questionsConfirmed: integer("questions_confirmed").notNull().default(0),
+    discoveryCoverage: integer("discovery_coverage").notNull().default(0),
+    openGaps: integer("open_gaps").notNull().default(0),
+    evidenceCount: integer("evidence_count").notNull().default(0),
+    confirmedEvidenceCount: integer("confirmed_evidence_count")
+      .notNull()
+      .default(0),
+    meetingCount: integer("meeting_count").notNull().default(0),
+    qualifiedHypothesisCount: integer("qualified_hypothesis_count")
+      .notNull()
+      .default(0),
+    methodologyJson: text("methodology_json").notNull().default("{}"),
+    computedAt: text("computed_at").notNull(),
+  },
+  (table) => ({
+    accountTimeIdx: index("account_impact_metrics_account_time_idx").on(
+      table.discoveryId,
+      table.computedAt,
+    ),
+  }),
+);
+
+/**
+ * IBM App ID identities are separated from the application user so a future
+ * enterprise identity provider can be linked without changing account
+ * ownership. `subject` is the immutable external identifier; e-mail remains a
+ * mutable display/login attribute.
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    displayName: text("display_name").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    emailIdx: uniqueIndex("users_email_idx").on(table.email),
+  }),
+);
+
+export const userIdentities = pgTable(
+  "user_identities",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    subject: text("subject").notNull(),
+    email: text("email").notNull(),
+    emailVerified: integer("email_verified").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    providerSubjectIdx: uniqueIndex(
+      "user_identities_provider_subject_idx",
+    ).on(table.provider, table.subject),
+    userIdx: index("user_identities_user_idx").on(table.userId),
+  }),
+);
+
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    subject: text("subject").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    lastSeenAt: text("last_seen_at").notNull(),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex("auth_sessions_token_hash_idx").on(
+      table.tokenHash,
+    ),
+    userExpiryIdx: index("auth_sessions_user_expiry_idx").on(
+      table.userId,
+      table.expiresAt,
+    ),
+  }),
+);
