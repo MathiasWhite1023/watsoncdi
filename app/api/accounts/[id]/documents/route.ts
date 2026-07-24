@@ -1,4 +1,17 @@
-import { env } from "cloudflare:workers";
+import { createHash } from "node:crypto";
+import {
+  getRuntimeDatabase,
+  type PortableDatabase,
+} from "../../../../../db/runtime";
+import {
+  identityFromRequest,
+  type RequestIdentity,
+} from "../../../../../lib/auth/session";
+import { rejectInvalidMutationOrigin } from "../../../../../lib/auth/csrf";
+import {
+  documentObjectKey,
+  getObjectStore,
+} from "../../../../../lib/storage/object-store";
 import {
   localizedApiError,
   localizedJson,
@@ -11,26 +24,54 @@ import { recomputeAccount } from "../../../discoveries/route";
 export const dynamic = "force-dynamic";
 
 const allowedExtensions = new Set(["pdf", "docx", "txt", "md", "markdown"]);
-const safeName = (name: string) =>
-  name
-    .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .slice(0, 120);
+const allowedMimeTypes: Record<string, Set<string>> = {
+  pdf: new Set(["application/pdf"]),
+  docx: new Set([
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ]),
+  txt: new Set(["text/plain"]),
+  md: new Set(["text/markdown", "text/plain"]),
+  markdown: new Set(["text/markdown", "text/plain"]),
+};
+const maxFileBytes = 15 * 1024 * 1024;
+const maxMultipartBytes = 18 * 1024 * 1024;
+const maxExtractedCharacters = 250_000;
+const maxDocumentsPerUser = 100;
+const maxStoredBytesPerUser = 250 * 1024 * 1024;
+
+function signatureMatches(extension: string, bytes: Uint8Array) {
+  if (extension === "pdf") {
+    return new TextDecoder("ascii")
+      .decode(bytes.slice(0, 1024))
+      .includes("%PDF-");
+  }
+  if (extension === "docx") {
+    return (
+      bytes.length >= 4 &&
+      bytes[0] === 0x50 &&
+      bytes[1] === 0x4b &&
+      bytes[2] === 0x03 &&
+      bytes[3] === 0x04
+    );
+  }
+  return !bytes.slice(0, 4096).includes(0);
+}
 
 type AuthorizationResult =
-  | { db: D1Database; email: string; error?: never }
-  | { error: Response; db?: never; email?: never };
+  | {
+      db: PortableDatabase;
+      identity: RequestIdentity;
+      error?: never;
+    }
+  | { error: Response; db?: never; identity?: never };
 
 async function authorize(
   request: Request,
   id: string,
   locale: ResponseLocale,
 ): Promise<AuthorizationResult> {
-  const email = request.headers
-    .get("oai-authenticated-user-email")
-    ?.trim()
-    .toLowerCase();
-  if (!email) {
+  const identity = await identityFromRequest(request);
+  if (!identity) {
     return {
       error: localizedApiError(locale, "AUTH_REQUIRED", 401, {
         en: "Authentication is required.",
@@ -38,12 +79,12 @@ async function authorize(
       }),
     };
   }
-  const db = (env as unknown as { DB: D1Database }).DB;
+  const db = await getRuntimeDatabase();
   const account = await db
     .prepare(
-      "SELECT id FROM discoveries WHERE id = ? AND visibility = 'private' AND owner_email = ?",
+      "SELECT id FROM discoveries WHERE id = ? AND visibility = 'private' AND owner_subject = ?",
     )
-    .bind(id, email)
+    .bind(id, identity.subject)
     .first();
   if (!account) {
     return {
@@ -53,7 +94,7 @@ async function authorize(
       }),
     };
   }
-  return { db, email };
+  return { db, identity };
 }
 
 export async function POST(
@@ -61,10 +102,19 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const locale = resolveResponseLocale(request);
+  const invalidOrigin = rejectInvalidMutationOrigin(request);
+  if (invalidOrigin) return invalidOrigin;
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxMultipartBytes) {
+    return localizedApiError(locale, "REQUEST_TOO_LARGE", 413, {
+      en: "The upload request exceeds the pilot limit.",
+      pt: "A requisição de upload excede o limite do piloto.",
+    });
+  }
   const { id } = await context.params;
   const auth = await authorize(request, id, locale);
   if (auth.error) return auth.error;
-  const { db } = auth;
+  const { db, identity } = auth;
 
   let form: FormData;
   try {
@@ -82,7 +132,7 @@ export async function POST(
       pt: "Arquivo obrigatório.",
     });
   }
-  if (file.size > 15 * 1024 * 1024) {
+  if (file.size > maxFileBytes) {
     return localizedApiError(locale, "DOCUMENT_TOO_LARGE", 413, {
       en: "The document exceeds the 15 MB limit.",
       pt: "O arquivo excede 15 MB.",
@@ -95,8 +145,21 @@ export async function POST(
       pt: "Use PDF, DOCX, TXT ou Markdown.",
     });
   }
-  const bucket = (env as unknown as { FILES?: R2Bucket }).FILES;
-  if (!bucket) {
+  const normalizedMime = file.type.trim().toLowerCase();
+  if (
+    normalizedMime &&
+    !allowedMimeTypes[extension]?.has(normalizedMime)
+  ) {
+    return localizedApiError(locale, "DOCUMENT_MIME_MISMATCH", 415, {
+      en: "The document content type does not match its extension.",
+      pt: "O tipo de conteúdo do documento não corresponde à extensão.",
+    });
+  }
+  const documentName = file.name.trim().slice(0, 255) || `document.${extension}`;
+  let store: Awaited<ReturnType<typeof getObjectStore>>;
+  try {
+    store = await getObjectStore();
+  } catch {
     return localizedApiError(locale, "DOCUMENT_STORAGE_NOT_CONFIGURED", 503, {
       en: "Document storage has not been configured.",
       pt: "Armazenamento de documentos não configurado.",
@@ -104,69 +167,163 @@ export async function POST(
   }
 
   const original = new Uint8Array(await file.arrayBuffer());
-  const digest = await crypto.subtle.digest("SHA-256", original);
-  const sha = Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  const documentId = `doc-${Date.now()}-${sha.slice(0, 8)}`;
-  const key = `accounts/${id}/${documentId}/${safeName(file.name)}`;
-  await bucket.put(key, original, {
-    httpMetadata: { contentType: file.type || "application/octet-stream" },
-    customMetadata: { accountId: id, originalName: file.name },
+  if (!signatureMatches(extension, original)) {
+    return localizedApiError(locale, "DOCUMENT_SIGNATURE_MISMATCH", 415, {
+      en: "The file signature does not match the selected document type.",
+      pt: "A assinatura do arquivo não corresponde ao tipo de documento.",
+    });
+  }
+  const sha = createHash("sha256").update(original).digest("hex");
+  const existingDocument = await db
+    .prepare(
+      "SELECT id FROM documents WHERE discovery_id = ? AND sha256 = ? LIMIT 1",
+    )
+    .bind(id, sha)
+    .first();
+  if (existingDocument) {
+    return localizedApiError(locale, "DOCUMENT_ALREADY_EXISTS", 409, {
+      en: "This document is already stored in the account.",
+      pt: "Este documento já está armazenado na conta.",
+    });
+  }
+  const usage = await db
+    .prepare(
+      "SELECT COUNT(d.id) AS document_count, COALESCE(SUM(d.size_bytes), 0) AS total_bytes, SUM(CASE WHEN d.created_at >= ? THEN 1 ELSE 0 END) AS recent_count FROM documents d INNER JOIN discoveries a ON a.id = d.discovery_id WHERE a.visibility = 'private' AND a.owner_subject = ?",
+    )
+    .bind(new Date(Date.now() - 3600_000).toISOString(), identity.subject)
+    .first<{
+      document_count: number | string;
+      total_bytes: number | string;
+      recent_count: number | string | null;
+    }>();
+  if (
+    Number(usage?.document_count ?? 0) >= maxDocumentsPerUser ||
+    Number(usage?.total_bytes ?? 0) + file.size > maxStoredBytesPerUser
+  ) {
+    return localizedApiError(locale, "DOCUMENT_STORAGE_QUOTA_REACHED", 429, {
+      en: "This pilot workspace has reached its document storage quota.",
+      pt: "Este workspace piloto atingiu a cota de armazenamento de documentos.",
+    });
+  }
+  if (Number(usage?.recent_count ?? 0) >= 20) {
+    return localizedApiError(locale, "DOCUMENT_UPLOAD_RATE_LIMITED", 429, {
+      en: "Too many documents were uploaded recently. Try again in one hour.",
+      pt: "Muitos documentos foram enviados recentemente. Tente novamente em uma hora.",
+    });
+  }
+  const documentId = `doc-${crypto.randomUUID()}`;
+  const key = documentObjectKey({
+    subject: identity.subject,
+    accountId: id,
+    documentId,
+    filename: documentName,
+    sha256: sha,
   });
 
   const extractedText = String(form.get("extractedText") || "")
     .trim()
-    .slice(0, 250000);
+    .slice(0, maxExtractedCharacters);
   const pageInput = String(form.get("pagesJson") || "[]");
   let pages: Array<{ page?: number; text?: string }> = [];
   try {
-    pages = JSON.parse(pageInput);
+    const parsed = JSON.parse(pageInput);
+    if (Array.isArray(parsed)) {
+      let remaining = maxExtractedCharacters;
+      pages = parsed.slice(0, 500).flatMap((page) => {
+        if (!page || typeof page !== "object" || remaining <= 0) return [];
+        const text = String((page as { text?: unknown }).text || "")
+          .trim()
+          .slice(0, remaining);
+        remaining -= text.length;
+        return text
+          ? [
+              {
+                page: Math.max(
+                  1,
+                  Math.min(
+                    100_000,
+                    Number((page as { page?: unknown }).page || 1),
+                  ),
+                ),
+                text,
+              },
+            ]
+          : [];
+      });
+    }
   } catch {
     pages = [];
   }
-  const status = extractedText
+  const indexedText =
+    extractedText ||
+    pages
+      .map((page) => page.text || "")
+      .join("\n")
+      .slice(0, maxExtractedCharacters);
+  const status = indexedText
     ? "processed"
     : extension === "pdf"
       ? "manual_summary_required"
       : "empty";
   const now = new Date().toISOString();
-  const summary = extractedText
-    ? extractedText.replace(/\s+/g, " ").slice(0, 320)
+  const summary = indexedText
+    ? indexedText.replace(/\s+/g, " ").slice(0, 320)
     : localizedText(
         locale,
         "Text could not be extracted. Add a manual summary to use this document in account memory.",
         "Não foi possível extrair texto. Adicione um resumo manual para usar este documento na memória.",
       );
-  await db
-    .prepare(
-      "INSERT INTO documents (id, discovery_id, name, content_type, size_bytes, r2_key, status, summary, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(
-      documentId,
-      id,
-      file.name,
-      file.type || extension,
-      file.size,
+  try {
+    await store.put({
       key,
-      status,
-      summary,
-      sha,
-      now,
-    )
-    .run();
-  const sourcePages = pages.length ? pages : [{ page: 1, text: extractedText }];
+      body: original,
+      contentType:
+        file.type ||
+        allowedMimeTypes[extension]?.values().next().value ||
+        "application/octet-stream",
+      metadata: {
+        accountId: id,
+        documentId,
+        sha256: sha,
+      },
+    });
+  } catch {
+    return localizedApiError(locale, "DOCUMENT_UPLOAD_FAILED", 503, {
+      en: "The document could not be stored. Try again.",
+      pt: "Não foi possível armazenar o documento. Tente novamente.",
+    });
+  }
+  const statements = [
+    db
+      .prepare(
+        "INSERT INTO documents (id, discovery_id, name, content_type, size_bytes, r2_key, status, summary, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        documentId,
+        id,
+        documentName,
+        file.type || extension,
+        file.size,
+        key,
+        status,
+        summary,
+        sha,
+        now,
+      ),
+  ];
+  const sourcePages = pages.length ? pages : [{ page: 1, text: indexedText }];
   let ordinal = 0;
   for (const page of sourcePages) {
     const text = String(page.text || "").trim();
     for (let offset = 0; offset < text.length; offset += 1400) {
       const chunk = text.slice(offset, offset + 1400).trim();
       if (!chunk) continue;
-      await db
-        .prepare(
-          "INSERT INTO document_chunks (id, document_id, discovery_id, ordinal, content, page, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(
+      statements.push(
+        db
+          .prepare(
+            "INSERT INTO document_chunks (id, document_id, discovery_id, ordinal, content, page, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          )
+          .bind(
           `${documentId}-${ordinal}`,
           documentId,
           id,
@@ -174,35 +331,45 @@ export async function POST(
           chunk,
           Number(page.page || 1),
           now,
-        )
-        .run();
+          ),
+      );
       ordinal += 1;
     }
   }
-  await db
-    .prepare(
-      "INSERT INTO account_events (id, discovery_id, type, title, content, source_type, source_id, evidence_status, confidence, occurred_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(
-      `evt-${documentId}`,
-      id,
-      "document",
-      `${localizedText(locale, "Document", "Documento")}: ${file.name}`,
-      summary,
-      "document",
-      documentId,
-      extractedText ? "confirmed" : "gap",
-      extractedText ? 82 : 60,
-      now,
-      now,
-    )
-    .run();
-  await recomputeAccount(db, id, { responseLocale: locale });
+  statements.push(
+    db
+      .prepare(
+        "INSERT INTO account_events (id, discovery_id, type, title, content, source_type, source_id, evidence_status, confidence, occurred_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        `evt-${documentId}`,
+        id,
+        "document",
+        `${localizedText(locale, "Document", "Documento")}: ${documentName}`,
+        summary,
+        "document",
+        documentId,
+        indexedText ? "confirmed" : "gap",
+        indexedText ? 82 : 60,
+        now,
+        now,
+      ),
+  );
+  try {
+    await db.batch(statements);
+    await recomputeAccount(db, id, { responseLocale: locale });
+  } catch {
+    await store.delete(key).catch(() => undefined);
+    return localizedApiError(locale, "DOCUMENT_PERSISTENCE_FAILED", 503, {
+      en: "The document was not saved. The uploaded object was removed.",
+      pt: "O documento não foi salvo. O objeto enviado foi removido.",
+    });
+  }
   return localizedJson(
     locale,
     {
       ok: true,
-      document: { id: documentId, name: file.name, status, summary },
+      document: { id: documentId, name: documentName, status, summary },
     },
     { status: 201 },
   );
@@ -213,6 +380,8 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   const locale = resolveResponseLocale(request);
+  const invalidOrigin = rejectInvalidMutationOrigin(request);
+  if (invalidOrigin) return invalidOrigin;
   const { id } = await context.params;
   const auth = await authorize(request, id, locale);
   if (auth.error) return auth.error;
@@ -234,14 +403,23 @@ export async function DELETE(
       pt: "Documento não encontrado.",
     });
   }
-  const bucket = (env as unknown as { FILES?: R2Bucket }).FILES;
-  if (!bucket) {
+  let store: Awaited<ReturnType<typeof getObjectStore>>;
+  try {
+    store = await getObjectStore();
+  } catch {
     return localizedApiError(locale, "DOCUMENT_STORAGE_NOT_CONFIGURED", 503, {
       en: "Document storage has not been configured.",
       pt: "Armazenamento de documentos não configurado.",
     });
   }
-  await bucket.delete(row.r2_key);
+  try {
+    await store.delete(row.r2_key);
+  } catch {
+    return localizedApiError(locale, "DOCUMENT_DELETE_FAILED", 503, {
+      en: "The stored object could not be removed. No metadata was changed.",
+      pt: "Não foi possível remover o objeto armazenado. Nenhum metadado foi alterado.",
+    });
+  }
   await db.batch([
     db
       .prepare(
