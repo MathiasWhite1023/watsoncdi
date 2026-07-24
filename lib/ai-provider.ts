@@ -920,7 +920,17 @@ export type AccountAIProvider = ReturnType<typeof createAIProvider>;
 /** Create the server-side adapter without ever serializing or returning secrets. */
 export function createAIProviderFromEnv(env: Record<string, string | undefined>): AccountAIProvider {
   const rawMode = env.AI_PROVIDER_MODE;
-  const mode: AIProviderMode = rawMode === "watsonx" || rawMode === "gemini" || rawMode === "fallback" ? rawMode : "auto";
+  const ibmRuntime =
+    env.WATSON_CDI_RUNTIME === "ibm" || env.PLATFORM_TARGET === "ibm";
+  const mode: AIProviderMode = ibmRuntime
+    ? rawMode === "fallback"
+      ? "fallback"
+      : "auto"
+    : rawMode === "watsonx" ||
+        rawMode === "gemini" ||
+        rawMode === "fallback"
+      ? rawMode
+      : "auto";
   return createAIProvider({
     mode,
     watsonx: {
@@ -930,9 +940,14 @@ export function createAIProviderFromEnv(env: Record<string, string | undefined>)
       modelId: env.WATSONX_MODEL_ID,
     },
     gemini: {
-      apiKey: env.GEMINI_API_KEY,
-      modelId: env.GEMINI_MODEL_ID || DEFAULT_GEMINI_MODEL_ID,
-      embeddingModelId: env.GEMINI_EMBEDDING_MODEL_ID || DEFAULT_GEMINI_EMBEDDING_MODEL_ID,
+      apiKey: ibmRuntime ? undefined : env.GEMINI_API_KEY,
+      modelId: ibmRuntime
+        ? undefined
+        : env.GEMINI_MODEL_ID || DEFAULT_GEMINI_MODEL_ID,
+      embeddingModelId: ibmRuntime
+        ? undefined
+        : env.GEMINI_EMBEDDING_MODEL_ID ||
+          DEFAULT_GEMINI_EMBEDDING_MODEL_ID,
     },
   });
 }

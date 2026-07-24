@@ -78,8 +78,8 @@ const GENERIC_ERROR_MESSAGES: Record<number, { en: string; pt: string }> = {
     pt: "Revise as informações fornecidas e tente novamente.",
   },
   401: {
-    en: "Sign in with ChatGPT to continue.",
-    pt: "Entre com o ChatGPT para continuar.",
+    en: "Sign in to Watson CDI to continue.",
+    pt: "Entre no Watson CDI para continuar.",
   },
   403: {
     en: "You are not authorized to perform this operation.",

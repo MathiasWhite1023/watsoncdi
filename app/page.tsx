@@ -497,15 +497,13 @@ type AIStatus = {
   mode: string;
   provider: string;
   watsonx: { configured: boolean; model: string | null };
-  gemini: {
-    configured: boolean;
-    model: string;
-    embeddingModel: string;
-    limits: Record<string, number>;
-    usage?: Record<string, number | boolean>;
-    remaining?: Record<string, number>;
-  };
   fallback: { available: boolean };
+  runtime?: {
+    target: string;
+    database: boolean;
+    objectStorage: boolean;
+    authentication: boolean;
+  };
 };
 type ChatResult = {
   answer: string;
@@ -1315,6 +1313,13 @@ export default function Home({
       .then((payload) => payload && setAIStatus(payload));
   }, [apiFetch, privateMode]);
   useEffect(() => {
+    if (!privateMode || loading) return;
+    const timer = window.setTimeout(() => {
+      void apiFetch("/auth/session/renew", { method: "POST" });
+    }, 5_000);
+    return () => window.clearTimeout(timer);
+  }, [apiFetch, loading, privateMode]);
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -1434,7 +1439,7 @@ export default function Home({
     });
   const mutate = async (body: Record<string, unknown>, success: string) => {
     if (!privateMode) {
-      window.location.assign("/signin-with-chatgpt?return_to=%2Fworkspace");
+      window.location.assign("/auth/login?return_to=%2Fworkspace");
       return null;
     }
     setSaving(true);
@@ -1455,7 +1460,7 @@ export default function Home({
   ) => {
     if (!selected) return null;
     if (!privateMode) {
-      window.location.assign("/signin-with-chatgpt?return_to=%2Fworkspace");
+      window.location.assign("/auth/login?return_to=%2Fworkspace");
       return null;
     }
     setSaving(true);
@@ -1918,7 +1923,7 @@ export default function Home({
               onClick={() => {
                 if (!privateMode) {
                   window.location.assign(
-                    "/signin-with-chatgpt?return_to=%2Fworkspace",
+                    "/auth/login?return_to=%2Fworkspace",
                   );
                 }
               }}
@@ -1928,11 +1933,13 @@ export default function Home({
             {privateMode && (
               <HeaderGlobalAction
                 aria-label={copy.shell.signOut}
-                onClick={() =>
-                  window.location.assign(
-                    "/signout-with-chatgpt?return_to=%2F",
-                  )
-                }
+                onClick={() => {
+                  const form = document.createElement("form");
+                  form.method = "POST";
+                  form.action = "/auth/logout";
+                  document.body.appendChild(form);
+                  form.submit();
+                }}
               >
                 <Logout />
               </HeaderGlobalAction>
@@ -2038,7 +2045,7 @@ export default function Home({
                     ? setModal("information")
                     : setModal("new-account")
                   : window.location.assign(
-                      "/signin-with-chatgpt?return_to=%2Fworkspace",
+                      "/auth/login?return_to=%2Fworkspace",
                     )
               }
             >
@@ -4105,39 +4112,26 @@ function SettingsView({
               active={Boolean(aiStatus?.watsonx.configured)}
             />
             <ProviderRow
-              name={copy.shell.geminiExperimental}
-              detail={copy.settings.primaryEngine}
-              active={Boolean(aiStatus?.gemini.configured)}
-              experimental
-            />
-            <ProviderRow
               name="Deterministic fallback"
               detail={copy.settings.transparentFallback}
               active
             />
           </div>
-          <div className="v5-quota">
-            <span>
-              {copy.settings.generativeToday}
-              <strong>
-                {String(aiStatus?.gemini.usage?.generativeToday || 0)} / 450
-              </strong>
-            </span>
-            <ProgressBar
-              label={copy.settings.generativeUsage}
-              hideLabel
-              value={Number(aiStatus?.gemini.usage?.generativeToday || 0) / 4.5}
+          <div className="v5-provider-stack">
+            <ProviderRow
+              name="IBM Databases for PostgreSQL"
+              detail={copy.settings.appState}
+              active={Boolean(aiStatus?.runtime?.database)}
             />
-            <span>
-              {copy.settings.embeddingsToday}
-              <strong>
-                {String(aiStatus?.gemini.usage?.embeddingsToday || 0)} / 900
-              </strong>
-            </span>
-            <ProgressBar
-              label={copy.settings.embeddingsUsage}
-              hideLabel
-              value={Number(aiStatus?.gemini.usage?.embeddingsToday || 0) / 9}
+            <ProviderRow
+              name="IBM Cloud Object Storage"
+              detail={copy.settings.privateDocuments}
+              active={Boolean(aiStatus?.runtime?.objectStorage)}
+            />
+            <ProviderRow
+              name="IBM App ID"
+              detail={copy.settings.signIn}
+              active={Boolean(aiStatus?.runtime?.authentication)}
             />
           </div>
         </section>
@@ -4207,12 +4201,12 @@ function SettingsView({
           />
           <div className="v5-provider-stack">
             <ProviderRow
-              name="OpenAI Sites + D1 + R2"
+              name="IBM Cloud Code Engine + PostgreSQL + COS"
               detail={copy.settings.appState}
               active
             />
             <ProviderRow
-              name="Sign in with ChatGPT"
+              name="IBM App ID"
               detail={copy.settings.signIn}
               active
             />
