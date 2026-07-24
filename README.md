@@ -8,6 +8,43 @@ Live demo: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
 This is a portfolio/challenge project. It is not an official IBM product.
 
+The live demo remains on OpenAI Sites at V5.3.1 while V6 is validated as a
+parallel IBM Cloud pilot. No production traffic or data is dual-written.
+
+## IBM Cloud Pilot V6
+
+V6 runs the same Watson CDI product as a standalone Node.js application on IBM
+Cloud Code Engine in `br-sao`. The target architecture is:
+
+```text
+User
+  -> IBM Code Engine
+  -> IBM App ID (open, verified-email registration)
+  -> IBM Databases for PostgreSQL
+  -> IBM Cloud Object Storage
+  -> IBM watsonx or transparent deterministic rules
+```
+
+The pilot is infrastructure-as-code, but this repository does not provision it
+automatically. A Schematics `terraform plan`, catalog cost review, and explicit
+human authorization are required before any `terraform apply`, because the
+managed PostgreSQL instance is paid.
+
+V6 includes:
+
+- Next.js standalone on Node.js 22, packaged in a multi-stage non-root image;
+- live and ready health endpoints, with real PostgreSQL and COS probes;
+- forward-only PostgreSQL migrations executed as a Code Engine Job;
+- a restricted PostgreSQL application role separated from the migration
+  administrator;
+- private COS document keys scoped by a hash of the immutable App ID subject;
+- App ID Authorization Code Flow with state, nonce, PKCE, verified email,
+  rotating opaque sessions, secure cookies, and same-origin mutation checks;
+- immutable image deployment by commit SHA, migration-before-revision ordering,
+  protected staging/production environments, and digest-based rollback;
+- structured operational logs that allowlist metadata and omit account notes,
+  documents, tokens, secrets, and complete email addresses.
+
 ## What It Does
 
 - Provides a role-oriented Home with a daily briefing, prioritized action queue, meetings and accounts that need attention.
@@ -27,9 +64,11 @@ This is a portfolio/challenge project. It is not an official IBM product.
 - Produces a governed pre-CRM handoff that can be reviewed, copied, exported as JSON and explicitly marked as handed off by a person.
 - Maintains `Sabemos`, `Supomos`, `Falta descobrir` and `Desatualizado` account memory with clickable evidence.
 - Offers a grounded `Pergunte sobre esta conta` copilot, opportunity hypotheses and human-editable 30/60/90 Account Plan.
-- Accepts PDF, DOCX, TXT and Markdown sources in the private workspace, storing originals in R2 and chunks in D1.
+- Accepts PDF, DOCX, TXT and Markdown sources in the private workspace, storing originals privately in IBM COS and searchable chunks in PostgreSQL on V6.
 - Keeps audit history, human validation, and clear processing-engine status.
-- Keeps `/` as a synthetic read-only demo and opens `/workspace` to any user authenticated with ChatGPT, while server-side ownership checks keep every user's private accounts isolated.
+- Keeps `/` as a synthetic read-only demo and opens `/workspace` to any
+  verified IBM App ID user on V6. Server-side ownership uses the immutable
+  identity subject, never only an email address.
 - Produces a proactive daily briefing, Next Best Actions, the next best conversation and the discovery question with the highest information value.
 - Uses account-scoped keyword and recency retrieval with citations today; semantic retrieval remains behind the provider adapter for later activation.
 - Provides a Carbon command palette (`Cmd/Ctrl + K`) and an interactive hierarchy/influence graph powered by React Flow.
@@ -110,26 +149,31 @@ Until those four values are configured, the application identifies the active en
 - Next.js 16
 - React 19
 - TypeScript
-- Cloudflare Workers / vinext
-- Cloudflare D1-style persistence
-- Drizzle migrations
+- Node.js 22 standalone runtime
+- IBM Code Engine
+- IBM Databases for PostgreSQL and Drizzle `pg-core`
+- IBM Cloud Object Storage
+- IBM App ID Cloud Directory
+- Terraform / IBM Cloud Schematics
+- GitHub Actions and IBM Container Registry
 - IBM Carbon React
 - Carbon Charts React
 - React Flow (`@xyflow/react`)
 - Zod structured-output validation
 - Sass
-- OpenAI Sites hosting
+- OpenAI Sites remains the unchanged V5.3.1 production host during the pilot
 
 ## Architecture
 
 ```text
 Meeting notes / unified information / documents
-  -> /api/accounts
+  -> App ID session and immutable-subject authorization
+  -> /api/accounts and domain services
   -> guided discovery catalog, route and append-only evidence
   -> selective account-scoped retrieval
   -> deterministic workflow today; IBM watsonx through the provider adapter when configured
-  -> D1 memory, change sets, logical-agent runs, handoffs, impact metrics, relationships, actions, plans and audit
-  -> R2 original documents
+  -> PostgreSQL memory, actions, hypotheses, plans, relationships and audit
+  -> private IBM COS originals
   -> Home, account workspace, context map, portfolio radar and settings
 ```
 
@@ -155,6 +199,15 @@ Run locally:
 npm run dev
 ```
 
+Run the IBM runtime locally:
+
+```bash
+cp .env.example .env.local
+npm run db:migrate
+npm run db:seed:ibm
+npm run dev:ibm
+```
+
 Build:
 
 ```bash
@@ -165,9 +218,25 @@ Validate:
 
 ```bash
 npm test
+npm run build:ibm
 ```
 
+IBM Cloud infrastructure and the exact bootstrap sequence are documented in
+[`infra/ibm-cloud/README.md`](infra/ibm-cloud/README.md). Secrets belong only in
+Schematics, Code Engine Secrets, or protected GitHub Environment secrets.
+
 ## Versioning And Rollback
+
+V6 is developed on `codex/ibm-cloud-portability-v6`. Its production rollback
+baseline is `v5.3.1-open-authenticated-workspace`. The OpenAI Sites deployment
+is not changed by the pilot.
+
+Before IBM cutover, rollback means disabling or deleting the pilot application;
+the Sites production URL continues to serve V5.3.1. After an IBM revision is
+published, application rollback selects the previous Code Engine image digest.
+PostgreSQL and COS are preserved, and migrations are never reversed
+destructively. The tag `v6-ibm-cloud-pilot` will only be created after the paid
+plan is approved and the staging flow is validated.
 
 V5.3.1 is developed on `codex/open-workspace-v5-3-1`. Its validated rollback baseline is `v5.3-commercial-proof`. The access change does not require a database migration: it removes the administrative email pre-authorization gate while preserving authentication and owner-scoped queries.
 

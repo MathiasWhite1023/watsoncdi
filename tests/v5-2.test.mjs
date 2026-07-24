@@ -392,7 +392,7 @@ test("translation accepts only an authorized source reference and never arbitrar
   assert.match(route, /scope:\s*"private"/);
   assert.match(route, /action:\s*"translate"/);
   assert.match(api, /accountForMutation\(db, id, request\)/);
-  assert.match(api, /visibility = 'private' AND owner_email = \?/);
+  assert.match(api, /visibility = 'private' AND owner_subject = \?/);
   assert.match(
     api,
     /"text" in body \|\| "content" in body \|\| "rawText" in body/,

@@ -106,7 +106,7 @@ test("documents Watson CDI V5.3.1 and its non-destructive rollback path", async 
   assert.match(readme, /Live demo:/);
   assert.match(readme, /not an official IBM product/i);
   assert.match(packageJson, /"name": "watson-cdi"/);
-  assert.match(packageJson, /"version": "5\.3\.1"/);
+  assert.match(packageJson, /"version": "6\.0\.0"/);
 });
 
 test("keeps the V5 proactive account intelligence surfaces wired", async () => {
@@ -138,7 +138,7 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
     readProjectFile("drizzle/0002_calm_miek.sql"),
     readProjectFile("drizzle/0003_certain_epoch.sql"),
     readProjectFile("drizzle/0005_unique_mattie_franklin.sql"),
-    readProjectFile("app/chatgpt-auth.ts"),
+    readProjectFile("lib/auth/session.ts"),
     readProjectFile("app/api/accounts/[id]/documents/route.ts"),
   ]);
 
@@ -206,9 +206,11 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
     v5Migration,
     /ALTER TABLE `discoveries` ADD `data_classification`/,
   );
-  assert.match(auth, /oai-authenticated-user-email/);
+  assert.match(auth, /subject:\s*row\.subject/);
+  assert.match(auth, /SESSION_COOKIE/);
   assert.match(documents, /15 \* 1024 \* 1024/);
-  assert.match(documents, /R2Bucket/);
+  assert.match(documents, /getObjectStore/);
+  assert.match(documents, /documentObjectKey/);
   assert.match(documents, /DELETE FROM account_embeddings/);
 
   assert.match(visuals, /@carbon\/charts-react/);
@@ -410,15 +412,16 @@ test("keeps public reads isolated and the authenticated workspace fail-closed", 
 
   assert.match(
     api,
-    /seedStakeholderTrees\(db: D1Database, discoveryIds: string\[\]\)/,
+    /seedStakeholderTrees\(\s*db: PortableDatabase,\s*discoveryIds: string\[\],?\s*\)/,
   );
   assert.doesNotMatch(api, /SELECT id, industry, created_at FROM discoveries"/);
   assert.match(
     api,
-    /backfillV4\(\s*db: D1Database,\s*discoveryRows: Record<string, unknown>\[\],\s*responseLocale: ResponseLocale,\s*\)/,
+    /backfillV4\(\s*db: PortableDatabase,\s*discoveryRows: Record<string, unknown>\[\],\s*responseLocale: ResponseLocale,\s*\)/,
   );
   assert.match(api, /skipGenerative:\s*true,\s*skipEmbeddings:\s*true/);
-  assert.match(api, /if \(!identity\.email\)/);
+  assert.match(api, /if \(!identity\)/);
+  assert.match(api, /owner_subject = \?/);
   assert.doesNotMatch(api, /PRIVATE_ALLOWED_EMAILS/);
   assert.doesNotMatch(api, /WORKSPACE_ALLOWLIST_NOT_CONFIGURED/);
   assert.doesNotMatch(documents, /PRIVATE_ALLOWED_EMAILS/);
@@ -468,7 +471,9 @@ test("keeps Gemini behind the server-side provider boundary and policy gates", a
 
   assert.doesNotMatch(page, /GEMINI_API_KEY/);
   assert.match(statusRoute, /secretsExposed: false/);
-  assert.match(statusRoute, /if \(!email\)/);
+  assert.match(statusRoute, /if \(!identity\)/);
+  assert.match(statusRoute, /deterministic-fallback/);
+  assert.doesNotMatch(statusRoute, /google-gemini|GEMINI_/);
   assert.doesNotMatch(statusRoute, /PRIVATE_ALLOWED_EMAILS/);
   assert.doesNotMatch(statusRoute, /WORKSPACE_EMAIL_NOT_ALLOWED/);
   assert.doesNotMatch(statusRoute, /apiKey:/);

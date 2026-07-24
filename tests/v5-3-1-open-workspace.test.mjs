@@ -8,14 +8,16 @@ async function readProjectFile(path) {
   return readFile(new URL(path, root), "utf8");
 }
 
-test("allows every authenticated ChatGPT identity to enter and create private accounts", async () => {
-  const [api, workspace] = await Promise.all([
+test("allows every verified App ID identity to enter and create private accounts", async () => {
+  const [api, workspace, session, appId] = await Promise.all([
     readProjectFile("app/api/discoveries/route.ts"),
     readProjectFile("app/workspace/page.tsx"),
+    readProjectFile("lib/auth/session.ts"),
+    readProjectFile("lib/auth/app-id.ts"),
   ]);
 
-  assert.match(api, /oai-authenticated-user-email/);
-  assert.match(api, /if \(!identity\.email\)/);
+  assert.match(api, /identityFromRequest/);
+  assert.match(api, /if \(!identity\)/);
   assert.match(api, /AUTH_REQUIRED/);
   assert.doesNotMatch(api, /PRIVATE_ALLOWED_EMAILS/);
   assert.doesNotMatch(api, /allowlistConfigured|identity\.allowed/);
@@ -27,8 +29,12 @@ test("allows every authenticated ChatGPT identity to enter and create private ac
   const createAccount = api.slice(createStart, createEnd);
   assert.match(createAccount, /INSERT INTO discoveries/);
   assert.match(createAccount, /identity\.email/);
+  assert.match(createAccount, /identity\.subject/);
   assert.match(createAccount, /"private"/);
-  assert.match(workspace, /requireChatGPTUser\("\/workspace"\)/);
+  assert.match(workspace, /requireCurrentIdentity\("\/workspace"\)/);
+  assert.match(session, /identity\.provider/);
+  assert.match(appId, /provider:\s*"ibm-app-id"/);
+  assert.match(appId, /IBM App ID email verification is required/);
 });
 
 test("rejects unauthenticated private requests across account and document APIs", async () => {
@@ -38,11 +44,11 @@ test("rejects unauthenticated private requests across account and document APIs"
     readProjectFile("app/api/ai/status/route.ts"),
   ]);
 
-  assert.match(api, /if \(!identity\.email\)/);
+  assert.match(api, /if \(!identity\)/);
   assert.match(api, /"AUTH_REQUIRED",\s*401/);
-  assert.match(documents, /if \(!email\)/);
+  assert.match(documents, /if \(!identity\)/);
   assert.match(documents, /"AUTH_REQUIRED",\s*401/);
-  assert.match(aiStatus, /if \(!email\)/);
+  assert.match(aiStatus, /if \(!identity\)/);
   assert.match(aiStatus, /"AUTH_REQUIRED",\s*401/);
 });
 
@@ -54,17 +60,17 @@ test("preserves strict owner isolation for private reads and mutations", async (
 
   assert.match(
     api,
-    /SELECT \* FROM discoveries WHERE visibility = 'private' AND owner_email = \?/,
+    /SELECT \* FROM discoveries WHERE visibility = 'private' AND owner_subject = \?/,
   );
   assert.match(
     api,
-    /SELECT \* FROM discoveries WHERE id = \? AND visibility = 'private' AND owner_email = \?/,
+    /SELECT \* FROM discoveries WHERE id = \? AND visibility = 'private' AND owner_subject = \?/,
   );
   assert.match(
     documents,
-    /SELECT id FROM discoveries WHERE id = \? AND visibility = 'private' AND owner_email = \?/,
+    /SELECT id FROM discoveries WHERE id = \? AND visibility = 'private' AND owner_subject = \?/,
   );
-  assert.match(documents, /\.bind\(id, email\)/);
+  assert.match(documents, /\.bind\(id, identity\.subject\)/);
   assert.doesNotMatch(documents, /PRIVATE_ALLOWED_EMAILS|allowlist\.includes/);
 });
 
@@ -98,17 +104,21 @@ test("does not tell users that an email authorization list is required", async (
   assert.doesNotMatch(productFacing, /(?:allowlist|lista de autorizados).{0,40}(?:email|e-mail)/i);
 });
 
-test("documents the V5.3.1 branch and non-destructive rollback", async () => {
+test("documents the V6 pilot and preserves the V5.3.1 rollback", async () => {
   const [readme, changelog] = await Promise.all([
     readProjectFile("README.md"),
     readProjectFile("CHANGELOG.md"),
   ]);
 
-  assert.match(readme, /Open Authenticated Workspace V5\.3\.1/);
-  assert.match(readme, /any user authenticated with ChatGPT/i);
-  assert.match(readme, /codex\/open-workspace-v5-3-1/);
-  assert.match(readme, /v5\.3-commercial-proof/);
+  assert.match(readme, /IBM Cloud Pilot V6/);
+  assert.match(readme, /verified IBM App ID user/i);
+  assert.match(readme, /codex\/ibm-cloud-portability-v6/);
+  assert.match(readme, /v5\.3\.1-open-authenticated-workspace/);
+  assert.match(readme, /OpenAI Sites deployment\s+is not changed by the pilot/i);
   assert.match(changelog, /v5\.3\.1-open-authenticated-workspace/);
-  assert.match(changelog, /Rollback tag: `v5\.3-commercial-proof`/);
-  assert.match(changelog, /No schema or data migration is required/i);
+  assert.match(
+    changelog,
+    /Rollback tag: `v5\.3\.1-open-authenticated-workspace`/,
+  );
+  assert.match(changelog, /No IBM resource has been created/i);
 });

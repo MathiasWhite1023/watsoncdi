@@ -1,5 +1,70 @@
 # Changelog
 
+## v6-ibm-cloud-pilot
+
+Status: implementation validated locally; Schematics plan, cost approval,
+provisioning, staging validation, production tag and IBM deployment pending
+
+Branch: `codex/ibm-cloud-portability-v6`
+Rollback tag: `v5.3.1-open-authenticated-workspace`
+Current production: OpenAI Sites V5.3.1 (unchanged)
+Target region: `br-sao`
+
+### Added
+
+- Portable database boundary with PostgreSQL `pg-core` schema, forward-only
+  checksum migrations, synthetic pilot seed, transactions, strict TLS and
+  readiness probe.
+- Next.js standalone Node.js 22 runtime and non-root multi-stage Docker image
+  for Code Engine.
+- IBM COS private document storage with MIME and size validation, SHA-256,
+  tenant-scoped object keys, idempotent deletion and compensating cleanup.
+- IBM App ID Cloud Directory open registration with verified email,
+  Authorization Code Flow, state, nonce, PKCE, secure opaque sessions,
+  renewal, logout revocation and CSRF protection.
+- Immutable-subject ownership for private accounts, guided discovery,
+  briefings and document access.
+- Terraform for the resource group, Code Engine app/job, managed PostgreSQL,
+  COS, App ID Lite, Container Registry, service identities, secrets, probes
+  and scale-to-zero settings.
+- Separate PostgreSQL migration administrator and restricted runtime role.
+- Additive PostgreSQL performance and natural-key migration `0001`, including
+  concurrency-safe actions, hypotheses and relationship upserts.
+- Server-generated stakeholder and relationship IDs, same-account reporting-line
+  validation, exact-origin CSRF enforcement and immutable-subject tenant checks.
+- Pilot quotas for account creation, document count, document bytes and upload
+  frequency, plus file-signature validation and bounded extracted content.
+- GitHub Actions for pull-request validation and manually approved,
+  migration-first, immutable-digest IBM deployments.
+- Structured logs and `/api/health/live` plus `/api/health/ready`.
+
+### Validated locally
+
+- TypeScript, ESLint, 58 automated tests, Vinext/Sites build, Next standalone
+  build, Docker image build and Terraform static validation passed.
+- PostgreSQL migrations and synthetic seed were executed twice against
+  PostgreSQL 17 to verify idempotence.
+- The container completed demo reads, private account creation, deterministic
+  recomputation, session renewal/logout, CSRF rejection and two-user isolation
+  using the restricted runtime database role.
+- COS and App ID provider-to-provider connectivity remain staging checks because
+  no IBM Cloud resources have been provisioned.
+
+### Provisioning gate
+
+No IBM resource has been created by this release. Generate the plan in IBM
+Cloud Schematics, review the paid PostgreSQL estimate, and obtain explicit
+authorization before `terraform apply`. A registry-backed
+`npm audit --omit=dev` review of production dependencies is also required
+before staging.
+
+### Rollback
+
+The OpenAI Sites deployment remains untouched throughout the pilot. Before
+cutover, abandon the IBM pilot without affecting production. After IBM
+publication, select the previous Code Engine image digest and preserve
+PostgreSQL/COS; migrations remain forward-only.
+
 ## v5.3.1-open-authenticated-workspace
 
 Status: published
