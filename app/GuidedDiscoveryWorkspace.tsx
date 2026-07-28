@@ -95,6 +95,41 @@ export type GuidedDiscoveryView = {
     stale: number;
     contradictions: number;
   };
+  overallReview: {
+    reviewedPillars: number;
+    totalPillars: number;
+    percent: number;
+    coveragePercent: number;
+    confidencePercent: number;
+  };
+  pillarAssessments: Array<{
+    key: string;
+    label: string;
+    description: string;
+    status:
+      | "not_started"
+      | "in_progress"
+      | "reviewed_sufficient"
+      | "reviewed_gaps"
+      | "not_relevant";
+    sessionId: string | null;
+    progressPercent: number;
+    coveragePercent: number;
+    confidencePercent: number;
+    answeredCount: number;
+    requiredCount: number;
+    notRelevantReason: string | null;
+    reviewedAt: string | null;
+    leadingTechnology: string | null;
+    propensity: number;
+  }>;
+  activePillar: string | null;
+  recommendedNextPillar: {
+    key: string;
+    label: string;
+    relevance: number;
+    rationale: string;
+  } | null;
   pillars: Array<{
     key: string;
     label: string;
@@ -179,6 +214,27 @@ function localizeDiscovery(
         ? { ...pillar, label: meta.label, description: meta.description }
         : pillar;
     }),
+    pillarAssessments: discovery.pillarAssessments.map((pillar) => {
+      const meta = isGuidedDiscoveryPillar(pillar.key)
+        ? getLocalizedPillarMeta(pillar.key, locale)
+        : null;
+      return meta
+        ? { ...pillar, label: meta.label, description: meta.description }
+        : pillar;
+    }),
+    recommendedNextPillar: discovery.recommendedNextPillar
+      ? {
+          ...discovery.recommendedNextPillar,
+          label: isGuidedDiscoveryPillar(
+            discovery.recommendedNextPillar.key,
+          )
+            ? getLocalizedPillarMeta(
+                discovery.recommendedNextPillar.key,
+                locale,
+              ).label
+            : discovery.recommendedNextPillar.label,
+        }
+      : null,
   };
 }
 
@@ -200,8 +256,6 @@ export default function GuidedDiscoveryWorkspace({
   );
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
-  const [mode] = useState<"adaptive" | "direct">("direct");
-  const [selectedPillars, setSelectedPillars] = useState<string[]>([]);
   const [activeQuestionId, setActiveQuestionId] = useState("");
   const [structured, setStructured] = useState<Record<string, unknown>>({});
   const [context, setContext] = useState("");
@@ -216,9 +270,11 @@ export default function GuidedDiscoveryWorkspace({
   >([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [showPillarHub, setShowPillarHub] = useState(true);
+  const [markingPillar, setMarkingPillar] = useState("");
+  const [notRelevantReason, setNotRelevantReason] = useState("");
 
   const virtualSession = Boolean(view?.session?.id.startsWith("virtual-"));
-  const hasSession = Boolean(view?.session && !virtualSession);
   const canViewResults = Boolean(view?.session);
   const readOnly = Boolean(view?.readonly);
   const currentQuestion = useMemo(
@@ -295,6 +351,9 @@ export default function GuidedDiscoveryWorkspace({
 
   useEffect(() => {
     if (!open) return;
+    setShowPillarHub(true);
+    setShowResults(false);
+    setShowHistory(false);
     const timer = window.setTimeout(
       () =>
         setActiveQuestionId(
@@ -330,8 +389,6 @@ export default function GuidedDiscoveryWorkspace({
     ["hypothesis", d.guided.evidenceHypothesis],
     ["unknown", d.guided.evidenceUnknown],
   ] as const;
-  const selectPillar = (pillar: string) =>
-    setSelectedPillars((current) => (current.includes(pillar) ? [] : [pillar]));
   const chooseStructured = (value: string | number) => {
     if (currentQuestion?.inputSchema.kind === "multi") {
       const current = Array.isArray(structured.value)
@@ -366,14 +423,82 @@ export default function GuidedDiscoveryWorkspace({
     });
     if (result?.scoreDeltas) setScoreDeltas(result.scoreDeltas);
   };
+  const openPillar = async (
+    pillar: GuidedDiscoveryView["pillarAssessments"][number],
+  ) => {
+    if (readOnly) {
+      if (
+        pillar.sessionId === view.session?.id ||
+        pillar.key === view.activePillar ||
+        view.questions.some((question) => question.pillar === pillar.key)
+      ) {
+        setShowPillarHub(false);
+        setShowResults(pillar.status.startsWith("reviewed"));
+      }
+      return;
+    }
+    if (pillar.sessionId) {
+      await onPatch({
+        sessionId: pillar.sessionId,
+        operation: "reopen_pillar",
+        responseLocale: locale,
+      });
+    } else {
+      await onStart("direct", [pillar.key]);
+    }
+    setShowPillarHub(false);
+    setShowResults(false);
+    setShowHistory(false);
+  };
+  const markNotRelevant = async (pillarKey: string) => {
+    if (notRelevantReason.trim().length < 5) return;
+    await onPatch({
+      operation: "mark_pillar_not_relevant",
+      pillarKey,
+      reason: notRelevantReason.trim(),
+      responseLocale: locale,
+    });
+    setMarkingPillar("");
+    setNotRelevantReason("");
+  };
+  const activePillarKey =
+    currentQuestion?.pillar || view.session?.selectedPillars[0] || null;
   const questionsByPillar = view.pillars.filter(
-    (pillar) =>
-      pillar.selected ||
-      view.questions.some((question) => question.pillar === pillar.key),
+    (pillar) => pillar.key === activePillarKey,
   );
   const currentPillar =
     view.pillars.find((pillar) => pillar.key === currentQuestion?.pillar)
       ?.label || currentQuestion?.pillar;
+  const currentPillarAssessment = view.pillarAssessments.find(
+    (pillar) =>
+      pillar.key ===
+      (currentQuestion?.pillar || view.session?.selectedPillars[0]),
+  );
+  const currentPillarQuestionIds = new Set(
+    view.questions
+      .filter((question) => question.pillar === activePillarKey)
+      .map((question) => question.id),
+  );
+  const currentPillarAnswers = view.answers.filter((answer) =>
+    currentPillarQuestionIds.has(answer.questionId),
+  );
+  const currentQuality = {
+    confirmedWithEvidence: currentPillarAnswers.filter(
+      (answer) =>
+        answer.status === "confirmed" &&
+        answer.evidenceStatus !== "hypothesis",
+    ).length,
+    gaps: currentPillarAnswers.filter((answer) => answer.status === "unknown")
+      .length,
+    stale: currentPillarAnswers.filter(
+      (answer) =>
+        Boolean(answer.sourceDate) &&
+        Date.now() - new Date(answer.sourceDate!).getTime() > 90 * 86400000,
+    ).length,
+    contradictions: currentPillarAnswers.filter(
+      (answer) => Boolean(answer.structured.contradiction),
+    ).length,
+  };
 
   return (
     <div
@@ -394,7 +519,20 @@ export default function GuidedDiscoveryWorkspace({
             </p>
           </div>
           <div className={styles.headerMetrics}>
-            {canViewResults && (
+            {!showPillarHub && (
+              <Button
+                size="sm"
+                kind="ghost"
+                onClick={() => {
+                  setShowPillarHub(true);
+                  setShowResults(false);
+                  setShowHistory(false);
+                }}
+              >
+                {locale === "pt-BR" ? "Voltar aos pilares" : "Back to pillars"}
+              </Button>
+            )}
+            {canViewResults && !showPillarHub && (
               <Button
                 size="sm"
                 kind="ghost"
@@ -410,12 +548,18 @@ export default function GuidedDiscoveryWorkspace({
               </Button>
             )}
             <Metric
-              value={`${view.metrics.progressPercent}%`}
-              label={d.common.progress}
+              value={`${view.overallReview.reviewedPillars}/${view.overallReview.totalPillars}`}
+              label={
+                locale === "pt-BR"
+                  ? "Pilares revisados"
+                  : "Pillars reviewed"
+              }
             />
             <Metric
-              value={`${view.metrics.coveragePercent}%`}
-              label={d.common.coverage}
+              value={`${view.overallReview.percent}%`}
+              label={
+                locale === "pt-BR" ? "Revisão geral" : "Overall review"
+              }
             />
             <button onClick={onClose} aria-label={d.guided.closeLabel}>
               <Close size={24} />
@@ -434,14 +578,24 @@ export default function GuidedDiscoveryWorkspace({
           />
         )}
 
-        {!hasSession && !readOnly ? (
-          <StartPanel
-            pillars={view.pillars}
-            selected={selectedPillars}
-            onSelect={selectPillar}
-            saving={saving}
-            onStart={() => onStart(mode, selectedPillars)}
+        {showPillarHub ? (
+          <PillarHub
             accountName={accountName}
+            pillars={view.pillarAssessments}
+            overallReview={view.overallReview}
+            recommended={view.recommendedNextPillar}
+            readOnly={readOnly}
+            saving={saving}
+            markingPillar={markingPillar}
+            reason={notRelevantReason}
+            onReasonChange={setNotRelevantReason}
+            onMarkRequest={setMarkingPillar}
+            onMarkCancel={() => {
+              setMarkingPillar("");
+              setNotRelevantReason("");
+            }}
+            onMarkConfirm={markNotRelevant}
+            onOpen={openPillar}
           />
         ) : (
           <div className={styles.body}>
@@ -449,15 +603,16 @@ export default function GuidedDiscoveryWorkspace({
               <div className={styles.railIntro}>
                 <span>{d.guided.dynamicPath}</span>
                 <strong>
-                  {t("guided.addressed", {
-                    addressed: view.metrics.addressed,
-                    total: view.metrics.total,
-                  })}
+                  {currentPillarAssessment?.answeredCount || 0}/
+                  {currentPillarAssessment?.requiredCount || 6}{" "}
+                  {locale === "pt-BR"
+                    ? "perguntas essenciais"
+                    : "essential questions"}
                 </strong>
                 <ProgressBar
                   label={d.guided.sessionProgress}
                   hideLabel
-                  value={view.metrics.progressPercent}
+                  value={currentPillarAssessment?.progressPercent || 0}
                 />
                 <small>{d.guided.progressHelp}</small>
               </div>
@@ -535,6 +690,10 @@ export default function GuidedDiscoveryWorkspace({
                 <KyndrylAssessmentResults
                   assessment={view.technologyAssessment}
                   locale={locale}
+                  onChooseNext={() => {
+                    setShowPillarHub(true);
+                    setShowResults(false);
+                  }}
                   onContinue={
                     currentQuestion ? () => setShowResults(false) : undefined
                   }
@@ -597,16 +756,22 @@ export default function GuidedDiscoveryWorkspace({
                     selected={isSelected}
                     disabled={readOnly || saving}
                   />
-                  <TextArea
-                    id="guided-context"
-                    labelText={d.guided.contextLabel}
-                    helperText={d.guided.contextHelp}
-                    rows={7}
-                    value={context}
-                    onChange={(event) => setContext(event.target.value)}
-                    disabled={readOnly || saving}
-                  />
-                  <div className={styles.evidenceGrid}>
+                  <details className={styles.contextDetails}>
+                    <summary>
+                      {locale === "pt-BR"
+                        ? "Adicionar contexto e evidência"
+                        : "Add context and evidence"}
+                    </summary>
+                    <TextArea
+                      id="guided-context"
+                      labelText={d.guided.contextLabel}
+                      helperText={d.guided.contextHelp}
+                      rows={5}
+                      value={context}
+                      onChange={(event) => setContext(event.target.value)}
+                      disabled={readOnly || saving}
+                    />
+                    <div className={styles.evidenceGrid}>
                     <Select
                       id="guided-evidence"
                       labelText={d.guided.evidenceNature}
@@ -696,7 +861,8 @@ export default function GuidedDiscoveryWorkspace({
                         disabled={readOnly || saving}
                       />
                     </label>
-                  </div>
+                    </div>
+                  </details>
                   <div className={styles.actions}>
                     {!readOnly && (
                       <>
@@ -706,7 +872,7 @@ export default function GuidedDiscoveryWorkspace({
                           onClick={() =>
                             onPatch({
                               sessionId,
-                              operation: "pause",
+                              operation: "pause_pillar",
                               responseLocale: locale,
                             })
                           }
@@ -762,22 +928,22 @@ export default function GuidedDiscoveryWorkspace({
                 <span>{d.guided.discoveryQuality}</span>
                 <div className={styles.quality}>
                   <Quality
-                    value={view.metrics.confirmedWithEvidence}
+                    value={currentQuality.confirmedWithEvidence}
                     label={d.guided.withEvidence}
                     tone="known"
                   />
                   <Quality
-                    value={view.metrics.gaps}
+                    value={currentQuality.gaps}
                     label={d.guided.gaps}
                     tone="gap"
                   />
                   <Quality
-                    value={view.metrics.stale}
+                    value={currentQuality.stale}
                     label={d.guided.stale}
                     tone="stale"
                   />
                   <Quality
-                    value={view.metrics.contradictions}
+                    value={currentQuality.contradictions}
                     label={d.guided.contradictions}
                     tone="risk"
                   />
@@ -879,14 +1045,19 @@ export default function GuidedDiscoveryWorkspace({
                   className={styles.finish}
                   kind="danger--tertiary"
                   size="sm"
-                  disabled={saving || view.metrics.addressed === 0}
-                  onClick={() =>
-                    onPatch({
-                      sessionId,
-                      operation: "complete",
-                      responseLocale: locale,
-                    })
+                  disabled={
+                    saving ||
+                    (currentPillarAssessment?.answeredCount || 0) <
+                      (currentPillarAssessment?.requiredCount || 6)
                   }
+                  onClick={async () => {
+                    const result = await onPatch({
+                      sessionId,
+                      operation: "complete_pillar",
+                      responseLocale: locale,
+                    });
+                    if (result) setShowResults(true);
+                  }}
                 >
                   {d.guided.completeSession}
                 </Button>
@@ -899,113 +1070,262 @@ export default function GuidedDiscoveryWorkspace({
   );
 }
 
-function StartPanel({
-  pillars,
-  selected,
-  onSelect,
-  saving,
-  onStart,
+function PillarHub({
   accountName,
+  pillars,
+  overallReview,
+  recommended,
+  readOnly,
+  saving,
+  markingPillar,
+  reason,
+  onReasonChange,
+  onMarkRequest,
+  onMarkCancel,
+  onMarkConfirm,
+  onOpen,
 }: {
-  pillars: GuidedDiscoveryView["pillars"];
-  selected: string[];
-  onSelect: (key: string) => void;
-  saving: boolean;
-  onStart: () => void;
   accountName: string;
+  pillars: GuidedDiscoveryView["pillarAssessments"];
+  overallReview: GuidedDiscoveryView["overallReview"];
+  recommended: GuidedDiscoveryView["recommendedNextPillar"];
+  readOnly: boolean;
+  saving: boolean;
+  markingPillar: string;
+  reason: string;
+  onReasonChange: (value: string) => void;
+  onMarkRequest: (pillar: string) => void;
+  onMarkCancel: () => void;
+  onMarkConfirm: (pillar: string) => void;
+  onOpen: (
+    pillar: GuidedDiscoveryView["pillarAssessments"][number],
+  ) => Promise<void>;
 }) {
-  const { locale, dictionary: d } = useI18n();
+  const { locale } = useI18n();
   const c =
     locale === "pt-BR"
       ? {
-          eyebrow: "Descoberta de oportunidades Kyndryl + IBM",
-          title: "Escolha o pilar que deseja explorar",
-          help: "As perguntas convertem o contexto da conta em evidências, maturidade, propensão tecnológica e recomendações IBM explicáveis.",
-          account: "Conta",
-          pillar: "Pilar",
-          questions: "Perguntas",
-          result: "Heatmap e recomendações",
-          selected: "Selecionado",
-          questionsCount: "6 perguntas",
-          start: "Iniciar descoberta deste pilar",
-          starting: "Preparando diagnóstico",
+          eyebrow: "Descoberta multipilar",
+          title: "Escolha onde continuar",
+          help: "Revise os oito pilares para construir um heatmap confiável. Concluir um pilar atualiza resultados, mas não encerra a descoberta da conta.",
+          reviewed: "pilares revisados",
+          coverage: "Cobertura das evidências",
+          confidence: "Confiança",
+          recommended: "Próximo pilar recomendado",
+          why: "Por que agora",
+          start: "Iniciar",
+          continue: "Continuar",
+          review: "Revisar",
+          explore: "Explorar exemplo",
+          notRelevant: "Não relevante",
+          markNotRelevant: "Marcar como não relevante",
+          reason: "Justificativa",
+          reasonPlaceholder: "Por que este pilar não se aplica à conta?",
+          cancel: "Cancelar",
+          confirm: "Confirmar",
+          questions: "perguntas essenciais",
+          noTechnology: "Resultado ainda não calculado",
         }
       : {
-          eyebrow: "Kyndryl + IBM opportunity discovery",
-          title: "Choose the pillar you want to explore",
-          help: "Questions turn account context into evidence, maturity, technology propensity, and explainable IBM recommendations.",
-          account: "Account",
-          pillar: "Pillar",
-          questions: "Questions",
-          result: "Heatmap and recommendations",
-          selected: "Selected",
-          questionsCount: "6 questions",
-          start: "Start this pillar discovery",
-          starting: "Preparing assessment",
+          eyebrow: "Multi-pillar discovery",
+          title: "Choose where to continue",
+          help: "Review all eight pillars to build a reliable heatmap. Completing one pillar updates results, but does not finish the account discovery.",
+          reviewed: "pillars reviewed",
+          coverage: "Evidence coverage",
+          confidence: "Confidence",
+          recommended: "Recommended next pillar",
+          why: "Why now",
+          start: "Start",
+          continue: "Continue",
+          review: "Review",
+          explore: "Explore example",
+          notRelevant: "Not relevant",
+          markNotRelevant: "Mark as not relevant",
+          reason: "Reason",
+          reasonPlaceholder: "Why does this pillar not apply to the account?",
+          cancel: "Cancel",
+          confirm: "Confirm",
+          questions: "essential questions",
+          noTechnology: "Result not calculated yet",
         };
+  const statusCopy = {
+    not_started: locale === "pt-BR" ? "Não iniciado" : "Not started",
+    in_progress: locale === "pt-BR" ? "Em andamento" : "In progress",
+    reviewed_sufficient:
+      locale === "pt-BR"
+        ? "Revisado · evidência suficiente"
+        : "Reviewed · sufficient evidence",
+    reviewed_gaps:
+      locale === "pt-BR"
+        ? "Revisado · lacunas abertas"
+        : "Reviewed · open gaps",
+    not_relevant: locale === "pt-BR" ? "Não relevante" : "Not relevant",
+  } as const;
+  const tagTone = (
+    status: GuidedDiscoveryView["pillarAssessments"][number]["status"],
+  ) =>
+    status === "reviewed_sufficient"
+      ? "green"
+      : status === "reviewed_gaps"
+        ? "magenta"
+        : status === "in_progress"
+          ? "blue"
+          : "gray";
+  const demoPillarKey =
+    pillars.find((pillar) => pillar.sessionId)?.key || pillars[0]?.key;
   return (
-    <div className={styles.start}>
-      <div>
-        <span>{c.eyebrow}</span>
-        <h2>{c.title}</h2>
-        <p>{c.help}</p>
-      </div>
-      <ol className={styles.discoveryFlow} aria-label={c.title}>
-        <li className={styles.flowDone}>
-          <span>1</span>
+    <div className={styles.pillarHub}>
+      <header className={styles.pillarHubIntro}>
+        <div>
+          <span>{c.eyebrow}</span>
+          <h2>{c.title}</h2>
+          <p>
+            {accountName} · {c.help}
+          </p>
+        </div>
+        <div className={styles.reviewSummary}>
+          <strong>{overallReview.percent}%</strong>
+          <span>
+            {overallReview.reviewedPillars}/{overallReview.totalPillars}{" "}
+            {c.reviewed}
+          </span>
+          <ProgressBar
+            label={c.reviewed}
+            hideLabel
+            value={overallReview.percent}
+          />
+          <small>
+            {c.coverage}: {overallReview.coveragePercent}% · {c.confidence}:{" "}
+            {overallReview.confidencePercent}%
+          </small>
+        </div>
+      </header>
+      {recommended && (
+        <section className={styles.recommendedPillar}>
           <div>
-            <strong>{c.account}</strong>
-            <small>{accountName}</small>
-          </div>
-        </li>
-        <li className={selected.length ? styles.flowDone : styles.flowActive}>
-          <span>2</span>
-          <div>
-            <strong>{c.pillar}</strong>
-            <small>{selected.length ? c.selected : "—"}</small>
-          </div>
-        </li>
-        <li>
-          <span>3</span>
-          <div>
-            <strong>{c.questions}</strong>
-            <small>Y · N · N/A · Don&apos;t know</small>
-          </div>
-        </li>
-        <li>
-          <span>4</span>
-          <div>
-            <strong>{c.result}</strong>
-            <small>IBM Technology Fit</small>
-          </div>
-        </li>
-      </ol>
-      <div className={styles.pillarChoices}>
-        <span>{d.guided.selectPillars}</span>
-        {pillars.map((pillar) => (
-          <button
-            key={pillar.key}
-            className={
-              selected.includes(pillar.key) ? styles.selectedPillar : ""
-            }
-            onClick={() => onSelect(pillar.key)}
-            aria-pressed={selected.includes(pillar.key)}
-          >
-            <strong>{pillar.label}</strong>
-            <p>{pillar.description}</p>
+            <span>{c.recommended}</span>
+            <strong>{recommended.label}</strong>
             <small>
-              {selected.includes(pillar.key) ? c.selected : c.questionsCount}
+              {c.why}: {recommended.rationale}
             </small>
-          </button>
-        ))}
+          </div>
+          <Button
+            renderIcon={ArrowRight}
+            disabled={
+              saving || (readOnly && recommended.key !== demoPillarKey)
+            }
+            onClick={() => {
+              const pillar = pillars.find(
+                (item) => item.key === recommended.key,
+              );
+              if (pillar) void onOpen(pillar);
+            }}
+          >
+            {c.start}
+          </Button>
+        </section>
+      )}
+      <div className={styles.pillarTable} role="table">
+        <div className={styles.pillarTableHeader} role="row">
+          <span role="columnheader">{locale === "pt-BR" ? "Pilar" : "Pillar"}</span>
+          <span role="columnheader">{locale === "pt-BR" ? "Estado" : "Status"}</span>
+          <span role="columnheader">{locale === "pt-BR" ? "Progresso" : "Progress"}</span>
+          <span role="columnheader">{locale === "pt-BR" ? "Resultado" : "Result"}</span>
+          <span role="columnheader">{locale === "pt-BR" ? "Ação" : "Action"}</span>
+        </div>
+        {pillars.map((pillar) => {
+          const isRecommended = recommended?.key === pillar.key;
+          const action =
+            readOnly
+              ? c.explore
+              : pillar.status === "not_started" ||
+                  pillar.status === "not_relevant"
+                ? c.start
+                : pillar.status === "in_progress"
+                  ? c.continue
+                  : c.review;
+          const accessibleInDemo =
+            !readOnly || pillar.key === demoPillarKey;
+          return (
+            <div className={styles.pillarTableRow} role="row" key={pillar.key}>
+              <div role="cell">
+                <strong>{pillar.label}</strong>
+                <small>{pillar.description}</small>
+              </div>
+              <div role="cell">
+                <Tag type={tagTone(pillar.status)}>
+                  {statusCopy[pillar.status]}
+                </Tag>
+                {isRecommended && (
+                  <small className={styles.recommendedLabel}>
+                    {c.recommended}
+                  </small>
+                )}
+              </div>
+              <div role="cell">
+                <strong>
+                  {pillar.answeredCount}/{pillar.requiredCount}
+                </strong>
+                <small>{c.questions}</small>
+                <ProgressBar
+                  label={`${pillar.label} ${c.questions}`}
+                  hideLabel
+                  value={pillar.progressPercent}
+                />
+              </div>
+              <div role="cell">
+                <strong>{pillar.leadingTechnology || c.noTechnology}</strong>
+                <small>
+                  {c.coverage}: {pillar.coveragePercent}% · {c.confidence}:{" "}
+                  {pillar.confidencePercent}%
+                </small>
+              </div>
+              <div role="cell" className={styles.pillarActions}>
+                <Button
+                  size="sm"
+                  kind={isRecommended ? "primary" : "tertiary"}
+                  disabled={saving || !accessibleInDemo}
+                  onClick={() => void onOpen(pillar)}
+                >
+                  {action}
+                </Button>
+                {!readOnly &&
+                  pillar.status !== "not_relevant" &&
+                  pillar.status !== "reviewed_sufficient" &&
+                  markingPillar !== pillar.key && (
+                    <button
+                      className={styles.textAction}
+                      onClick={() => onMarkRequest(pillar.key)}
+                    >
+                      {c.markNotRelevant}
+                    </button>
+                  )}
+              </div>
+              {markingPillar === pillar.key && (
+                <div className={styles.notRelevantEditor}>
+                  <TextInput
+                    id={`not-relevant-${pillar.key}`}
+                    labelText={c.reason}
+                    placeholder={c.reasonPlaceholder}
+                    value={reason}
+                    onChange={(event) => onReasonChange(event.target.value)}
+                  />
+                  <Button size="sm" kind="ghost" onClick={onMarkCancel}>
+                    {c.cancel}
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={saving || reason.trim().length < 5}
+                    onClick={() => onMarkConfirm(pillar.key)}
+                  >
+                    {c.confirm}
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <Button
-        renderIcon={ArrowRight}
-        disabled={saving || selected.length === 0}
-        onClick={onStart}
-      >
-        {saving ? c.starting : c.start}
-      </Button>
     </div>
   );
 }

@@ -42,6 +42,7 @@ const enUS = {
   },
   navigation: {
     home: "Home",
+    portfolio: "Portfolio",
     accounts: "Account intelligence",
     radar: "Portfolio radar",
     settings: "Settings",
@@ -60,7 +61,7 @@ const enUS = {
     high: "High",
   },
   guided: {
-    accountStrategy: "Account intelligence · Strategy",
+    accountStrategy: "Account · Discovery",
     title: "Opportunity discovery",
     catalog: "catalog",
     closeLabel: "Close guided discovery",
@@ -306,6 +307,7 @@ const ptBR = {
   },
   navigation: {
     home: "Início",
+    portfolio: "Portfólio",
     accounts: "Inteligência de contas",
     radar: "Radar da carteira",
     settings: "Configurações",
@@ -324,7 +326,7 @@ const ptBR = {
     high: "Alto",
   },
   guided: {
-    accountStrategy: "Inteligência de contas · Estratégia",
+    accountStrategy: "Conta · Descoberta",
     title: "Descoberta de oportunidades",
     catalog: "catálogo",
     closeLabel: "Fechar descoberta guiada",

@@ -7,7 +7,7 @@ const enUS = {
     openCopilot: "Open copilot",
     mainNavigation: "Main navigation",
     workspace: "Workspace",
-    version: "V5.3.1 · Open workspace",
+    version: "Kyndryl UX V2 · Guided discovery",
     geminiExperimental: "Configured model",
     watsonxActive: "watsonx active",
     deterministicFallback: "Deterministic fallback",
@@ -23,9 +23,9 @@ const enUS = {
   },
   modes: {
     overview: "Overview",
-    activity: "Activity",
+    activity: "Evidence & activity",
     relationships: "Relationships",
-    strategy: "Strategy",
+    strategy: "Discovery",
     accountWorkspace: "Account workspace modes",
   },
   priority: {
@@ -465,7 +465,7 @@ const ptBR = {
     openCopilot: "Abrir copiloto",
     mainNavigation: "Navegação principal",
     workspace: "Workspace",
-    version: "V5.3.1 · Workspace aberto",
+    version: "Kyndryl UX V2 · Descoberta guiada",
     geminiExperimental: "Modelo configurado",
     watsonxActive: "watsonx ativo",
     deterministicFallback: "Motor determinístico",
@@ -481,9 +481,9 @@ const ptBR = {
   },
   modes: {
     overview: "Visão geral",
-    activity: "Atividade",
+    activity: "Evidências e atividades",
     relationships: "Relacionamentos",
-    strategy: "Estratégia",
+    strategy: "Descoberta",
     accountWorkspace: "Modos do workspace da conta",
   },
   priority: {

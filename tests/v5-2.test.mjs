@@ -131,8 +131,8 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
     guided.getLocalizedQuestionById(question.id, "pt-BR"),
   );
 
-  assert.equal(english.length, 48);
-  assert.equal(portuguese.length, 48);
+  assert.equal(english.length, 96);
+  assert.equal(portuguese.length, 96);
   assert.deepEqual(
     english.map((question) => question.id),
     portuguese.map((question) => question.id),

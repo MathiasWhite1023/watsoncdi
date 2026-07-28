@@ -398,6 +398,159 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
 }
+.v5-home-start {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px auto;
+  gap: 2rem;
+  align-items: center;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  background: #edf5ff;
+  border-left: 4px solid #0f62fe;
+}
+.v5-home-start > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.v5-home-start > div:first-child > span,
+.v5-attention-list > header span {
+  color: #0f62fe;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.v5-home-start h2 {
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+.v5-home-start p,
+.v5-home-start small {
+  color: #525252;
+  line-height: 1.45;
+}
+.v5-home-start-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.v5-home-start-progress > strong {
+  font-size: 2rem;
+  font-weight: 300;
+}
+.v5-attention-list {
+  margin: 1.5rem 0;
+  border-top: 1px solid #8d8d8d;
+}
+.v5-attention-list > header {
+  padding: 0.75rem 1rem;
+  background: #e0e0e0;
+}
+.v5-attention-list > article {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto minmax(180px, auto);
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+}
+.v5-attention-list article > div {
+  min-width: 0;
+}
+.v5-attention-list article strong,
+.v5-attention-list article small {
+  display: block;
+}
+.v5-attention-list article p {
+  margin-top: 0.25rem;
+  color: #525252;
+}
+.v5-attention-list article footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.v5-attention-rank {
+  color: #0f62fe;
+  font-size: 1.25rem;
+}
+.v5-portfolio-tabs,
+.v5-account-tabs {
+  display: flex;
+  border-bottom: 1px solid #8d8d8d;
+  margin-bottom: 1.5rem;
+}
+.v5-portfolio-tabs button,
+.v5-account-tabs button {
+  min-height: 3rem;
+  padding: 0 1rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+.v5-portfolio-tabs button:hover,
+.v5-account-tabs button:hover {
+  background: #e8e8e8;
+}
+.v5-portfolio-tabs button.active,
+.v5-account-tabs button.active {
+  border-color: #0f62fe;
+  color: #0f62fe;
+  font-weight: 600;
+}
+.v5-operational-table {
+  border-top: 1px solid #8d8d8d;
+}
+.v5-operational-table-head,
+.v5-operational-table-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) 150px 100px minmax(180px, 1fr) minmax(180px, 1fr) 110px;
+  gap: 1rem;
+  align-items: center;
+}
+.v5-operational-table-head {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  background: #e0e0e0;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.v5-operational-table-row {
+  min-height: 4.75rem;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+}
+.v5-operational-table-row > button:first-child {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.v5-operational-table-row strong,
+.v5-operational-table-row small {
+  display: block;
+}
+.v5-operational-table-row small {
+  color: #6f6f6f;
+  margin-top: 0.2rem;
+}
+.v5-breadcrumb {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+.v5-breadcrumb button {
+  border: 0;
+  background: transparent;
+  color: #0f62fe;
+  cursor: pointer;
+  padding: 0;
+}
 .v5-live {
   display: inline-flex;
   align-items: center;
@@ -2027,6 +2180,22 @@
   }
 }
 @media (max-width: 900px) {
+  .v5-home-start {
+    grid-template-columns: minmax(0, 1fr) 200px;
+  }
+  .v5-home-start > .cds--btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .v5-operational-table-head {
+    display: none;
+  }
+  .v5-operational-table-row {
+    grid-template-columns: minmax(180px, 1.2fr) 130px 90px minmax(180px, 1fr) 100px;
+  }
+  .v5-operational-table-row > span:nth-of-type(3) {
+    display: none;
+  }
   .v5-main {
     margin-left: 0;
   }
@@ -2099,6 +2268,23 @@
   }
 }
 @media (max-width: 600px) {
+  .v5-home-start,
+  .v5-attention-list > article,
+  .v5-operational-table-row {
+    grid-template-columns: 1fr;
+  }
+  .v5-home-start {
+    gap: 1rem;
+  }
+  .v5-attention-rank {
+    font-size: 0.875rem;
+  }
+  .v5-attention-list article footer {
+    justify-content: flex-start;
+  }
+  .v5-operational-table-row > span:nth-of-type(3) {
+    display: block;
+  }
   .v5-language-switcher {
     flex-basis: 7rem;
     width: 7rem;

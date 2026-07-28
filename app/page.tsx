@@ -606,6 +606,41 @@ type GuidedDiscovery = {
     stale: number;
     contradictions: number;
   };
+  overallReview: {
+    reviewedPillars: number;
+    totalPillars: number;
+    percent: number;
+    coveragePercent: number;
+    confidencePercent: number;
+  };
+  pillarAssessments: Array<{
+    key: string;
+    label: string;
+    description: string;
+    status:
+      | "not_started"
+      | "in_progress"
+      | "reviewed_sufficient"
+      | "reviewed_gaps"
+      | "not_relevant";
+    sessionId: string | null;
+    progressPercent: number;
+    coveragePercent: number;
+    confidencePercent: number;
+    answeredCount: number;
+    requiredCount: number;
+    notRelevantReason: string | null;
+    reviewedAt: string | null;
+    leadingTechnology: string | null;
+    propensity: number;
+  }>;
+  activePillar: string | null;
+  recommendedNextPillar: {
+    key: string;
+    label: string;
+    relevance: number;
+    rationale: string;
+  } | null;
   pillars: Array<{
     key: string;
     label: string;
@@ -652,15 +687,14 @@ const emptyData: ApiData = {
 };
 const navItems = [
   { id: "home", key: "home", icon: Dashboard },
-  { id: "accounts", key: "accounts", icon: Document },
-  { id: "radar", key: "radar", icon: Analytics },
+  { id: "portfolio", key: "portfolio", icon: Document },
   { id: "settings", key: "settings", icon: Settings },
 ] as const;
 const accountModeItems = [
   { id: "overview", key: "overview" },
-  { id: "activity", key: "activity" },
-  { id: "relationships", key: "relationships" },
   { id: "strategy", key: "strategy" },
+  { id: "relationships", key: "relationships" },
+  { id: "activity", key: "activity" },
 ] as const;
 const statusTone = (status: string) =>
   status === "qualified" || status === "completed"
@@ -1179,6 +1213,9 @@ export default function Home({
   const { locale, dictionary, copy, text, playbooks } = usePageCopy();
   const privateMode = mode === "private";
   const [active, setActive] = useState<(typeof navItems)[number]["id"]>("home");
+  const [portfolioMode, setPortfolioMode] = useState<
+    "accounts" | "radar" | "account"
+  >("accounts");
   const [accountMode, setAccountMode] =
     useState<(typeof accountModeItems)[number]["id"]>("overview");
   const [data, setData] = useState<ApiData>(emptyData);
@@ -1465,7 +1502,8 @@ export default function Home({
   const openAccount = useCallback(
     (accountId: string, nextMode: typeof accountMode = "overview") => {
       setSelectedId(accountId);
-      setActive("accounts");
+      setActive("portfolio");
+      setPortfolioMode("account");
       setAccountMode(nextMode);
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
@@ -1508,7 +1546,8 @@ export default function Home({
             ? `document-${accountDocument.id}`
             : "account-evidence-timeline";
       setSelectedId(accountId);
-      setActive("accounts");
+      setActive("portfolio");
+      setPortfolioMode("account");
       setAccountMode("activity");
       window.setTimeout(() => {
         const target = document.getElementById(targetId);
@@ -1770,7 +1809,10 @@ export default function Home({
       {
         label: copy.command.openRadar,
         hint: copy.command.navigation,
-        run: () => setActive("radar"),
+        run: () => {
+          setActive("portfolio");
+          setPortfolioMode("radar");
+        },
       },
       {
         label: copy.command.addInformation,
@@ -1782,7 +1824,8 @@ export default function Home({
         hint: copy.command.strategy,
         run: () => {
           if (selected) {
-            setActive("accounts");
+            setActive("portfolio");
+            setPortfolioMode("account");
             setAccountMode("strategy");
             setGuidedOpen(true);
           }
@@ -1926,6 +1969,7 @@ export default function Home({
                 onClick={(event) => {
                   event.preventDefault();
                   setActive(item.id);
+                  if (item.id === "portfolio") setPortfolioMode("accounts");
                   setMobileNav(false);
                 }}
               >
@@ -1980,7 +2024,9 @@ export default function Home({
             </strong>
           </div>
           <div>
-            {selected && active !== "home" && (
+            {selected &&
+              active === "portfolio" &&
+              portfolioMode === "account" && (
               <label className="v5-account-switch">
                 <span>{copy.shell.activeAccount}</span>
                 <select
@@ -2053,8 +2099,159 @@ export default function Home({
           />
         )}
 
-        {active === "accounts" && selected && (
+        {active === "portfolio" && portfolioMode === "accounts" && (
           <section className="v5-page">
+            <PageHeading
+              eyebrow={locale === "pt-BR" ? "Carteira" : "Portfolio"}
+              title={
+                locale === "pt-BR"
+                  ? "Contas e descoberta"
+                  : "Accounts and discovery"
+              }
+              description={
+                locale === "pt-BR"
+                  ? "Comece por uma conta, revise os oito pilares e acompanhe o avanço até o heatmap e as recomendações."
+                  : "Start with an account, review all eight pillars, and follow progress through heatmaps and recommendations."
+              }
+              action={
+                privateMode ? (
+                  <Button
+                    renderIcon={Add}
+                    onClick={() => setModal("new-account")}
+                  >
+                    {locale === "pt-BR" ? "Criar conta" : "Create account"}
+                  </Button>
+                ) : undefined
+              }
+            />
+            <nav
+              className="v5-portfolio-tabs"
+              aria-label={
+                locale === "pt-BR"
+                  ? "Visualizações do portfólio"
+                  : "Portfolio views"
+              }
+            >
+              <button className="active">
+                {locale === "pt-BR" ? "Contas" : "Accounts"}
+              </button>
+              <button onClick={() => setPortfolioMode("radar")}>
+                {locale === "pt-BR"
+                  ? "Radar do portfólio"
+                  : "Portfolio radar"}
+              </button>
+            </nav>
+            <div className="v5-operational-table" role="table">
+              <div className="v5-operational-table-head" role="row">
+                <span role="columnheader">
+                  {locale === "pt-BR" ? "Conta" : "Account"}
+                </span>
+                <span role="columnheader">
+                  {locale === "pt-BR" ? "Pilares revisados" : "Pillars reviewed"}
+                </span>
+                <span role="columnheader">
+                  {locale === "pt-BR" ? "Cobertura" : "Coverage"}
+                </span>
+                <span role="columnheader">
+                  {locale === "pt-BR"
+                    ? "Principal oportunidade"
+                    : "Leading opportunity"}
+                </span>
+                <span role="columnheader">
+                  {locale === "pt-BR" ? "Próximo passo" : "Next step"}
+                </span>
+                <span role="columnheader">
+                  {locale === "pt-BR" ? "Ação" : "Action"}
+                </span>
+              </div>
+              {data.discoveries.map((account) => {
+                const guided = data.guidedDiscoveries.find(
+                  (item) => item.discoveryId === account.id,
+                );
+                const leading =
+                  guided?.technologyAssessment?.technologies.find(
+                  (technology) =>
+                      technology.propensity > 0 &&
+                      technology.confidence > 0 &&
+                      technology.action !== "DO_NOT_RECOMMEND" &&
+                      technology.action !== "GATE_FAILED",
+                  );
+                return (
+                  <div
+                    className="v5-operational-table-row"
+                    role="row"
+                    key={account.id}
+                  >
+                    <button
+                      role="cell"
+                      onClick={() => openAccount(account.id)}
+                    >
+                      <strong>{account.customerName}</strong>
+                      <small>
+                        {account.industry} ·{" "}
+                        {localizeSystemValue(locale, account.priority)}
+                      </small>
+                    </button>
+                    <div role="cell">
+                      <strong>
+                        {guided?.overallReview.reviewedPillars || 0}/
+                        {guided?.overallReview.totalPillars || 8}
+                      </strong>
+                      <ProgressBar
+                        label={account.customerName}
+                        hideLabel
+                        value={guided?.overallReview.percent || 0}
+                      />
+                    </div>
+                    <span role="cell">
+                      {guided?.overallReview.coveragePercent || 0}%
+                    </span>
+                    <span role="cell">
+                      {leading?.name ||
+                        (locale === "pt-BR"
+                          ? "Aguardando evidências"
+                          : "Awaiting evidence")}
+                    </span>
+                    <span role="cell">
+                      {guided?.recommendedNextPillar?.label ||
+                        account.nextEngagement}
+                    </span>
+                    <Button
+                      role="cell"
+                      size="sm"
+                      kind="tertiary"
+                      renderIcon={ArrowRight}
+                      onClick={() => {
+                        openAccount(account.id, "strategy");
+                        setGuidedOpen(true);
+                      }}
+                    >
+                      {guided?.activePillar
+                        ? locale === "pt-BR"
+                          ? "Continuar"
+                          : "Continue"
+                        : locale === "pt-BR"
+                          ? "Abrir"
+                          : "Open"}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {active === "portfolio" &&
+          portfolioMode === "account" &&
+          selected && (
+          <section className="v5-page">
+            <nav className="v5-breadcrumb" aria-label="Breadcrumb">
+              <button onClick={() => setPortfolioMode("accounts")}>
+                {locale === "pt-BR" ? "Portfólio" : "Portfolio"}
+              </button>
+              <span>/</span>
+              <strong>{selected.customerName}</strong>
+            </nav>
             <header className="v5-account-hero">
               <div>
                 <span>
@@ -2366,8 +2563,25 @@ export default function Home({
           </section>
         )}
 
-        {active === "radar" && (
+        {active === "portfolio" && portfolioMode === "radar" && (
           <section className="v5-page">
+            <nav
+              className="v5-portfolio-tabs"
+              aria-label={
+                locale === "pt-BR"
+                  ? "Visualizações do portfólio"
+                  : "Portfolio views"
+              }
+            >
+              <button onClick={() => setPortfolioMode("accounts")}>
+                {locale === "pt-BR" ? "Contas" : "Accounts"}
+              </button>
+              <button className="active">
+                {locale === "pt-BR"
+                  ? "Radar do portfólio"
+                  : "Portfolio radar"}
+              </button>
+            </nav>
             <PageHeading
               eyebrow={copy.radar.eyebrow}
               title={copy.radar.title}
@@ -2770,6 +2984,17 @@ function HomeView({
       event.evidenceStatus === "stale" ||
       pageLoadedAt - new Date(event.occurredAt).getTime() > 90 * 86400000,
   );
+  const recommendedAccount =
+    data.discoveries.find(
+      (account) => account.id === actions[0]?.discoveryId,
+    ) ||
+    [...data.discoveries].sort((a, b) => a.progress - b.progress)[0] ||
+    null;
+  const recommendedDiscovery = recommendedAccount
+    ? data.guidedDiscoveries.find(
+        (item) => item.discoveryId === recommendedAccount.id,
+      )
+    : null;
   return (
     <section className="v5-page">
       <PageHeading
@@ -2804,8 +3029,60 @@ function HomeView({
           </div>
         }
       />
+      {recommendedAccount && (
+        <section className="v5-home-start">
+          <div>
+            <span>
+              {locale === "pt-BR"
+                ? "Comece por aqui"
+                : "Start here"}
+            </span>
+            <h2>
+              {recommendedDiscovery?.activePillar
+                ? locale === "pt-BR"
+                  ? "Continuar descoberta"
+                  : "Continue discovery"
+                : locale === "pt-BR"
+                  ? "Iniciar próxima descoberta"
+                  : "Start the next discovery"}
+            </h2>
+            <p>
+              <strong>{recommendedAccount.customerName}</strong> ·{" "}
+              {recommendedDiscovery?.recommendedNextPillar?.label ||
+                recommendedAccount.nextEngagement}
+            </p>
+            <small>
+              {recommendedDiscovery?.recommendedNextPillar?.rationale ||
+                (locale === "pt-BR"
+                  ? "Esta conta tem a maior lacuna de informação acionável da carteira."
+                  : "This account has the portfolio's highest actionable information gap.")}
+            </small>
+          </div>
+          <div className="v5-home-start-progress">
+            <strong>{recommendedDiscovery?.overallReview.percent || 0}%</strong>
+            <span>
+              {recommendedDiscovery?.overallReview.reviewedPillars || 0}/
+              {recommendedDiscovery?.overallReview.totalPillars || 8}{" "}
+              {locale === "pt-BR"
+                ? "pilares revisados"
+                : "pillars reviewed"}
+            </span>
+            <ProgressBar
+              label={recommendedAccount.customerName}
+              hideLabel
+              value={recommendedDiscovery?.overallReview.percent || 0}
+            />
+          </div>
+          <Button
+            renderIcon={ArrowRight}
+            onClick={() => onOpenGuided(recommendedAccount.id)}
+          >
+            {locale === "pt-BR" ? "Continuar" : "Continue"}
+          </Button>
+        </section>
+      )}
       <AccountHealthHeatmap
-        rows={accountHealthRows}
+        rows={accountHealthRows.slice(0, 5)}
         locale={locale}
         onAccountActivate={(row) => onOpen(row.accountId)}
         onCellActivate={(row, cell) =>
@@ -2814,46 +3091,40 @@ function HomeView({
             : onOpen(row.accountId, cell.destination)
         }
       />
-      <div className="v5-attention-grid">
+      <section className="v5-attention-list">
+        <header>
+          <span>
+            {locale === "pt-BR"
+              ? "Contas que precisam de atenção"
+              : "Accounts needing attention"}
+          </span>
+        </header>
         {actions.slice(0, 3).map((action, index) => (
-          <article
-            key={action.id}
-            className={`v5-attention-card rank-${index + 1}`}
-          >
-            <header>
-              <span>0{index + 1}</span>
-              <Tag type={statusTone(action.status)}>
-                {action.priorityScore} {copy.home.priority}
-              </Tag>
-            </header>
-            <small>
+          <article key={action.id}>
+            <span className="v5-attention-rank">0{index + 1}</span>
+            <div>
+              <small>
               {
                 data.discoveries.find(
                   (account) => account.id === action.discoveryId,
                 )?.customerName
               }{" "}
               · {copy.home.nextBestAction}
-            </small>
-            <h2>{action.title}</h2>
-            <p>{action.whyNow || action.rationale}</p>
-            <dl>
-              <div>
-                <dt>{copy.home.impact}</dt>
-                <dd>{action.impact}</dd>
-              </div>
-              <div>
-                <dt>{copy.home.confidence}</dt>
-                <dd>{action.confidence}%</dd>
-              </div>
-              <div>
-                <dt>{copy.home.effort}</dt>
-                <dd>{action.effort}/100</dd>
-              </div>
-            </dl>
+              </small>
+              <strong>{action.title}</strong>
+              <p>{action.whyNow || action.rationale}</p>
+            </div>
+            <Tag type={statusTone(action.status)}>
+              {action.priorityScore} {copy.home.priority}
+            </Tag>
             <footer>
-              <button onClick={() => onOpen(action.discoveryId)}>
-                {copy.home.viewEvidence} <ArrowRight />
-              </button>
+              <Button
+                size="sm"
+                kind="ghost"
+                onClick={() => onOpen(action.discoveryId)}
+              >
+                {copy.home.viewEvidence}
+              </Button>
               {privateMode && action.status === "proposal" && (
                 <Button
                   size="sm"
@@ -2866,13 +3137,15 @@ function HomeView({
           </article>
         ))}
         {!actions.length && (
-          <article className="v5-attention-card empty">
+          <article className="empty">
             <Checkmark size={32} />
-            <h2>{copy.home.noCritical}</h2>
-            <p>{copy.home.noCriticalHelp}</p>
+            <div>
+              <strong>{copy.home.noCritical}</strong>
+              <p>{copy.home.noCriticalHelp}</p>
+            </div>
           </article>
         )}
-      </div>
+      </section>
       <div className="v5-home-grid">
         <section className="v5-card v5-span-2">
           <CardHeader
@@ -2898,26 +3171,6 @@ function HomeView({
                 </span>
               </article>
             ))}
-          </div>
-        </section>
-        <section className="v5-card">
-          <CardHeader
-            eyebrow={copy.home.conversationEyebrow}
-            title={actions[0]?.conversation.stakeholder || copy.home.mapSponsor}
-          />
-          <div className="v5-conversation-card">
-            <span>
-              {actions[0]?.conversation.theme || copy.home.executiveCoverage}
-            </span>
-            <p>
-              {actions[0]?.conversation.opener ||
-                copy.home.executiveCoverageHelp}
-            </p>
-            {actions[0]?.conversation.questions
-              ?.slice(0, 3)
-              .map((item, index) => (
-                <button key={`${index}-${item}`}>{item}</button>
-              ))}
           </div>
         </section>
         <section className="v5-card">
@@ -2974,38 +3227,6 @@ function HomeView({
               </button>
             ))}
             {!stale.length && <Empty text={copy.home.noStale} />}
-          </div>
-        </section>
-        <section className="v5-card v5-span-2">
-          <CardHeader
-            eyebrow={copy.home.portfolio}
-            title={copy.home.maturityDecision}
-          />
-          <div className="v5-portfolio-table">
-            {data.discoveries.map((account) => (
-              <button key={account.id} onClick={() => onOpen(account.id)}>
-                <span>
-                  <strong>{account.customerName}</strong>
-                  <small>{localizeSystemValue(locale, account.stage)}</small>
-                </span>
-                <i>
-                  <b style={{ width: `${account.progress}%` }} />
-                </i>
-                <em>{account.progress}%</em>
-                <Tag
-                  type={
-                    account.priority === "Alta"
-                      ? "red"
-                      : account.priority === "Média"
-                        ? "purple"
-                        : "green"
-                  }
-                >
-                  {localizeSystemValue(locale, account.priority)}
-                </Tag>
-                <ArrowRight />
-              </button>
-            ))}
           </div>
         </section>
       </div>
@@ -5061,6 +5282,13 @@ function GuidedDiscoverySummary({
     stale: 0,
     contradictions: 0,
   };
+  const overallReview = discovery?.overallReview || {
+    reviewedPillars: 0,
+    totalPillars: 8,
+    percent: 0,
+    coveragePercent: 0,
+    confidencePercent: 0,
+  };
   const relevant =
     discovery?.pillars
       .sort((a, b) => b.relevance - a.relevance)
@@ -5069,6 +5297,8 @@ function GuidedDiscoverySummary({
     discovery?.technologyAssessment?.technologies
       .filter(
         (technology) =>
+          technology.propensity > 0 &&
+          technology.confidence > 0 &&
           technology.action !== "DO_NOT_RECOMMEND" &&
           technology.action !== "GATE_FAILED",
       )
@@ -5083,7 +5313,7 @@ function GuidedDiscoverySummary({
       <div className="v5-guided-copy">
         <span>
           {text(copy.guidedSummary.eyebrow, {
-            version: discovery?.catalogVersion || "2026.2-kyndryl",
+            version: discovery?.catalogVersion || "2026.3-kyndryl",
           })}
         </span>
         <h2>
@@ -5105,11 +5335,13 @@ function GuidedDiscoverySummary({
       </div>
       <div className="v5-guided-stats">
         <div>
-          <strong>{metrics.progressPercent}%</strong>
+          <strong>
+            {overallReview.reviewedPillars}/{overallReview.totalPillars}
+          </strong>
           <span>{copy.guidedSummary.progress}</span>
         </div>
         <div>
-          <strong>{metrics.coveragePercent}%</strong>
+          <strong>{overallReview.coveragePercent}%</strong>
           <span>{copy.guidedSummary.coverage}</span>
         </div>
         <div>
@@ -5119,7 +5351,7 @@ function GuidedDiscoverySummary({
         <ProgressBar
           label={copy.guidedSummary.progressLabel}
           hideLabel
-          value={metrics.progressPercent}
+          value={overallReview.percent}
         />
       </div>
       <Button renderIcon={ArrowRight} onClick={onOpen}>

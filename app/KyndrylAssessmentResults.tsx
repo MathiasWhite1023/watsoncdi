@@ -13,6 +13,7 @@ type Props = {
   assessment: KyndrylAssessment;
   locale: Locale;
   onContinue?: () => void;
+  onChooseNext?: () => void;
 };
 
 const copy = {
@@ -47,6 +48,7 @@ const copy = {
     gateSatisfied: "Satisfied",
     gateNotRequired: "Not required",
     continue: "Continue discovery",
+    chooseNext: "Choose next pillar",
     noEvidence:
       "Answer the selected pillar questions to activate the heatmap and recommendations.",
     additional: "Highest-value questions still open",
@@ -83,6 +85,7 @@ const copy = {
     gateSatisfied: "Atendido",
     gateNotRequired: "Não necessário",
     continue: "Continuar descoberta",
+    chooseNext: "Escolher próximo pilar",
     noEvidence:
       "Responda às perguntas do pilar selecionado para ativar o heatmap e as recomendações.",
     additional: "Perguntas de maior valor ainda abertas",
@@ -132,6 +135,7 @@ export default function KyndrylAssessmentResults({
   assessment,
   locale,
   onContinue,
+  onChooseNext,
 }: Props) {
   const c = copy[locale];
   const hasKnownEvidence = assessment.summary.knownAnswers > 0;
@@ -145,11 +149,18 @@ export default function KyndrylAssessmentResults({
           <h2 id="kyndryl-results-title">{c.title}</h2>
           <p>{c.subtitle}</p>
         </div>
-        {onContinue && (
-          <Button kind="tertiary" renderIcon={ArrowRight} onClick={onContinue}>
-            {c.continue}
-          </Button>
-        )}
+        <div>
+          {onContinue && (
+            <Button kind="tertiary" onClick={onContinue}>
+              {c.continue}
+            </Button>
+          )}
+          {onChooseNext && (
+            <Button renderIcon={ArrowRight} onClick={onChooseNext}>
+              {c.chooseNext}
+            </Button>
+          )}
+        </div>
       </header>
 
       <div className={styles.metrics}>

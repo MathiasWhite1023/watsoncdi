@@ -155,13 +155,12 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
   assert.match(page, /LanguageSwitcher/);
   assert.match(page, /useI18n/);
   assert.match(i18n, /home: "Home"/);
-  assert.match(i18n, /accounts: "Account intelligence"/);
-  assert.match(i18n, /radar: "Portfolio radar"/);
+  assert.match(i18n, /portfolio: "Portfolio"/);
   assert.match(i18n, /settings: "Settings"/);
   assert.match(appMessages, /overview: "Overview"/);
-  assert.match(appMessages, /activity: "Activity"/);
+  assert.match(appMessages, /activity: "Evidence & activity"/);
   assert.match(appMessages, /relationships: "Relationships"/);
-  assert.match(appMessages, /strategy: "Strategy"/);
+  assert.match(appMessages, /strategy: "Discovery"/);
   assert.match(appMessages, /title: "Account copilot"/);
   assert.match(appMessages, /prepare: "Prepare conversation"/);
   assert.match(appMessages, /next: "Next step"/);
@@ -276,7 +275,7 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
   assert.match(styles, /prefers-reduced-motion/);
   assert.match(styles, /max-width:\s*700px/);
 
-  assert.match(kyndrylDomain, /2026\.2-kyndryl/);
+  assert.match(kyndrylDomain, /2026\.3-kyndryl/);
   assert.match(
     domain,
     /informationGap \* 0\.45[\s\S]+hypothesisImpact \* 0\.3[\s\S]+staleness \* 0\.15[\s\S]+stakeholderCoverage \* 0\.1/,
@@ -318,8 +317,8 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
 
 test("routes discovery directly through the eight Kyndryl pillars and keeps coverage separate from progress", async () => {
   const guided = await loadGuidedModule();
-  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.2-kyndryl");
-  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 48);
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.3-kyndryl");
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 96);
   for (const pillar of [
     "ibm-z",
     "infrastructure-modernization",
