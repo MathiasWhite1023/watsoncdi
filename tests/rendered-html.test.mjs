@@ -37,10 +37,18 @@ async function loadProviderModule() {
 let guidedModule;
 async function loadGuidedModule() {
   if (guidedModule) return guidedModule;
-  const [typescript, source] = await Promise.all([
+  const [typescript, source, kyndrylSource] = await Promise.all([
     import("typescript"),
     readProjectFile("lib/guided-discovery.ts"),
+    readProjectFile("lib/kyndryl-discovery.ts"),
   ]);
+  const kyndrylCompiled = typescript.transpileModule(kyndrylSource, {
+    compilerOptions: {
+      module: typescript.ModuleKind.ESNext,
+      target: typescript.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const kyndrylUrl = `data:text/javascript;base64,${Buffer.from(kyndrylCompiled).toString("base64")}`;
   const compiled = typescript.transpileModule(source, {
     compilerOptions: {
       module: typescript.ModuleKind.ESNext,
@@ -50,7 +58,7 @@ async function loadGuidedModule() {
   const executable = compiled.replace(
     'from "zod"',
     `from ${JSON.stringify(import.meta.resolve("zod"))}`,
-  );
+  ).replace('from "./kyndryl-discovery"', `from ${JSON.stringify(kyndrylUrl)}`);
   guidedModule = await import(
     `data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`
   );
@@ -230,6 +238,7 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
     styles,
     api,
     domain,
+    kyndrylDomain,
     provider,
     migration,
     schema,
@@ -243,6 +252,7 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
     readProjectFile("app/GuidedDiscoveryWorkspace.module.css"),
     readProjectFile("app/api/discoveries/route.ts"),
     readProjectFile("lib/guided-discovery.ts"),
+    readProjectFile("lib/kyndryl-discovery.ts"),
     readProjectFile("lib/ai-provider.ts"),
     readProjectFile("drizzle/0006_hot_impossible_man.sql"),
     readProjectFile("db/schema.ts"),
@@ -264,20 +274,22 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
   assert.match(i18n, /historyAndRevisions: "History and revisions/);
   assert.match(i18n, /checkpointAvailable: "Checkpoint available"/);
   assert.match(styles, /prefers-reduced-motion/);
-  assert.match(styles, /max-width:700px/);
+  assert.match(styles, /max-width:\s*700px/);
 
-  assert.match(domain, /2026\.1/);
+  assert.match(kyndrylDomain, /2026\.2-kyndryl/);
   assert.match(
     domain,
-    /\.45 \+ hypothesisImpact \* \.30 \+ staleness \* \.15 \+ stakeholderCoverage \* \.10/,
+    /informationGap \* 0\.45[\s\S]+hypothesisImpact \* 0\.3[\s\S]+staleness \* 0\.15[\s\S]+stakeholderCoverage \* 0\.1/,
   );
-  assert.match(domain, /base-business-objective/);
-  assert.match(domain, /finops-allocation/);
-  assert.match(domain, /trusted-data-quality/);
-  assert.match(domain, /ai-governance-monitoring/);
-  assert.match(domain, /hybrid-cloud-workloads/);
-  assert.match(domain, /automation-handoffs/);
-  assert.match(domain, /app-modernization-strategy/);
+  assert.match(domain, /KYNDYRL_QUESTION_CATALOG/);
+  assert.match(kyndrylDomain, /ibmz-platform/);
+  assert.match(kyndrylDomain, /infra-finops/);
+  assert.match(kyndrylDomain, /app-observability/);
+  assert.match(kyndrylDomain, /sap-roadmap/);
+  assert.match(kyndrylDomain, /ops-automation/);
+  assert.match(kyndrylDomain, /data-governance/);
+  assert.match(kyndrylDomain, /work-experience/);
+  assert.match(kyndrylDomain, /cyber-recovery/);
   assert.match(provider, /suggestDiscoveryFollowUp/);
   assert.match(provider, /Não calcule nem altere scores/);
 
@@ -304,57 +316,34 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
   assert.match(answerRoute, /scope: "private"/);
 });
 
-test("routes guided discovery adaptively and keeps progress separate from evidence coverage", async () => {
+test("routes discovery directly through the eight Kyndryl pillars and keeps coverage separate from progress", async () => {
   const guided = await loadGuidedModule();
-  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.1");
-  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 30);
-  assert.equal(guided.questionsForPillar("base").length, 6);
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.2-kyndryl");
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 48);
   for (const pillar of [
-    "finops",
-    "trusted-data",
-    "ai-governance",
-    "hybrid-cloud",
-    "automation",
-    "app-modernization",
+    "ibm-z",
+    "infrastructure-modernization",
+    "application-modernization",
+    "sap-transformation",
+    "modern-operations",
+    "data-ai",
+    "modern-workplace",
+    "cyber-security",
   ]) {
-    assert.equal(guided.questionsForPillar(pillar).length, 4);
+    assert.equal(guided.questionsForPillar(pillar).length, 6);
   }
-
-  const initial = guided.materializeQuestionRoute({
-    mode: "adaptive",
-    answers: [],
-  });
-  assert.deepEqual(
-    initial.questionIds,
-    guided.questionsForPillar("base").map((question) => question.id),
-  );
-
-  const baseAnswers = guided.questionsForPillar("base").map((question) => ({
-    questionId: question.id,
-    status: "confirmed",
-    evidenceStatus: "confirmed",
-    answerText: `${question.question} custos cloud forecast AWS sponsor orçamento prazo`,
-    structured: { value: 4 },
-    stakeholderId: "stakeholder-1",
-  }));
-  const adaptive = guided.materializeQuestionRoute({
-    mode: "adaptive",
-    answers: baseAnswers,
-    hasRelevantStakeholder: true,
-    hasOwner: true,
-    scoreHints: { finops: 90, "hybrid-cloud": 75 },
-  });
-  assert.equal(adaptive.selectedPillars.length, 2);
-  assert.equal(adaptive.selectedPillars[0], "finops");
-  assert.equal(adaptive.questionIds.length, 12);
 
   const direct = guided.materializeQuestionRoute({
     mode: "direct",
-    selectedPillars: ["trusted-data"],
+    selectedPillars: ["data-ai"],
     answers: [],
   });
-  assert.equal(direct.questionIds.length, 3);
-  assert.ok(direct.questionIds.every((id) => id.startsWith("trusted-data")));
+  assert.equal(direct.questionIds.length, 6);
+  assert.ok(
+    direct.questionIds.every(
+      (id) => guided.getQuestionById(id)?.pillar === "data-ai",
+    ),
+  );
 
   const pillarAnswers = direct.questionIds.map((questionId, index) => ({
     questionId,
@@ -363,31 +352,23 @@ test("routes guided discovery adaptively and keeps progress separate from eviden
     answerText: index === 2 ? "" : "Evidência relatada",
     structured: index === 2 ? {} : { value: 3 },
   }));
-  const extended = guided.materializeQuestionRoute({
-    mode: "direct",
-    selectedPillars: ["trusted-data"],
-    answers: pillarAnswers,
-    hasRelevantStakeholder: false,
-    hasOwner: false,
-  });
-  assert.equal(extended.questionIds.length, 4);
   const metrics = guided.calculateDiscoveryMetrics(
     direct.questionIds,
     pillarAnswers,
   );
   assert.equal(metrics.progressPercent, 100);
-  assert.equal(metrics.coveragePercent, 67);
+  assert.equal(metrics.coveragePercent, 83);
   assert.equal(metrics.gaps, 1);
 });
 
 test("uses the transparent 45/30/15/10 information-value ranking", async () => {
   const guided = await loadGuidedModule();
-  const questions = guided.questionsForPillar("finops").slice(0, 2);
+  const questions = guided.questionsForPillar("modern-operations").slice(0, 2);
   const ranked = guided.rankNextQuestion({
     questions,
     answers: [],
-    hypothesisImpactByPillar: { finops: 80 },
-    stakeholderCoverageByPillar: { finops: 20 },
+    hypothesisImpactByPillar: { "modern-operations": 80 },
+    stakeholderCoverageByPillar: { "modern-operations": 20 },
     now: new Date("2026-07-14T12:00:00Z"),
   });
   assert.equal(ranked.length, 2);

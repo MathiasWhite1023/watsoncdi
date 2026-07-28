@@ -1,5 +1,36 @@
 # Changelog
 
+## Kyndryl opportunity-discovery pilot
+
+Status: branch validated; production unchanged
+Branch: `codex/kyndryl-discovery-flow`
+Baseline: `origin/main` / `v5.3.1-open-authenticated-workspace`
+Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+
+### Added
+
+- Account-first journey: `account -> Kyndryl pillar -> discovery questions -> capability heatmap and IBM recommendations`.
+- Versioned bilingual catalog `2026.2-kyndryl` with 48 curated questions across eight battle-card pillars:
+  - IBM Z Modernization & Hybrid Operations;
+  - Infrastructure Modernization;
+  - Application Modernization;
+  - SAP Transformation;
+  - Modern Operations;
+  - Data Platform & AI;
+  - Modern Workplace;
+  - Zero Trust & Cyber Security.
+- Explainable deterministic Technology Fit Score:
+  - `45% Evidence Fit + 25% Capability Gap + 15% Business Impact + 10% Journey Fit + 5% Attach Priority - Penalties`.
+- Separate propensity and evidence-confidence indicators, with `N/A` excluded and `Don't know` reducing confidence.
+- Required technology gates, including the IBM Z gate, before gated products can be recommended.
+- Traceability from each answer through evidence, capability maturity, recommendation rationale, product, workshop and next question.
+- Responsive IBM Carbon discovery workspace with a four-step journey, maturity heatmap, product ranking, score composition and bilingual public example.
+- Compatibility with existing guided-discovery sessions and account data; no database migration is required.
+
+### Rollback
+
+This pilot is isolated from production. Delete or abandon `codex/kyndryl-discovery-flow` and continue from `origin/main` or tag `v5.3.1-open-authenticated-workspace`. No data migration or Sites rollback is needed because this branch has not been deployed.
+
 ## v5.3.1-open-authenticated-workspace
 
 Status: published

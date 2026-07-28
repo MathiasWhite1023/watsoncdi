@@ -9,20 +9,38 @@ async function readProjectFile(path) {
 }
 
 async function loadTypeScriptModule(path) {
-  const [typescript, source] = await Promise.all([
+  const [typescript, source, kyndrylSource] = await Promise.all([
     import("typescript"),
     readProjectFile(path),
+    path === "lib/guided-discovery.ts"
+      ? readProjectFile("lib/kyndryl-discovery.ts")
+      : Promise.resolve(""),
   ]);
+  const kyndrylUrl = kyndrylSource
+    ? `data:text/javascript;base64,${Buffer.from(
+        typescript.transpileModule(kyndrylSource, {
+          compilerOptions: {
+            module: typescript.ModuleKind.ESNext,
+            target: typescript.ScriptTarget.ES2022,
+          },
+        }).outputText,
+      ).toString("base64")}`
+    : "";
   const compiled = typescript.transpileModule(source, {
     compilerOptions: {
       module: typescript.ModuleKind.ESNext,
       target: typescript.ScriptTarget.ES2022,
     },
   }).outputText;
-  const executable = compiled.replace(
+  let executable = compiled.replace(
     'from "zod"',
     `from ${JSON.stringify(import.meta.resolve("zod"))}`,
   );
+  if (kyndrylUrl)
+    executable = executable.replace(
+      'from "./kyndryl-discovery"',
+      `from ${JSON.stringify(kyndrylUrl)}`,
+    );
   return import(
     `data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`
   );
@@ -113,8 +131,8 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
     guided.getLocalizedQuestionById(question.id, "pt-BR"),
   );
 
-  assert.equal(english.length, 30);
-  assert.equal(portuguese.length, 30);
+  assert.equal(english.length, 48);
+  assert.equal(portuguese.length, 48);
   assert.deepEqual(
     english.map((question) => question.id),
     portuguese.map((question) => question.id),
@@ -138,7 +156,7 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
 
   const englishAnswer = [
     {
-      questionId: "base-business-objective",
+      questionId: "infra-finops",
       status: "confirmed",
       evidenceStatus: "confirmed",
       answerText: "tag showback chargeback forecast budget sponsor",
@@ -147,7 +165,7 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
   ];
   const portugueseAnswer = [
     {
-      questionId: "base-business-objective",
+      questionId: "infra-finops",
       status: "confirmed",
       evidenceStatus: "confirmed",
       answerText: "tag showback chargeback forecast budget sponsor",
@@ -326,8 +344,10 @@ test("builds distinct Capability Health and Portfolio Fit datasets", async () =>
       },
     ],
   });
-  const finops = capabilities.find((row) => row.pillarKey === "finops");
-  assert.equal(capabilities.length, 6);
+  const finops = capabilities.find(
+    (row) => row.pillarKey === "infrastructure-modernization",
+  );
+  assert.equal(capabilities.length, 8);
   assert.equal(finops.cells.alignment.value, 81);
   assert.equal(finops.cells.businessValue.value, 74);
   assert.equal(finops.cells.readiness.value, 63);
@@ -337,8 +357,8 @@ test("builds distinct Capability Health and Portfolio Fit datasets", async () =>
 
   const fit = health.buildPortfolioFit([account]);
   assert.equal(fit.length, 1);
-  assert.equal(fit[0].cells.length, 6);
-  assert.equal(fit[0].leadingCapability, "FinOps");
+  assert.equal(fit[0].cells.length, 8);
+  assert.equal(fit[0].leadingCapability, "Infrastructure");
   assert.equal(fit[0].leadingFit, 81);
 });
 

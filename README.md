@@ -8,6 +8,36 @@ Live demo: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
 This is a portfolio/challenge project. It is not an official IBM product.
 
+## Kyndryl Opportunity-Discovery Pilot
+
+The dedicated branch `codex/kyndryl-discovery-flow` adapts the product around the operating journey requested for the Kyndryl initiative:
+
+```text
+account
+  -> select one battle-card pillar
+  -> answer account-specific discovery questions
+  -> review capability maturity
+  -> receive explainable IBM technology recommendations
+```
+
+The bilingual `2026.2-kyndryl` catalog contains 48 curated questions across IBM Z Modernization & Hybrid Operations, Infrastructure Modernization, Application Modernization, SAP Transformation, Modern Operations, Data Platform & AI, Modern Workplace, and Zero Trust & Cyber Security.
+
+The opportunity engine is deterministic and auditable. It applies the battle-card formula:
+
+```text
+Technology Fit Score =
+  45% Evidence Fit
+  + 25% Capability Gap
+  + 15% Business Impact
+  + 10% Journey Fit
+  + 5% Attach Priority
+  - Penalties
+```
+
+Propensity and confidence are deliberately separate. `Yes` and `No` become evidence according to the question rule; `N/A` is removed from the score and confidence denominators; `Don't know` adds no evidence and reduces confidence. Required gates are evaluated before gated technologies are recommended. Every recommendation retains the chain `answer -> evidence -> capability gap -> technology`, as well as the recommended workshop and next question.
+
+The public example is read-only but exposes the complete questions and results experience. Existing guided-discovery tables and account records are reused, so the pilot introduces no destructive schema change and does not affect the OpenAI Sites production deployment.
+
 ## What It Does
 
 - Provides a role-oriented Home with a daily briefing, prioritized action queue, meetings and accounts that need attention.
@@ -81,16 +111,16 @@ All health matrices use a consistent scale and always expose both the score and 
 
 Cells are keyboard-accessible and open an evidence panel or the exact account context that explains the score. The public demo uses curated bilingual content and does not consume generative-AI quota when the user changes language.
 
-## Guided Discovery
+## Opportunity Discovery
 
-Open `Account intelligence -> Strategy -> Guided discovery` (or `Inteligência de contas -> Estratégia -> Descoberta guiada` in Portuguese) to run the account questionnaire. The localized `2026.1` catalog starts with six business and technology diagnosis questions, then ranks FinOps, Trusted Data, AI Governance, Hybrid Cloud, Automation and App Modernization by information value.
+On the Kyndryl branch, open `Account intelligence -> Strategy -> Opportunity discovery` (or `Inteligência de contas -> Estratégia -> Descoberta de oportunidades` in Portuguese). Select a single battle-card pillar, answer its account-specific questions and open the resulting capability heatmap and IBM technology ranking.
 
 Two modes are available in both languages:
 
-- `Adaptive / Adaptativo`: completes the base diagnosis, selects the two most relevant pillars and materializes the next route.
-- `Direct by pillar / Direto por pilar`: starts immediately in one or more selected technology themes.
+- The primary Kyndryl experience is `Direct by pillar / Direto por pilar`, keeping the user focused on one commercial conversation at a time.
+- Existing adaptive sessions remain readable for backward compatibility and are scored by the same explainable engine.
 
-Each answer can include a structured value, free context, evidence nature, related stakeholder, source, date and confidence. Drafts do not change intelligence. Confirmed and unknown answers update the deterministic account model, while an AI-generated follow-up remains a proposal until a person accepts it.
+Each answer can include `Yes`, `No`, `N/A` or `Don't know`, free context, evidence nature, related stakeholder, source, date and confidence. Drafts do not change intelligence. Confirmed answers update the deterministic account model immediately. Model-assisted follow-ups remain optional proposals and never define the scores.
 
 ## Intelligence Engine
 
@@ -135,7 +165,7 @@ Meeting notes / unified information / documents
 
 The main product UI lives in `app/page.tsx`. Typed translations and locale resolution live in `lib/i18n.ts`, with the client provider and Carbon language selector in `app/I18nProvider.tsx`. Health formulas live in `lib/account-health.ts`; the three semantic heatmap surfaces live in `app/HealthHeatmaps.tsx`. The conversation review, visible analysis pipeline, governed CRM handoff and observed metrics live in `app/CommercialProofPanels.tsx`; the relationship-oriented context view lives in `app/CustomerContextMap.tsx`. Commercial state comparisons and handoff/impact contracts live in `lib/commercial-proof.ts`.
 
-The guided workspace lives in `app/GuidedDiscoveryWorkspace.tsx`, its versioned, localized catalog and deterministic route engine in `lib/guided-discovery.ts`, and its scoped endpoints under `app/api/accounts/[id]/guided-discovery`. The account API remains compatible with `/api/discoveries` while exposing `/api/accounts` and scoped account routes. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic intelligence in `lib/account-intelligence.ts`. V5 charts and relationship canvas live in `app/V5Charts.tsx` and `app/RelationshipGraph.tsx`.
+The guided workspace lives in `app/GuidedDiscoveryWorkspace.tsx`; the Kyndryl catalog, gates and scoring engine live in `lib/kyndryl-discovery.ts`; and the backward-compatible route adapter lives in `lib/guided-discovery.ts`. Results are presented by `app/KyndrylAssessmentResults.tsx`. Scoped endpoints remain under `app/api/accounts/[id]/guided-discovery`, while `/api/discoveries` continues to support the current application snapshot. The vendor-neutral AI boundary lives in `lib/ai-provider.ts`, retrieval in `lib/account-retrieval.ts`, and deterministic account intelligence in `lib/account-intelligence.ts`.
 
 ## Getting Started
 
