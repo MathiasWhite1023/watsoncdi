@@ -33,6 +33,8 @@ export type GuidedDiscoveryCatalogQuestion = {
   hint: string;
   input: GuidedDiscoveryInput;
   keywords: string[];
+  essential: boolean;
+  triggerQuestionId?: string;
 };
 
 export type GuidedDiscoveryAnswerLike = {
@@ -68,7 +70,7 @@ export type GuidedDiscoveryQuestionDelta = {
 const responseOptionsPt = ["Sim", "Não", "Não se aplica", "Não sei"];
 const responseOptionsEn = ["Yes", "No", "Not applicable", "Don't know"];
 
-export const GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] =
+const CORE_GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] =
   KYNDYRL_QUESTION_CATALOG.map((item) => ({
     id: item.id,
     pillar: item.pillar,
@@ -82,13 +84,38 @@ export const GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] =
       options: responseOptionsPt,
     },
     keywords: item.keywords,
+    essential: true,
   }));
+
+const FOLLOW_UP_CATALOG: GuidedDiscoveryCatalogQuestion[] =
+  CORE_GUIDED_DISCOVERY_CATALOG.map((item) => ({
+    id: `${item.id}-f1`,
+    pillar: item.pillar,
+    title: `Evidência para ${item.title}`,
+    question: `Qual evidência, métrica ou responsável pode confirmar “${item.title}”?`,
+    rationale:
+      "Este follow-up reduz a incerteza sem alterar livremente as regras de score.",
+    hint: "Registre uma fonte, métrica, responsável ou prazo verificável.",
+    input: {
+      kind: "single",
+      label: "Confirmação",
+      options: responseOptionsPt,
+    },
+    keywords: item.keywords,
+    essential: false,
+    triggerQuestionId: item.id,
+  }));
+
+export const GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] = [
+  ...CORE_GUIDED_DISCOVERY_CATALOG,
+  ...FOLLOW_UP_CATALOG,
+];
 
 export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<
   string,
   Omit<GuidedDiscoveryCatalogQuestion, "id" | "pillar">
-> = Object.fromEntries(
-  KYNDYRL_QUESTION_CATALOG.map((item) => [
+> = Object.fromEntries([
+  ...KYNDYRL_QUESTION_CATALOG.map((item) => [
     item.id,
     {
       title: item.title.en,
@@ -101,9 +128,28 @@ export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<
         options: responseOptionsEn,
       },
       keywords: item.keywords,
+      essential: true,
     },
   ]),
-);
+  ...KYNDYRL_QUESTION_CATALOG.map((item) => [
+    `${item.id}-f1`,
+    {
+      title: `Evidence for ${item.title.en}`,
+      question: `Which evidence, metric, or owner can confirm “${item.title.en}”?`,
+      rationale:
+        "This follow-up reduces uncertainty without changing the scoring rules.",
+      hint: "Record a verifiable source, metric, owner, or timeline.",
+      input: {
+        kind: "single" as const,
+        label: "Confirmation",
+        options: responseOptionsEn,
+      },
+      keywords: item.keywords,
+      essential: false,
+      triggerQuestionId: item.id,
+    },
+  ]),
+]);
 
 export const GUIDED_DISCOVERY_PILLAR_META: Record<
   GuidedDiscoveryPillarKey,
@@ -195,6 +241,12 @@ export function getQuestionById(id: string) {
 }
 
 export function questionsForPillar(pillar: GuidedDiscoveryPillarKey) {
+  return GUIDED_DISCOVERY_CATALOG.filter(
+    (question) => question.pillar === pillar && question.essential,
+  );
+}
+
+export function allQuestionsForPillar(pillar: GuidedDiscoveryPillarKey) {
   return GUIDED_DISCOVERY_CATALOG.filter(
     (question) => question.pillar === pillar,
   );
@@ -314,10 +366,28 @@ export function materializeQuestionRoute(input: {
   if (!pillars.length) pillars = [GUIDED_DISCOVERY_PILLARS[0]];
   const limitedPillars =
     input.mode === "direct" ? pillars.slice(0, 1) : pillars.slice(0, 2);
+  const answerByQuestion = new Map(
+    answers.map((answer) => [answer.questionId, answer]),
+  );
   return {
-    questionIds: limitedPillars.flatMap((pillar) =>
-      questionsForPillar(pillar).map((question) => question.id),
-    ),
+    questionIds: limitedPillars.flatMap((pillar) => {
+      const essential = questionsForPillar(pillar);
+      const followUps = essential.flatMap((question) => {
+        const answer = answerByQuestion.get(question.id);
+        const needsFollowUp =
+          Boolean(answer) &&
+          (answer?.status === "unknown" ||
+            answer?.evidenceStatus === "unknown" ||
+            answer?.evidenceStatus === "hypothesis" ||
+            Boolean(answer?.structured?.contradiction) ||
+            !answer?.answerText?.trim());
+        return needsFollowUp ? [`${question.id}-f1`] : [];
+      });
+      return [...essential.map((question) => question.id), ...followUps].slice(
+        0,
+        12,
+      );
+    }),
     selectedPillars: limitedPillars,
   };
 }
@@ -462,7 +532,13 @@ export const GuidedDiscoveryAnswerPayloadSchema = z.object({
 
 export const GuidedDiscoveryStartPayloadSchema = z.object({
   mode: z.enum(["adaptive", "direct"]).default("direct"),
-  selectedPillars: z.array(z.enum(GUIDED_DISCOVERY_PILLARS)).min(1).max(2),
+  pillarKey: z.enum(GUIDED_DISCOVERY_PILLARS).optional(),
+  selectedPillars: z
+    .array(z.enum(GUIDED_DISCOVERY_PILLARS))
+    .min(1)
+    .max(1)
+    .optional()
+    .default([]),
 });
 
 export function humanizeStructuredAnswer(value: Record<string, unknown>) {

@@ -30,7 +30,7 @@ const answer = (questionId, value, status = "confirmed") => ({
 
 test("materializes the eight battle-card pillars with six traceable questions each", async () => {
   const engine = await loadKyndrylModule();
-  assert.equal(engine.KYNDYRL_DISCOVERY_VERSION, "2026.2-kyndryl");
+  assert.equal(engine.KYNDYRL_DISCOVERY_VERSION, "2026.3-kyndryl");
   assert.equal(engine.KYNDYRL_PILLARS.length, 8);
   assert.equal(engine.KYNDYRL_QUESTION_CATALOG.length, 48);
   for (const pillar of engine.KYNDYRL_PILLARS) {

@@ -257,6 +257,29 @@ type GuidedDiscoverySession = {
   createdAt: string;
   updatedAt: string;
 };
+type GuidedDiscoveryPillarStatus = {
+  id: string;
+  discoveryId: string;
+  ownerEmail: string;
+  pillarKey: GuidedDiscoveryPillarKey;
+  catalogVersion: string;
+  status:
+    | "not_started"
+    | "in_progress"
+    | "reviewed_sufficient"
+    | "reviewed_gaps"
+    | "not_relevant";
+  currentSessionId: string | null;
+  progressPercent: number;
+  coveragePercent: number;
+  confidencePercent: number;
+  answeredCount: number;
+  requiredCount: number;
+  notRelevantReason: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 type GuidedDiscoveryQuestionRow = {
   id: string;
   sessionId: string;
@@ -1227,6 +1250,9 @@ async function ensureSchema(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS guided_discovery_answers (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES guided_discovery_sessions(id) ON DELETE CASCADE, question_id TEXT NOT NULL REFERENCES guided_discovery_questions(id) ON DELETE CASCADE, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, structured_json TEXT NOT NULL DEFAULT '{}', answer_text TEXT NOT NULL DEFAULT '', evidence_status TEXT NOT NULL DEFAULT 'reported' CHECK(evidence_status IN ('confirmed','reported','hypothesis','unknown')), stakeholder_id TEXT REFERENCES stakeholders(id) ON DELETE SET NULL, source_type TEXT, source_id TEXT, source_date TEXT, confidence INTEGER NOT NULL DEFAULT 0 CHECK(confidence BETWEEN 0 AND 100), status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','confirmed','unknown')), supersedes_id TEXT REFERENCES guided_discovery_answers(id) ON DELETE SET NULL, is_current INTEGER NOT NULL DEFAULT 1 CHECK(is_current IN (0,1)), answered_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
+      "CREATE TABLE IF NOT EXISTS guided_discovery_pillar_status (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, owner_email TEXT NOT NULL, pillar_key TEXT NOT NULL, catalog_version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'not_started' CHECK(status IN ('not_started','in_progress','reviewed_sufficient','reviewed_gaps','not_relevant')), current_session_id TEXT REFERENCES guided_discovery_sessions(id) ON DELETE SET NULL, progress_percent INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100), coverage_percent INTEGER NOT NULL DEFAULT 0 CHECK(coverage_percent BETWEEN 0 AND 100), confidence_percent INTEGER NOT NULL DEFAULT 0 CHECK(confidence_percent BETWEEN 0 AND 100), answered_count INTEGER NOT NULL DEFAULT 0 CHECK(answered_count >= 0), required_count INTEGER NOT NULL DEFAULT 6 CHECK(required_count >= 0), not_relevant_reason TEXT, reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    ),
+    db.prepare(
       "CREATE TABLE IF NOT EXISTS account_change_sets (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, source_type TEXT NOT NULL, source_id TEXT NOT NULL, trigger_type TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', delta_json TEXT NOT NULL DEFAULT '{}', suggestions_json TEXT NOT NULL DEFAULT '{}', provider TEXT NOT NULL DEFAULT 'deterministic-rules', engine_kind TEXT NOT NULL DEFAULT 'deterministic' CHECK(engine_kind IN ('deterministic','model')), status TEXT NOT NULL DEFAULT 'pending_review' CHECK(status IN ('pending_review','approved','rejected')), reviewed_by TEXT, reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
@@ -1327,6 +1353,12 @@ async function ensureSchema(db: D1Database) {
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS guided_discovery_answers_account_idx ON guided_discovery_answers(discovery_id)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS guided_discovery_pillar_status_account_pillar_version_idx ON guided_discovery_pillar_status(discovery_id, owner_email, pillar_key, catalog_version)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS guided_discovery_pillar_status_owner_status_idx ON guided_discovery_pillar_status(owner_email, status)",
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS account_change_sets_account_time_idx ON account_change_sets(discovery_id, created_at)",
@@ -2294,6 +2326,33 @@ function mapGuidedAnswer(
   };
 }
 
+function mapGuidedPillarStatus(
+  row: Record<string, unknown>,
+): GuidedDiscoveryPillarStatus {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    ownerEmail: String(row.owner_email),
+    pillarKey: String(row.pillar_key) as GuidedDiscoveryPillarKey,
+    catalogVersion: String(row.catalog_version),
+    status: String(row.status) as GuidedDiscoveryPillarStatus["status"],
+    currentSessionId: row.current_session_id
+      ? String(row.current_session_id)
+      : null,
+    progressPercent: Number(row.progress_percent || 0),
+    coveragePercent: Number(row.coverage_percent || 0),
+    confidencePercent: Number(row.confidence_percent || 0),
+    answeredCount: Number(row.answered_count || 0),
+    requiredCount: Number(row.required_count || 6),
+    notRelevantReason: row.not_relevant_reason
+      ? String(row.not_relevant_reason)
+      : null,
+    reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 const scoreHintsForGuidedDiscovery = (row: Record<string, unknown>) => {
   const keyByShort = Object.fromEntries(
     KYNDYRL_PILLARS.flatMap((pillar) => [
@@ -2315,14 +2374,18 @@ function guidedSnapshot(input: {
   sessions: GuidedDiscoverySession[];
   questions: GuidedDiscoveryQuestionRow[];
   answers: GuidedDiscoveryAnswerRow[];
+  pillarStatuses?: GuidedDiscoveryPillarStatus[];
   stakeholders: Stakeholder[];
   locale?: ResponseLocale;
 }) {
   const discoveryId = String(input.row.id);
+  const accountSessions = input.sessions
+    .filter((item) => item.discoveryId === discoveryId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const session =
-    input.sessions
-      .filter((item) => item.discoveryId === discoveryId)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null;
+    accountSessions.find((item) => item.status === "in_progress") ||
+    accountSessions[0] ||
+    null;
   const legacy = json<Answer[]>(input.row.answers_json, []);
   let questions = session
     ? input.questions
@@ -2509,11 +2572,12 @@ function guidedSnapshot(input: {
   const allQuestionById = new Map(
     input.questions.map((question) => [question.id, question]),
   );
-  const assessmentPillars = Array.from(
-    new Set([
-      ...(effectiveSession?.selectedPillars || []),
-      ...input.questions.map((question) => question.pillar),
-    ]),
+  const assessmentPillars = (
+    effectiveSession?.selectedPillars.length
+      ? effectiveSession.selectedPillars
+      : Array.from(
+          new Set(input.questions.map((question) => question.pillar)),
+        )
   ).filter(isGuidedDiscoveryPillar);
   const technologyAssessment = scoreKyndrylAssessment({
     answers: input.answers
@@ -2537,6 +2601,155 @@ function guidedSnapshot(input: {
     pillarKeys: assessmentPillars,
     locale: input.locale || "en-US",
   });
+  const storedStatusByPillar = new Map<
+    GuidedDiscoveryPillarKey,
+    GuidedDiscoveryPillarStatus
+  >();
+  for (const item of (input.pillarStatuses || [])
+    .filter((candidate) => candidate.discoveryId === discoveryId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+    if (!storedStatusByPillar.has(item.pillarKey))
+      storedStatusByPillar.set(item.pillarKey, item);
+  const latestSessionByPillar = new Map<
+    GuidedDiscoveryPillarKey,
+    GuidedDiscoverySession
+  >();
+  for (const candidate of accountSessions) {
+    for (const pillar of candidate.selectedPillars.filter(
+      isGuidedDiscoveryPillar,
+    ))
+      if (!latestSessionByPillar.has(pillar))
+        latestSessionByPillar.set(pillar, candidate);
+  }
+  const pillarAssessments = GUIDED_DISCOVERY_PILLARS.map((pillarKey) => {
+    const stored = storedStatusByPillar.get(pillarKey);
+    const pillarSession = latestSessionByPillar.get(pillarKey);
+    const pillarQuestions = pillarSession
+      ? input.questions.filter(
+          (item) =>
+            item.sessionId === pillarSession.id &&
+            item.pillar === pillarKey &&
+            item.status !== "dismissed" &&
+            item.status !== "proposed" &&
+            (!item.catalogQuestionId ||
+              getQuestionById(item.catalogQuestionId)?.essential !== false),
+        )
+      : [];
+    const pillarAnswers = pillarSession
+      ? input.answers.filter(
+          (item) => item.sessionId === pillarSession.id && item.isCurrent,
+        )
+      : [];
+    const pillarMetrics = calculateDiscoveryMetrics(
+      pillarQuestions.map((item) => item.id),
+      pillarAnswers,
+    );
+    const confidenceValues = pillarAnswers
+      .filter((item) => item.status === "confirmed")
+      .map((item) => item.confidence);
+    const confidencePercent = confidenceValues.length
+      ? Math.round(
+          confidenceValues.reduce((sum, value) => sum + value, 0) /
+            confidenceValues.length,
+        )
+      : 0;
+    const answeredCount = pillarAnswers.filter(
+      (item) => item.status === "confirmed" || item.status === "unknown",
+    ).length;
+    const derivedStatus: GuidedDiscoveryPillarStatus["status"] = !pillarSession
+      ? "not_started"
+      : pillarSession.status === "completed"
+        ? pillarMetrics.coveragePercent >= 60
+          ? "reviewed_sufficient"
+          : "reviewed_gaps"
+        : "in_progress";
+    const assessment = scoreKyndrylAssessment({
+      answers: input.answers
+        .filter((answer) => answer.isCurrent)
+        .flatMap((answer) => {
+          const question = allQuestionById.get(answer.questionId);
+          const catalogQuestionId =
+            question?.catalogQuestionId || answer.questionId;
+          const catalog = getQuestionById(catalogQuestionId);
+          return catalog?.pillar === pillarKey
+            ? [
+                {
+                  questionId: catalogQuestionId,
+                  status: answer.status,
+                  structured: answer.structured,
+                  answerText: answer.answerText,
+                  confidence: answer.confidence,
+                },
+              ]
+            : [];
+        }),
+      pillarKeys: [pillarKey],
+      locale: input.locale || "en-US",
+    });
+    return {
+      key: pillarKey,
+      ...GUIDED_DISCOVERY_PILLAR_META[pillarKey],
+      status: stored?.status || derivedStatus,
+      sessionId: stored?.currentSessionId || pillarSession?.id || null,
+      progressPercent:
+        stored?.progressPercent || pillarMetrics.progressPercent,
+      coveragePercent:
+        stored?.coveragePercent || pillarMetrics.coveragePercent,
+      confidencePercent: stored?.confidencePercent || confidencePercent,
+      answeredCount: stored?.answeredCount || answeredCount,
+      requiredCount: stored?.requiredCount || 6,
+      notRelevantReason: stored?.notRelevantReason || null,
+      reviewedAt: stored?.reviewedAt || pillarSession?.completedAt || null,
+      leadingTechnology:
+        (assessment.pillars[0]?.propensity || 0) > 0
+          ? assessment.pillars[0]?.leadingTechnology || null
+          : null,
+      propensity: assessment.pillars[0]?.propensity || 0,
+    };
+  });
+  const reviewedStatuses = new Set([
+    "reviewed_sufficient",
+    "reviewed_gaps",
+    "not_relevant",
+  ]);
+  const reviewedPillars = pillarAssessments.filter((item) =>
+    reviewedStatuses.has(item.status),
+  );
+  const activePillar =
+    pillarAssessments.find((item) => item.status === "in_progress")?.key ||
+    null;
+  const nextCandidates = pillarAssessments
+    .filter(
+      (item) =>
+        !reviewedStatuses.has(item.status) && item.key !== activePillar,
+    )
+    .sort(
+      (a, b) =>
+        Number(scoreHints[b.key] || 0) - Number(scoreHints[a.key] || 0),
+    );
+  const recommendedNextPillar = nextCandidates[0]
+    ? {
+        key: nextCandidates[0].key,
+        label: nextCandidates[0].label,
+        relevance: Number(scoreHints[nextCandidates[0].key] || 0),
+        rationale:
+          pillarRanking.find(
+            (item) => item.pillar === nextCandidates[0].key,
+          )?.rationale ||
+          localizedText(
+            input.locale || "en-US",
+            "Recommended to broaden account coverage and validate adjacent opportunities.",
+            "Recomendado para ampliar a cobertura da conta e validar oportunidades adjacentes.",
+          ),
+      }
+    : null;
+  const averageMetric = (key: "coveragePercent" | "confidencePercent") =>
+    reviewedPillars.length
+      ? Math.round(
+          reviewedPillars.reduce((sum, item) => sum + item[key], 0) /
+            reviewedPillars.length,
+        )
+      : 0;
 
   return {
     discoveryId,
@@ -2554,6 +2767,18 @@ function guidedSnapshot(input: {
         }
       : null,
     metrics,
+    overallReview: {
+      reviewedPillars: reviewedPillars.length,
+      totalPillars: GUIDED_DISCOVERY_PILLARS.length,
+      percent: Math.round(
+        (reviewedPillars.length / GUIDED_DISCOVERY_PILLARS.length) * 100,
+      ),
+      coveragePercent: averageMetric("coveragePercent"),
+      confidencePercent: averageMetric("confidencePercent"),
+    },
+    pillarAssessments,
+    activePillar,
+    recommendedNextPillar,
     pillars: Object.entries(GUIDED_DISCOVERY_PILLAR_META).map(([key, meta]) => {
       const pillarQuestions = routeQuestions.filter(
         (item) => item.pillar === key,
@@ -3748,7 +3973,13 @@ async function guidedSnapshotForAccount(
   responseLocale: ResponseLocale = "en-US",
 ) {
   const id = String(row.id);
-  const [sessionRows, questionRows, answerRows, stakeholderRows] =
+  const [
+    sessionRows,
+    questionRows,
+    answerRows,
+    pillarStatusRows,
+    stakeholderRows,
+  ] =
     await Promise.all([
       db
         .prepare(
@@ -3770,6 +4001,12 @@ async function guidedSnapshotForAccount(
         .all<Record<string, unknown>>(),
       db
         .prepare(
+          "SELECT * FROM guided_discovery_pillar_status WHERE discovery_id = ? ORDER BY updated_at DESC",
+        )
+        .bind(id)
+        .all<Record<string, unknown>>(),
+      db
+        .prepare(
           "SELECT * FROM stakeholders WHERE discovery_id = ? ORDER BY created_at",
         )
         .bind(id)
@@ -3780,6 +4017,7 @@ async function guidedSnapshotForAccount(
     sessions: sessionRows.results.map(mapGuidedSession),
     questions: questionRows.results.map(mapGuidedQuestion),
     answers: answerRows.results.map(mapGuidedAnswer),
+    pillarStatuses: pillarStatusRows.results.map(mapGuidedPillarStatus),
     stakeholders: stakeholderRows.results.map(mapStakeholder),
     locale: responseLocale,
   });
@@ -3820,6 +4058,50 @@ async function insertCatalogQuestion(
     )
     .run();
   return id;
+}
+
+async function upsertGuidedPillarStatus(
+  db: D1Database,
+  input: {
+    discoveryId: string;
+    ownerEmail: string;
+    pillarKey: GuidedDiscoveryPillarKey;
+    status: GuidedDiscoveryPillarStatus["status"];
+    sessionId?: string | null;
+    progressPercent?: number;
+    coveragePercent?: number;
+    confidencePercent?: number;
+    answeredCount?: number;
+    requiredCount?: number;
+    notRelevantReason?: string | null;
+    reviewedAt?: string | null;
+    now: string;
+  },
+) {
+  const id = `gdps-${input.discoveryId}-${input.pillarKey}-${GUIDED_DISCOVERY_CATALOG_VERSION}`;
+  await db
+    .prepare(
+      "INSERT INTO guided_discovery_pillar_status (id, discovery_id, owner_email, pillar_key, catalog_version, status, current_session_id, progress_percent, coverage_percent, confidence_percent, answered_count, required_count, not_relevant_reason, reviewed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(discovery_id, owner_email, pillar_key, catalog_version) DO UPDATE SET status = excluded.status, current_session_id = excluded.current_session_id, progress_percent = excluded.progress_percent, coverage_percent = excluded.coverage_percent, confidence_percent = excluded.confidence_percent, answered_count = excluded.answered_count, required_count = excluded.required_count, not_relevant_reason = excluded.not_relevant_reason, reviewed_at = excluded.reviewed_at, updated_at = excluded.updated_at",
+    )
+    .bind(
+      id,
+      input.discoveryId,
+      input.ownerEmail,
+      input.pillarKey,
+      GUIDED_DISCOVERY_CATALOG_VERSION,
+      input.status,
+      input.sessionId || null,
+      input.progressPercent || 0,
+      input.coveragePercent || 0,
+      input.confidencePercent || 0,
+      input.answeredCount || 0,
+      input.requiredCount || 6,
+      input.notRelevantReason || null,
+      input.reviewedAt || null,
+      input.now,
+      input.now,
+    )
+    .run();
 }
 
 async function refreshGuidedSession(
@@ -3991,6 +4273,50 @@ async function refreshGuidedSession(
       discoveryId,
     )
     .run();
+  const pillarKey = route.selectedPillars.find(isGuidedDiscoveryPillar);
+  if (pillarKey) {
+    const essentialQuestions = activeRoute.filter((question) => {
+      const catalog = question.catalogQuestionId
+        ? getQuestionById(question.catalogQuestionId)
+        : null;
+      return catalog?.essential !== false && question.pillar === pillarKey;
+    });
+    const essentialQuestionIds = new Set(
+      essentialQuestions.map((question) => question.id),
+    );
+    const essentialAnswers = refreshedAnswers.filter((answer) =>
+      essentialQuestionIds.has(answer.questionId),
+    );
+    const essentialMetrics = calculateDiscoveryMetrics(
+      essentialQuestions.map((question) => question.id),
+      essentialAnswers,
+    );
+    const knownConfidence = essentialAnswers
+      .filter((answer) => answer.status === "confirmed")
+      .map((answer) => answer.confidence);
+    const confidencePercent = knownConfidence.length
+      ? Math.round(
+          knownConfidence.reduce((sum, value) => sum + value, 0) /
+            knownConfidence.length,
+        )
+      : 0;
+    await upsertGuidedPillarStatus(db, {
+      discoveryId,
+      ownerEmail: session.ownerEmail,
+      pillarKey,
+      status: "in_progress",
+      sessionId,
+      progressPercent: essentialMetrics.progressPercent,
+      coveragePercent: essentialMetrics.coveragePercent,
+      confidencePercent,
+      answeredCount: essentialAnswers.filter(
+        (answer) =>
+          answer.status === "confirmed" || answer.status === "unknown",
+      ).length,
+      requiredCount: essentialQuestions.length || 6,
+      now,
+    });
+  }
   return {
     sessionId,
     metrics,
@@ -4004,6 +4330,7 @@ async function materializeLegacyGuidedAnswers(
   row: Record<string, unknown>,
   sessionId: string,
   now: string,
+  selectedPillars: GuidedDiscoveryPillarKey[] = [],
 ) {
   const discoveryId = String(row.id);
   const legacy = json<Answer[]>(row.answers_json, []);
@@ -4021,6 +4348,13 @@ async function materializeLegacyGuidedAnswers(
   for (const item of legacy) {
     const catalogId = legacyQuestionId(item.key);
     if (!catalogId) continue;
+    const catalogQuestion = getQuestionById(catalogId);
+    if (
+      selectedPillars.length &&
+      (!catalogQuestion ||
+        !selectedPillars.includes(catalogQuestion.pillar))
+    )
+      continue;
     let question = await db
       .prepare(
         "SELECT * FROM guided_discovery_questions WHERE session_id = ? AND catalog_question_id = ?",
@@ -4208,6 +4542,11 @@ async function accountPayload(
       .bind(...ids),
     db
       .prepare(
+        `SELECT * FROM guided_discovery_pillar_status WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
         `SELECT * FROM account_change_sets WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 120`,
       )
       .bind(...ids),
@@ -4248,6 +4587,7 @@ async function accountPayload(
     guidedSessionRows,
     guidedQuestionRows,
     guidedAnswerRows,
+    guidedPillarStatusRows,
     changeSetRows,
     handoffRows,
     impactRows,
@@ -4270,6 +4610,8 @@ async function accountPayload(
   const guidedSessions = guidedSessionRows.results.map(mapGuidedSession);
   const guidedQuestions = guidedQuestionRows.results.map(mapGuidedQuestion);
   const guidedAnswers = guidedAnswerRows.results.map(mapGuidedAnswer);
+  const guidedPillarStatuses =
+    guidedPillarStatusRows.results.map(mapGuidedPillarStatus);
   const changeSets = changeSetRows.results.map(mapChangeSet);
   const crmHandoffs = handoffRows.results.map(mapCrmHandoff);
   const impactMetrics = impactRows.results.map(mapImpactMetric);
@@ -4404,6 +4746,7 @@ async function accountPayload(
         sessions: guidedSessions,
         questions: guidedQuestions,
         answers: guidedAnswers,
+        pillarStatuses: guidedPillarStatuses,
         stakeholders: mappedStakeholders,
         locale: responseLocale,
       }),
@@ -5347,8 +5690,8 @@ async function handlePOST(request: Request) {
           "TRANSLATION_PROVIDER_POLICY_BLOCKED",
           403,
           {
-            en: "Gemini cannot process confidential accounts. Configure watsonx or keep the original content.",
-            pt: "O Gemini não pode processar contas confidenciais. Configure o watsonx ou mantenha o conteúdo original.",
+            en: "The configured external model cannot process confidential accounts. Configure watsonx or keep the original content.",
+            pt: "O modelo externo configurado não pode processar contas confidenciais. Configure o watsonx ou mantenha o conteúdo original.",
           },
           {
             provider: dbProviderName(generated.provider),
@@ -5417,17 +5760,30 @@ async function handlePOST(request: Request) {
         { error: "Escolha um modo e pilares válidos." },
         { status: 400 },
       );
-    const selectedPillars = parsed.data.selectedPillars;
-    if (parsed.data.mode === "direct" && !selectedPillars.length)
+    const requestedPillar =
+      parsed.data.pillarKey ||
+      parsed.data.selectedPillars[0] ||
+      (Object.entries(scoreHintsForGuidedDiscovery(row)).sort(
+        (a, b) => Number(b[1]) - Number(a[1]),
+      )[0]?.[0] as GuidedDiscoveryPillarKey | undefined) ||
+      GUIDED_DISCOVERY_PILLARS[0];
+    const selectedPillars = [requestedPillar];
+    if (!isGuidedDiscoveryPillar(requestedPillar))
       return Response.json(
-        { error: "Escolha ao menos um pilar para iniciar no modo direto." },
+        { error: "Escolha um pilar válido para iniciar." },
         { status: 400 },
       );
+    await db
+      .prepare(
+        "UPDATE guided_discovery_sessions SET status = 'paused', updated_at = ? WHERE discovery_id = ? AND owner_email = ? AND status = 'in_progress' AND selected_pillars_json <> ?",
+      )
+      .bind(now, id, identity.email, JSON.stringify(selectedPillars))
+      .run();
     const existing = await db
       .prepare(
-        "SELECT * FROM guided_discovery_sessions WHERE discovery_id = ? AND owner_email = ? AND status IN ('in_progress','paused') ORDER BY updated_at DESC LIMIT 1",
+        "SELECT * FROM guided_discovery_sessions WHERE discovery_id = ? AND owner_email = ? AND selected_pillars_json = ? AND status IN ('in_progress','paused') ORDER BY updated_at DESC LIMIT 1",
       )
-      .bind(id, identity.email)
+      .bind(id, identity.email, JSON.stringify(selectedPillars))
       .first<Record<string, unknown>>();
     if (existing) {
       await db
@@ -5480,7 +5836,13 @@ async function handlePOST(request: Request) {
         sequence,
         now,
       });
-    await materializeLegacyGuidedAnswers(db, row, sessionId, now);
+    await materializeLegacyGuidedAnswers(
+      db,
+      row,
+      sessionId,
+      now,
+      selectedPillars,
+    );
     await refreshGuidedSession(db, row, sessionId, now);
     await db
       .prepare(
@@ -5774,6 +6136,41 @@ async function handlePOST(request: Request) {
     });
   }
   if (body.action === "guided_discovery_patch") {
+    const operation = String(body.operation || "");
+    if (operation === "mark_pillar_not_relevant") {
+      const pillarKey = String(body.pillarKey || "");
+      const reason = String(body.reason || "").trim();
+      if (!isGuidedDiscoveryPillar(pillarKey) || reason.length < 5)
+        return Response.json(
+          {
+            error:
+              "Escolha um pilar e registre uma justificativa antes de marcá-lo como não relevante.",
+          },
+          { status: 400 },
+        );
+      await db
+        .prepare(
+          "UPDATE guided_discovery_sessions SET status = 'paused', updated_at = ? WHERE discovery_id = ? AND owner_email = ? AND selected_pillars_json = ? AND status = 'in_progress'",
+        )
+        .bind(now, id, identity.email, JSON.stringify([pillarKey]))
+        .run();
+      await upsertGuidedPillarStatus(db, {
+        discoveryId: id,
+        ownerEmail: identity.email,
+        pillarKey,
+        status: "not_relevant",
+        notRelevantReason: reason,
+        reviewedAt: now,
+        progressPercent: 100,
+        requiredCount: 6,
+        now,
+      });
+      return Response.json({
+        ok: true,
+        status: "not_relevant",
+        guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
+      });
+    }
     const sessionId = String(body.sessionId || "");
     const sessionRow = await db
       .prepare(
@@ -5786,41 +6183,135 @@ async function handlePOST(request: Request) {
         { error: "Sessão não encontrada ou acesso não autorizado." },
         { status: 404 },
       );
-    const operation = String(body.operation || "");
+    const session = mapGuidedSession(sessionRow);
+    const pillarKey = session.selectedPillars.find(isGuidedDiscoveryPillar);
     if (
       operation === "pause" ||
+      operation === "pause_pillar" ||
       operation === "resume" ||
-      operation === "complete"
+      operation === "reopen_pillar" ||
+      operation === "complete" ||
+      operation === "complete_pillar"
     ) {
-      if (operation === "complete") {
-        const count = await db
-          .prepare(
-            "SELECT COUNT(*) AS count FROM guided_discovery_answers WHERE session_id = ? AND is_current = 1 AND status IN ('confirmed','unknown')",
-          )
-          .bind(sessionId)
-          .first<{ count: number }>();
-        if (!count?.count)
+      const isComplete =
+        operation === "complete" || operation === "complete_pillar";
+      const isPause = operation === "pause" || operation === "pause_pillar";
+      let completion:
+        | {
+            progressPercent: number;
+            coveragePercent: number;
+            confidencePercent: number;
+            answeredCount: number;
+            requiredCount: number;
+            unknownCount: number;
+          }
+        | undefined;
+      if (isComplete) {
+        const [questionRows, answerRows] = await Promise.all([
+          db
+            .prepare(
+              "SELECT * FROM guided_discovery_questions WHERE session_id = ? AND discovery_id = ? AND status <> 'dismissed'",
+            )
+            .bind(sessionId, id)
+            .all<Record<string, unknown>>(),
+          db
+            .prepare(
+              "SELECT * FROM guided_discovery_answers WHERE session_id = ? AND discovery_id = ? AND is_current = 1",
+            )
+            .bind(sessionId, id)
+            .all<Record<string, unknown>>(),
+        ]);
+        const essentialQuestions = questionRows.results
+          .map(mapGuidedQuestion)
+          .filter((question) => {
+            const catalog = question.catalogQuestionId
+              ? getQuestionById(question.catalogQuestionId)
+              : null;
+            return (
+              catalog?.essential !== false &&
+              (!pillarKey || catalog?.pillar === pillarKey)
+            );
+          });
+        const essentialIds = new Set(
+          essentialQuestions.map((question) => question.id),
+        );
+        const essentialAnswers = answerRows.results
+          .map(mapGuidedAnswer)
+          .filter((answer) => essentialIds.has(answer.questionId));
+        const answered = essentialAnswers.filter(
+          (answer) =>
+            answer.status === "confirmed" || answer.status === "unknown",
+        );
+        if (answered.length < essentialQuestions.length)
           return Response.json(
             {
-              error:
-                "Responda ou marque ao menos uma pergunta antes de concluir.",
+              error: `Conclua as ${essentialQuestions.length || 6} perguntas essenciais antes de revisar este pilar.`,
             },
             { status: 400 },
           );
+        const metrics = calculateDiscoveryMetrics(
+          essentialQuestions.map((question) => question.id),
+          essentialAnswers,
+        );
+        const confidences = essentialAnswers
+          .filter((answer) => answer.status === "confirmed")
+          .map((answer) => answer.confidence);
+        completion = {
+          progressPercent: metrics.progressPercent,
+          coveragePercent: metrics.coveragePercent,
+          confidencePercent: confidences.length
+            ? Math.round(
+                confidences.reduce((sum, value) => sum + value, 0) /
+                  confidences.length,
+              )
+            : 0,
+          answeredCount: answered.length,
+          requiredCount: essentialQuestions.length || 6,
+          unknownCount: essentialAnswers.filter(
+            (answer) => answer.status === "unknown",
+          ).length,
+        };
       }
-      const status =
-        operation === "pause"
-          ? "paused"
-          : operation === "complete"
-            ? "completed"
-            : "in_progress";
+      if (!isPause && !isComplete)
+        await db
+          .prepare(
+            "UPDATE guided_discovery_sessions SET status = 'paused', updated_at = ? WHERE discovery_id = ? AND owner_email = ? AND id <> ? AND status = 'in_progress'",
+          )
+          .bind(now, id, identity.email, sessionId)
+          .run();
+      const status = isPause
+        ? "paused"
+        : isComplete
+          ? "completed"
+          : "in_progress";
       await db
         .prepare(
           "UPDATE guided_discovery_sessions SET status = ?, current_question_id = CASE WHEN ? = 'completed' THEN NULL ELSE current_question_id END, completed_at = CASE WHEN ? = 'completed' THEN ? ELSE NULL END, updated_at = ? WHERE id = ? AND discovery_id = ?",
         )
         .bind(status, status, status, now, now, sessionId, id)
         .run();
-      if (status !== "completed")
+      if (pillarKey && completion) {
+        const reviewedStatus =
+          completion.coveragePercent >= 60 &&
+          completion.confidencePercent >= 60 &&
+          completion.unknownCount === 0
+            ? "reviewed_sufficient"
+            : "reviewed_gaps";
+        await upsertGuidedPillarStatus(db, {
+          discoveryId: id,
+          ownerEmail: identity.email,
+          pillarKey,
+          status: reviewedStatus,
+          sessionId,
+          progressPercent: completion.progressPercent,
+          coveragePercent: completion.coveragePercent,
+          confidencePercent: completion.confidencePercent,
+          answeredCount: completion.answeredCount,
+          requiredCount: completion.requiredCount,
+          reviewedAt: now,
+          now,
+        });
+      } else if (status !== "completed")
         await refreshGuidedSession(db, row, sessionId, now);
       return Response.json({
         ok: true,
@@ -7233,7 +7724,7 @@ async function handlePOST(request: Request) {
       return Response.json(
         {
           error:
-            "Pesquisa com Gemini está bloqueada para contas confidenciais. Use watsonx ou registre fontes aprovadas manualmente.",
+            "A pesquisa com o modelo externo está bloqueada para contas confidenciais. Use watsonx ou registre fontes aprovadas manualmente.",
         },
         { status: 403 },
       );

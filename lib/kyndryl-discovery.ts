@@ -1,6 +1,6 @@
 import type { Locale } from "./i18n";
 
-export const KYNDYRL_DISCOVERY_VERSION = "2026.2-kyndryl";
+export const KYNDYRL_DISCOVERY_VERSION = "2026.3-kyndryl";
 
 export const KYNDYRL_PILLAR_KEYS = [
   "ibm-z",
@@ -478,8 +478,8 @@ ibmZ.questions = [
     capabilityIds: ["ibmz-aiops"],
     title: l("Incident intelligence", "Inteligência de incidentes"),
     question: l(
-      "Are events correlated and root-cause analysis automated across platforms?",
-      "Os eventos são correlacionados e a análise de causa raiz é automatizada entre plataformas?",
+      "Are operational events correlated automatically across IBM Z and distributed platforms?",
+      "Os eventos operacionais são correlacionados automaticamente entre IBM Z e plataformas distribuídas?",
     ),
     rationale: l(
       "Manual correlation creates alert noise and slows incident resolution.",
@@ -496,8 +496,8 @@ ibmZ.questions = [
     capabilityIds: ["ibmz-hybrid-integration", "ibmz-app-modernization"],
     title: l("Modernization demand", "Demanda de modernização"),
     question: l(
-      "Is there an active need to expose IBM Z capabilities, modernize applications, or integrate them with hybrid cloud?",
-      "Existe necessidade ativa de expor capacidades do IBM Z, modernizar aplicações ou integrá-las à nuvem híbrida?",
+      "Is there an approved initiative to modernize an IBM Z application in the next 12 months?",
+      "Existe uma iniciativa aprovada para modernizar uma aplicação IBM Z nos próximos 12 meses?",
     ),
     rationale: l(
       "A confirmed transformation motion activates modernization and integration technologies.",
@@ -524,8 +524,8 @@ ibmZ.questions = [
       "Acesso privilegiado e recuperação",
     ),
     question: l(
-      "Are privileged access, sensitive data, and cyber recovery consistently protected and tested?",
-      "Acessos privilegiados, dados sensíveis e recuperação cibernética são protegidos e testados de forma consistente?",
+      "Is cyber recovery for critical IBM Z workloads tested at least annually?",
+      "A recuperação cibernética dos workloads críticos de IBM Z é testada ao menos anualmente?",
     ),
     rationale: l(
       "Control and recovery gaps can block modernization and create material business risk.",
@@ -792,8 +792,8 @@ infrastructure.questions = [
     capabilityIds: ["infra-governance"],
     title: l("Operating governance", "Governança operacional"),
     question: l(
-      "Are service ownership, standards, SLAs, and operational controls consistent across environments?",
-      "Ownership de serviços, padrões, SLAs e controles operacionais são consistentes entre ambientes?",
+      "Does every critical infrastructure service have a named operational owner?",
+      "Cada serviço crítico de infraestrutura possui um responsável operacional definido?",
     ),
     rationale: l(
       "A fragmented operating model makes automation and accountability difficult.",
@@ -828,8 +828,8 @@ infrastructure.questions = [
     capabilityIds: ["infra-automation"],
     title: l("Operational automation", "Automação operacional"),
     question: l(
-      "Are configuration, patching, and routine operational changes automated and standardized?",
-      "Configuração, patches e mudanças operacionais rotineiras são automatizadas e padronizadas?",
+      "Are recurring infrastructure configuration changes executed through automation?",
+      "As mudanças recorrentes de configuração da infraestrutura são executadas por automação?",
     ),
     rationale: l(
       "Manual changes increase toil, errors, and operational risk.",
@@ -846,8 +846,8 @@ infrastructure.questions = [
     capabilityIds: ["infra-secrets", "infra-data-protection"],
     title: l("Secrets and data protection", "Segredos e proteção de dados"),
     question: l(
-      "Are secrets, machine identities, and sensitive infrastructure data centrally governed and audited?",
-      "Segredos, identidades de máquinas e dados sensíveis de infraestrutura são governados e auditados centralmente?",
+      "Are infrastructure secrets managed in a centralized system of record?",
+      "Os segredos de infraestrutura são gerenciados em um sistema centralizado de registro?",
     ),
     rationale: l(
       "Distributed secrets and unclassified data create preventable security exposure.",
@@ -867,8 +867,8 @@ infrastructure.questions = [
       "Transparência de custos e capacidade",
     ),
     question: l(
-      "Are multicloud cost, allocation, capacity, and optimization decisions visible to both finance and technology?",
-      "Custos multicloud, alocação, capacidade e decisões de otimização são visíveis para finanças e tecnologia?",
+      "Are multicloud costs allocated to a business owner or product team?",
+      "Os custos multicloud são alocados a um responsável de negócio ou time de produto?",
     ),
     rationale: l(
       "Shared financial and technical visibility supports sustainable optimization.",
@@ -1119,8 +1119,8 @@ applications.questions = [
     capabilityIds: ["app-delivery"],
     title: l("Delivery automation", "Automação de entrega"),
     question: l(
-      "Are build, deployment, governance, and operational controls automated across application teams?",
-      "Build, deployment, governança e controles operacionais são automatizados entre os times de aplicação?",
+      "Do strategic application teams use an automated deployment pipeline?",
+      "Os times de aplicações estratégicas utilizam um pipeline automatizado de deployment?",
     ),
     rationale: l(
       "Inconsistent delivery creates risk, rework, and long lead times.",
@@ -1137,8 +1137,8 @@ applications.questions = [
     capabilityIds: ["app-api"],
     title: l("API and integration economy", "Economia de APIs e integração"),
     question: l(
-      "Are APIs and integrations governed, reusable, discoverable, and secure across the enterprise?",
-      "APIs e integrações são governadas, reutilizáveis, descobríveis e seguras em toda a empresa?",
+      "Are enterprise APIs published in a governed, reusable catalog?",
+      "As APIs corporativas são publicadas em um catálogo governado e reutilizável?",
     ),
     rationale: l(
       "Fragmented integration limits reuse and slows digital initiatives.",
@@ -1155,8 +1155,8 @@ applications.questions = [
     capabilityIds: ["app-observability"],
     title: l("Application reliability", "Confiabilidade de aplicações"),
     question: l(
-      "Do teams have end-to-end observability, SRE practices, and rapid root-cause analysis?",
-      "Os times possuem observabilidade ponta a ponta, práticas SRE e análise rápida de causa raiz?",
+      "Can teams trace a user transaction across all application dependencies?",
+      "Os times conseguem rastrear uma transação do usuário por todas as dependências da aplicação?",
     ),
     rationale: l(
       "Reliability evidence is required to modernize without increasing operational risk.",
@@ -1173,8 +1173,8 @@ applications.questions = [
     capabilityIds: ["app-security"],
     title: l("Application security", "Segurança de aplicações"),
     question: l(
-      "Are application secrets, certificates, and sensitive data protected throughout the lifecycle?",
-      "Segredos, certificados e dados sensíveis das aplicações são protegidos durante todo o ciclo de vida?",
+      "Are application secrets centrally managed throughout the delivery lifecycle?",
+      "Os segredos das aplicações são gerenciados centralmente durante todo o ciclo de entrega?",
     ),
     rationale: l(
       "Security gaps create release blockers and compliance exposure.",
@@ -1191,8 +1191,8 @@ applications.questions = [
     capabilityIds: ["app-optimization"],
     title: l("Portfolio intelligence", "Inteligência de portfólio"),
     question: l(
-      "Are application value, cost, risk, performance, and modernization decisions managed together?",
-      "Valor, custo, risco, performance e decisões de modernização das aplicações são gerenciados em conjunto?",
+      "Is the modernization roadmap prioritized by measurable business value?",
+      "O roadmap de modernização é priorizado por valor de negócio mensurável?",
     ),
     rationale: l(
       "Portfolio intelligence prioritizes modernization based on business value.",
@@ -1411,8 +1411,8 @@ sap.questions = [
     capabilityIds: ["sap-transformation"],
     title: l("S/4HANA transformation", "Transformação S/4HANA"),
     question: l(
-      "Is there an active S/4HANA, Clean Core, RISE, or SAP BTP transformation initiative?",
-      "Existe uma iniciativa ativa de S/4HANA, Clean Core, RISE ou SAP BTP?",
+      "Is there an approved S/4HANA transformation roadmap?",
+      "Existe um roadmap aprovado de transformação para S/4HANA?",
     ),
     rationale: l(
       "An active transformation is the primary gate for a SAP modernization motion.",
@@ -1430,8 +1430,8 @@ sap.questions = [
     capabilityIds: ["sap-integration"],
     title: l("SAP integration", "Integração SAP"),
     question: l(
-      "Are SAP integrations standardized, governed, reusable, and visible across cloud and on-premises systems?",
-      "As integrações SAP são padronizadas, governadas, reutilizáveis e visíveis entre cloud e on-premises?",
+      "Do new SAP integrations use a standard enterprise integration pattern?",
+      "As novas integrações SAP utilizam um padrão corporativo de integração?",
     ),
     rationale: l(
       "Point-to-point integration increases migration risk and slows business change.",
@@ -1695,8 +1695,8 @@ modernOperations.questions = [
     capabilityIds: ["ops-governance"],
     title: l("Operating model", "Modelo operacional"),
     question: l(
-      "Are service ownership, operating procedures, and governance consistent across IT domains?",
-      "Ownership de serviços, procedimentos operacionais e governança são consistentes entre domínios de TI?",
+      "Does every critical IT service have a named operational owner?",
+      "Cada serviço crítico de TI possui um responsável operacional definido?",
     ),
     rationale: l(
       "A consistent operating model is required before automation can scale.",
@@ -1731,8 +1731,8 @@ modernOperations.questions = [
     capabilityIds: ["ops-aiops"],
     title: l("Event correlation and remediation", "Correlação e remediação"),
     question: l(
-      "Are events correlated automatically and are repeatable incidents remediated through runbooks?",
-      "Eventos são correlacionados automaticamente e incidentes repetitivos são remediados por runbooks?",
+      "Are repeatable incidents remediated through automated runbooks?",
+      "Os incidentes repetitivos são remediados por runbooks automatizados?",
     ),
     rationale: l(
       "Automation reduces alert noise, manual effort, and MTTR.",
@@ -1749,8 +1749,8 @@ modernOperations.questions = [
     capabilityIds: ["ops-observability", "ops-aiops"],
     title: l("Operational pain", "Dor operacional"),
     question: l(
-      "Are alert noise, outages, manual root-cause analysis, or high MTTR materially affecting the business?",
-      "Ruído de alertas, indisponibilidades, análise manual de causa raiz ou MTTR alto afetam materialmente o negócio?",
+      "Is the current MTTR above the business-approved target?",
+      "O MTTR atual está acima da meta aprovada pelo negócio?",
     ),
     rationale: l(
       "Material operational pain increases urgency and expected business value.",
@@ -2024,8 +2024,8 @@ dataAi.questions = [
     capabilityIds: ["data-governance"],
     title: l("Trusted data foundation", "Fundação de dados confiável"),
     question: l(
-      "Are critical data assets cataloged, owned, classified, and governed with measurable quality?",
-      "Ativos críticos de dados são catalogados, possuem owner, classificação e governança com qualidade mensurável?",
+      "Does every critical data domain have a named accountable owner?",
+      "Cada domínio crítico de dados possui um responsável definido?",
     ),
     rationale: l(
       "Trusted data is a prerequisite for analytics and responsible AI.",
@@ -2046,8 +2046,8 @@ dataAi.questions = [
     capabilityIds: ["data-integration"],
     title: l("Enterprise data fabric", "Data fabric empresarial"),
     question: l(
-      "Can data move reliably across core systems, cloud platforms, APIs, and analytics environments?",
-      "Os dados trafegam de forma confiável entre sistemas core, cloud, APIs e ambientes analíticos?",
+      "Are critical data pipelines monitored against a defined reliability SLA?",
+      "Os pipelines críticos de dados são monitorados contra um SLA de confiabilidade definido?",
     ),
     rationale: l(
       "Fragmented integration limits reuse, quality, and time to insight.",
@@ -2106,8 +2106,8 @@ dataAi.questions = [
     capabilityIds: ["data-governance", "data-operationalize"],
     title: l("AI operational controls", "Controles operacionais de IA"),
     question: l(
-      "Are AI models and agents monitored, governed, and connected to accountable operating processes?",
-      "Modelos e agentes de IA são monitorados, governados e conectados a processos operacionais com responsáveis?",
+      "Are production AI models monitored for performance drift?",
+      "Os modelos de IA em produção são monitorados quanto a drift de performance?",
     ),
     rationale: l(
       "Scaling AI requires governance, monitoring, and clear accountability.",
@@ -2345,8 +2345,8 @@ workplace.questions = [
     capabilityIds: ["work-automation"],
     title: l("Service desk automation", "Automação de service desk"),
     question: l(
-      "Are ticket classification, routing, fulfillment, and repetitive workplace workflows automated?",
-      "Classificação, roteamento, atendimento de tickets e workflows repetitivos de workplace são automatizados?",
+      "Is service-desk ticket routing automated?",
+      "O roteamento de tickets do service desk é automatizado?",
     ),
     rationale: l(
       "Automation improves resolution time and reduces repetitive work.",
@@ -2384,8 +2384,8 @@ workplace.questions = [
     capabilityIds: ["work-experience", "work-finops"],
     title: l("Workplace outcomes", "Resultados de workplace"),
     question: l(
-      "Are employee experience, ticket reduction, productivity, and cost outcomes measured together?",
-      "Experiência do colaborador, redução de tickets, produtividade e custos são medidos em conjunto?",
+      "Is digital employee experience measured through a business-approved KPI?",
+      "A experiência digital do colaborador é medida por um KPI aprovado pelo negócio?",
     ),
     rationale: l(
       "Shared outcomes are required to prove value and prioritize improvements.",
@@ -2615,8 +2615,8 @@ cyber.questions = [
     capabilityIds: ["cyber-identity"],
     title: l("Identity perimeter", "Perímetro de identidade"),
     question: l(
-      "Are MFA, privileged access, machine identities, and access lifecycle governed consistently?",
-      "MFA, acessos privilegiados, identidades de máquinas e ciclo de vida de acessos são governados de forma consistente?",
+      "Is MFA enforced for every privileged account?",
+      "MFA é obrigatório para todas as contas privilegiadas?",
     ),
     rationale: l(
       "Identity is the primary control plane in a Zero Trust architecture.",
@@ -2669,8 +2669,8 @@ cyber.questions = [
     capabilityIds: ["cyber-response"],
     title: l("Incident response", "Resposta a incidentes"),
     question: l(
-      "Are security incidents handled through tested playbooks, threat intelligence, clear ownership, and coordinated response?",
-      "Incidentes de segurança são tratados por playbooks testados, inteligência de ameaças, ownership claro e resposta coordenada?",
+      "Has the critical-incident response playbook been tested in the last 12 months?",
+      "O playbook de resposta a incidentes críticos foi testado nos últimos 12 meses?",
     ),
     rationale: l(
       "Coordinated response reduces containment time and business impact.",
@@ -3142,7 +3142,12 @@ export function scoreKyndrylAssessment(input: {
             )
           : 0;
         if (gateStatus === "FAILED") propensity = 0;
-        const action = actionFor(propensity, confidence, gateStatus);
+        let action = actionFor(propensity, confidence, gateStatus);
+        if (
+          action === "RECOMMEND_NOW" &&
+          new Set(relevantEvidence.map((item) => item.questionId)).size < 2
+        )
+          action = "VALIDATE";
         const capabilityLabels = addressedCapabilities.map(
           (item) => item.label,
         );

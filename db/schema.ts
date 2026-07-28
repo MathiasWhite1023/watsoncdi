@@ -588,6 +588,63 @@ export const guidedDiscoverySessions = sqliteTable(
   }),
 );
 
+export const guidedDiscoveryPillarStatus = sqliteTable(
+  "guided_discovery_pillar_status",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    ownerEmail: text("owner_email").notNull(),
+    pillarKey: text("pillar_key").notNull(),
+    catalogVersion: text("catalog_version").notNull(),
+    status: text("status").notNull().default("not_started"),
+    currentSessionId: text("current_session_id").references(
+      () => guidedDiscoverySessions.id,
+      { onDelete: "set null" },
+    ),
+    progressPercent: integer("progress_percent").notNull().default(0),
+    coveragePercent: integer("coverage_percent").notNull().default(0),
+    confidencePercent: integer("confidence_percent").notNull().default(0),
+    answeredCount: integer("answered_count").notNull().default(0),
+    requiredCount: integer("required_count").notNull().default(6),
+    notRelevantReason: text("not_relevant_reason"),
+    reviewedAt: text("reviewed_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountPillarIdx: uniqueIndex(
+      "guided_discovery_pillar_status_account_pillar_idx",
+    ).on(
+      table.discoveryId,
+      table.ownerEmail,
+      table.pillarKey,
+      table.catalogVersion,
+    ),
+    accountIdx: index("guided_discovery_pillar_status_account_idx").on(
+      table.discoveryId,
+      table.updatedAt,
+    ),
+    statusCheck: check(
+      "guided_discovery_pillar_status_check",
+      sql`${table.status} in ('not_started','in_progress','reviewed_sufficient','reviewed_gaps','not_relevant')`,
+    ),
+    progressCheck: check(
+      "guided_discovery_pillar_progress_check",
+      sql`${table.progressPercent} between 0 and 100`,
+    ),
+    coverageCheck: check(
+      "guided_discovery_pillar_coverage_check",
+      sql`${table.coveragePercent} between 0 and 100`,
+    ),
+    confidenceCheck: check(
+      "guided_discovery_pillar_confidence_check",
+      sql`${table.confidencePercent} between 0 and 100`,
+    ),
+  }),
+);
+
 export const guidedDiscoveryQuestions = sqliteTable(
   "guided_discovery_questions",
   {

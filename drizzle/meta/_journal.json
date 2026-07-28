@@ -64,6 +64,13 @@
       "when": 1784554958750,
       "tag": "0008_minor_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785252600000,
+      "tag": "0009_kyndryl_pillar_status",
+      "breakpoints": true
     }
   ]
 }
