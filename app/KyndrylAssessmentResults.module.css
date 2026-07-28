@@ -1,0 +1,333 @@
+.results {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 0 4rem;
+}
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+}
+.hero > div > span,
+.sectionHeading > div > span {
+  display: block;
+  color: #0f62fe;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.hero h2 {
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-weight: 300;
+  line-height: 1.08;
+  margin: 0.45rem 0 0.75rem;
+}
+.hero p {
+  max-width: 760px;
+  color: #525252;
+  line-height: 1.55;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: #c6c6c6;
+  border: 1px solid #c6c6c6;
+}
+.metrics article {
+  background: #fff;
+  padding: 1.25rem;
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.metrics span {
+  font-size: 0.75rem;
+  color: #525252;
+}
+.metrics strong {
+  font-size: 2.1rem;
+  font-weight: 300;
+}
+.metrics small {
+  font-size: 0.72rem;
+  color: #6f6f6f;
+}
+.formula {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  background: #001d6c;
+  color: #fff;
+  padding: 1rem 1.25rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.formula svg {
+  flex: none;
+  color: #78a9ff;
+}
+.empty {
+  min-height: 280px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+  color: #525252;
+  padding: 2rem;
+}
+.empty p {
+  max-width: 520px;
+  line-height: 1.5;
+}
+.section {
+  margin-top: 2.5rem;
+}
+.sectionHeading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+}
+.sectionHeading h3 {
+  font-size: 1.5rem;
+  font-weight: 400;
+  margin-top: 0.3rem;
+}
+.legend {
+  display: flex;
+  gap: 0.35rem;
+}
+.legend span {
+  font-size: 0.68rem;
+  padding: 0.35rem 0.55rem;
+  color: #161616;
+}
+.red {
+  background: #ffd7d9;
+}
+.amber {
+  background: #fddc69;
+}
+.green {
+  background: #a7f0ba;
+}
+.heatmap {
+  border: 1px solid #c6c6c6;
+  background: #fff;
+  overflow: auto;
+}
+.heatmapHeader,
+.heatmapRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.6fr) minmax(150px, 1fr) 110px;
+  min-width: 610px;
+}
+.heatmapHeader {
+  background: #262626;
+  color: #fff;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.heatmapHeader span,
+.heatmapRow > * {
+  padding: 0.72rem 1rem;
+  border-right: 1px solid #e0e0e0;
+}
+.heatmapRow {
+  border-top: 1px solid #e0e0e0;
+  align-items: stretch;
+}
+.heatmapRow strong {
+  font-size: 0.82rem;
+}
+.heatmapRow > span:not(.heatCell) {
+  font-size: 0.75rem;
+  color: #525252;
+}
+.heatCell {
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: center;
+  color: #161616;
+}
+.technologyList {
+  display: grid;
+  gap: 0.75rem;
+}
+.technology {
+  background: #fff;
+  border-left: 4px solid #0f62fe;
+  box-shadow: 0 1px 0 #e0e0e0;
+}
+.technologyHead {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 1rem 1.25rem;
+}
+.rank {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: #001d6c;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+}
+.technology h4 {
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+.technologyHead small {
+  font-size: 0.68rem;
+  color: #6f6f6f;
+  text-transform: capitalize;
+}
+.propensity {
+  display: grid;
+  grid-template-columns: 200px minmax(140px, 1fr) 130px;
+  gap: 1rem;
+  align-items: center;
+  padding: 0 1.25rem 1rem 4rem;
+}
+.propensity span,
+.propensity small {
+  font-size: 0.75rem;
+  color: #525252;
+}
+.propensity span strong {
+  font-size: 1.25rem;
+  color: #161616;
+  margin-left: 0.35rem;
+}
+.propensity > div {
+  height: 0.55rem;
+  background: #dde1e6;
+  overflow: hidden;
+}
+.propensity i {
+  display: block;
+  height: 100%;
+  background: #0f62fe;
+}
+.technology details {
+  border-top: 1px solid #e0e0e0;
+}
+.technology summary {
+  padding: 0.8rem 1.25rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #0f62fe;
+}
+.technology details > p {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #393939;
+  padding: 0 1.25rem 1rem;
+}
+.componentGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  border-top: 1px solid #e0e0e0;
+}
+.componentGrid span {
+  padding: 0.75rem;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.componentGrid small {
+  font-size: 0.62rem;
+  color: #6f6f6f;
+}
+.componentGrid strong {
+  font-size: 1rem;
+}
+.nextEvidence {
+  background: #edf5ff;
+  padding: 1rem 1.25rem;
+}
+.nextEvidence strong {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #0043ce;
+}
+.nextEvidence p {
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+}
+.openQuestions {
+  background: #fff;
+  list-style: none;
+  counter-reset: question;
+}
+.openQuestions li {
+  counter-increment: question;
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0.15rem 1rem;
+  padding: 1rem;
+  border-top: 1px solid #e0e0e0;
+}
+.openQuestions li:before {
+  content: counter(question);
+  grid-row: 1/3;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  background: #e8daff;
+  color: #491d8b;
+  font-size: 0.7rem;
+  border-radius: 50%;
+}
+.openQuestions strong {
+  font-size: 0.82rem;
+}
+.openQuestions span {
+  font-size: 0.72rem;
+  color: #6f6f6f;
+  line-height: 1.4;
+}
+@media (max-width: 760px) {
+  .hero {
+    display: block;
+  }
+  .hero button {
+    margin-top: 1rem;
+  }
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+  .metrics article {
+    min-height: 100px;
+  }
+  .sectionHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .propensity {
+    grid-template-columns: 1fr;
+    padding: 0 1rem 1rem;
+  }
+  .technologyHead {
+    grid-template-columns: 2rem 1fr;
+  }
+  .technologyHead :global(.cds--tag) {
+    grid-column: 2;
+  }
+  .componentGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

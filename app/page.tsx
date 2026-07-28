@@ -47,7 +47,7 @@ import {
   Close,
   Dashboard,
   Document,
-  Watson,
+  Watsonx,
   Launch,
   Logout,
   Menu,
@@ -102,6 +102,10 @@ import {
   localeRequestHeaders,
   type Locale,
 } from "@/lib/i18n";
+import {
+  localizedKyndrylPlaybooks,
+  type KyndrylAssessment,
+} from "@/lib/kyndryl-discovery";
 
 type Priority = "Alta" | "Média" | "Baixa";
 type Evidence = {
@@ -618,6 +622,7 @@ type GuidedDiscovery = {
   proposedFollowUp: GuidedDiscoveryQuestion | null;
   history: GuidedDiscoveryAnswer[];
   scoreHints: Record<string, number>;
+  technologyAssessment: KyndrylAssessment;
 };
 
 const emptyData: ApiData = {
@@ -1144,44 +1149,7 @@ function usePageCopy() {
     copy.copilot.q3,
     copy.copilot.q4,
   ];
-  const playbooks = [
-    {
-      key: "FinOps",
-      product: "IBM Cloudability + Turbonomic",
-      question: copy.playbooks.finopsQuestion,
-      workshop: "FinOps Discovery Workshop",
-    },
-    {
-      key: "Trusted Data",
-      product: "watsonx.data + IBM Guardium",
-      question: copy.playbooks.trustedDataQuestion,
-      workshop: "Trusted Data Workshop",
-    },
-    {
-      key: "AI Governance",
-      product: "watsonx.governance + watsonx.ai",
-      question: copy.playbooks.aiGovernanceQuestion,
-      workshop: "AI Governance Workshop",
-    },
-    {
-      key: "Hybrid Cloud",
-      product: "Red Hat OpenShift + Terraform",
-      question: copy.playbooks.hybridCloudQuestion,
-      workshop: "Hybrid Cloud Architecture Review",
-    },
-    {
-      key: "Automation",
-      product: "watsonx Orchestrate + IBM Concert",
-      question: copy.playbooks.automationQuestion,
-      workshop: "Automation Discovery Workshop",
-    },
-    {
-      key: "App Modernization",
-      product: "OpenShift + Instana",
-      question: copy.playbooks.modernizationQuestion,
-      workshop: "Modernization Assessment",
-    },
-  ];
+  const playbooks = localizedKyndrylPlaybooks(i18n.locale);
   const formatDate = (value?: string | null) =>
     value
       ? i18n.formatDate(value, {
@@ -1863,7 +1831,7 @@ export default function Home({
     return (
       <main className="v5-loading">
         <div>
-          <Watson size={32} />
+          <Watsonx size={32} />
         </div>
         <SkeletonText heading width="14rem" />
         <SkeletonText paragraph lineCount={3} width="22rem" />
@@ -3783,7 +3751,10 @@ function AccountStrategy({
         />
         <div className="v5-playbooks">
           {account.scores.slice(0, 3).map((score) => {
-            const book = playbooks.find((item) => item.key === score.short);
+            const book = playbooks.find(
+              (item) =>
+                item.key === score.short || item.canonicalKey === score.short,
+            );
             return (
               <article key={score.short}>
                 <header>
@@ -5092,8 +5063,15 @@ function GuidedDiscoverySummary({
   };
   const relevant =
     discovery?.pillars
-      .filter((pillar) => pillar.key !== "base")
       .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 2) || [];
+  const topTechnologies =
+    discovery?.technologyAssessment?.technologies
+      .filter(
+        (technology) =>
+          technology.action !== "DO_NOT_RECOMMEND" &&
+          technology.action !== "GATE_FAILED",
+      )
       .slice(0, 2) || [];
   const active =
     discovery?.session && !discovery.session.id.startsWith("virtual-");
@@ -5105,7 +5083,7 @@ function GuidedDiscoverySummary({
       <div className="v5-guided-copy">
         <span>
           {text(copy.guidedSummary.eyebrow, {
-            version: discovery?.catalogVersion || "2026.1",
+            version: discovery?.catalogVersion || "2026.2-kyndryl",
           })}
         </span>
         <h2>
@@ -5116,6 +5094,11 @@ function GuidedDiscoverySummary({
           {relevant.map((pillar) => (
             <Tag key={pillar.key} type="cyan">
               {pillar.label} · {pillar.relevance}%
+            </Tag>
+          ))}
+          {topTechnologies.map((technology) => (
+            <Tag key={technology.id} type="blue">
+              {technology.name} · {technology.propensity}%
             </Tag>
           ))}
         </div>

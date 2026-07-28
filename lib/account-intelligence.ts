@@ -32,6 +32,24 @@ export type HypothesisCandidate = {
 };
 
 const productMap: Record<string, string[]> = {
+  "IBM Z": ["IBM Instana", "IBM OMEGAMON", "IBM Z AIOps", "Red Hat OpenShift"],
+  Infrastructure: [
+    "IBM Turbonomic",
+    "HashiCorp Terraform",
+    "Red Hat Ansible",
+    "IBM Cloudability",
+  ],
+  Applications: [
+    "Red Hat OpenShift",
+    "IBM API Connect",
+    "IBM App Connect",
+    "IBM Instana",
+  ],
+  SAP: ["IBM watsonx", "IBM App Connect", "IBM Instana", "IBM Turbonomic"],
+  Operations: ["IBM Concert", "IBM Instana", "IBM Turbonomic", "Red Hat Ansible"],
+  "Data & AI": ["watsonx.data", "watsonx.ai", "watsonx.governance", "IBM Guardium"],
+  Workplace: ["IBM MaaS360", "IBM Verify", "watsonx Orchestrate"],
+  "Cyber Security": ["IBM QRadar", "IBM Guardium", "IBM Verify", "HashiCorp Vault"],
   FinOps: ["IBM Cloudability", "IBM Turbonomic"],
   "Trusted Data": ["watsonx.data", "IBM Guardium"],
   "AI Governance": ["watsonx.governance", "watsonx.ai"],

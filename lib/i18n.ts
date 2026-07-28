@@ -61,7 +61,7 @@ const enUS = {
   },
   guided: {
     accountStrategy: "Account intelligence · Strategy",
-    title: "Guided discovery",
+    title: "Opportunity discovery",
     catalog: "catalog",
     closeLabel: "Close guided discovery",
     demoTitle: "Completed demonstration",
@@ -325,7 +325,7 @@ const ptBR = {
   },
   guided: {
     accountStrategy: "Inteligência de contas · Estratégia",
-    title: "Descoberta guiada",
+    title: "Descoberta de oportunidades",
     catalog: "catálogo",
     closeLabel: "Fechar descoberta guiada",
     demoTitle: "Demonstração preenchida",

@@ -39,6 +39,7 @@ import {
   GUIDED_DISCOVERY_CATALOG,
   GUIDED_DISCOVERY_CATALOG_VERSION,
   GUIDED_DISCOVERY_PILLAR_META,
+  GUIDED_DISCOVERY_PILLARS,
   GuidedDiscoveryAnswerPayloadSchema,
   GuidedDiscoveryStartPayloadSchema,
   calculateDeterministicDeltas,
@@ -68,6 +69,13 @@ import {
   type CommercialStakeholder,
   type CommercialState,
 } from "../../../lib/commercial-proof";
+import {
+  KYNDYRL_PILLARS,
+  getKyndrylPillar,
+  kyndrylCapabilityCatalog,
+  scoreKyndrylAssessment,
+  type KyndrylAssessment,
+} from "../../../lib/kyndryl-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -287,158 +295,6 @@ type GuidedDiscoveryAnswerRow = {
   updatedAt: string;
 };
 
-const capabilityCatalog = [
-  {
-    name: "FinOps & Technology Financial Management",
-    short: "FinOps",
-    type: "capability",
-    keywords: [
-      "custo",
-      "cost",
-      "spend",
-      "cloud",
-      "nuvem",
-      "orçamento",
-      "budget",
-      "desperd",
-      "waste",
-      "forecast",
-      "rateio",
-      "allocation",
-      "accountability",
-      "finops",
-      "otimiza",
-      "optimiz",
-      "multicloud",
-    ],
-    action:
-      "Mapear baseline de gastos, owners e desperdícios antes de propor Cloudability/Turbonomic.",
-    actionEn:
-      "Map the spending baseline, owners, and waste before proposing Cloudability or Turbonomic.",
-  },
-  {
-    name: "Trusted Data & Data Security",
-    short: "Trusted Data",
-    type: "capability",
-    keywords: [
-      "dado",
-      "data",
-      "governan",
-      "governance",
-      "qualidade",
-      "quality",
-      "linhagem",
-      "lineage",
-      "catálogo",
-      "catalog",
-      "seguran",
-      "security",
-      "privacy",
-      "lgpd",
-      "compliance",
-      "silo",
-      "integra",
-      "integration",
-    ],
-    action:
-      "Validar fontes críticas, qualidade, acesso e riscos de dados com stakeholders de negócio.",
-    actionEn:
-      "Validate critical sources, quality, access, and data risks with business stakeholders.",
-  },
-  {
-    name: "AI Governance",
-    short: "AI Governance",
-    type: "capability",
-    keywords: [
-      "inteligência artificial",
-      "artificial intelligence",
-      " ia ",
-      "ai ",
-      "modelo",
-      "model",
-      "governança de ia",
-      "ai governance",
-      "responsável",
-      "responsible",
-      "genai",
-      "llm",
-    ],
-    action:
-      "Identificar casos de IA, riscos regulatórios e controles necessários para watsonx.governance.",
-    actionEn:
-      "Identify AI use cases, regulatory risks, and controls required for watsonx.governance.",
-  },
-  {
-    name: "Hybrid Infrastructure",
-    short: "Hybrid Cloud",
-    type: "capability",
-    keywords: [
-      "híbr",
-      "hybrid",
-      "multicloud",
-      "datacenter",
-      "data center",
-      "legado",
-      "legacy",
-      "infraestrutura",
-      "infrastructure",
-      "container",
-      "kubernetes",
-      "openshift",
-    ],
-    action:
-      "Entender workloads, restrições e padrões de plataforma para uma revisão de arquitetura híbrida.",
-    actionEn:
-      "Understand workloads, constraints, and platform standards for a hybrid architecture review.",
-  },
-  {
-    name: "Enterprise Automation",
-    short: "Automation",
-    type: "capability",
-    keywords: [
-      "manual",
-      "automação",
-      "automation",
-      "automat",
-      "ineficiência",
-      "inefficien",
-      "processo",
-      "process",
-      "produtividade",
-      "productivity",
-      "repetitive",
-      "workflow",
-    ],
-    action:
-      "Mapear tarefas repetitivas, handoffs e decisões que podem ser orquestradas com watsonx Orchestrate.",
-    actionEn:
-      "Map repetitive tasks, handoffs, and decisions that can be orchestrated with watsonx Orchestrate.",
-  },
-  {
-    name: "Application Modernization",
-    short: "App Modernization",
-    type: "capability",
-    keywords: [
-      "aplicação",
-      "aplicativo",
-      "application",
-      "app ",
-      "legado",
-      "legacy",
-      "moderniza",
-      "moderniz",
-      "mainframe",
-      "entrega",
-      "delivery",
-      "devops",
-    ],
-    action:
-      "Classificar aplicações por valor, risco e esforço para ondas de modernização.",
-    actionEn:
-      "Classify applications by value, risk, and effort for modernization waves.",
-  },
-] as const;
-
 const recommendationMap: Record<string, Recommendation[]> = {
   FinOps: [
     {
@@ -562,7 +418,7 @@ const recommendationMap: Record<string, Recommendation[]> = {
 };
 
 const initialScores = (locale: ResponseLocale = "en-US"): Score[] =>
-  capabilityCatalog.map((item, index) => ({
+  kyndrylCapabilityCatalog.map((item, index) => ({
     name: item.name,
     short: item.short,
     alignment: Math.max(22, 36 - index * 3),
@@ -613,7 +469,7 @@ function fallbackMeetingInsights(
   locale: ResponseLocale = "pt-BR",
 ): MeetingInsight {
   const text = notes.toLowerCase();
-  const themeHits = capabilityCatalog
+  const themeHits = kyndrylCapabilityCatalog
     .map((item) => ({ theme: item.short, hits: hitCount(text, item.keywords) }))
     .filter((item) => item.hits > 0)
     .sort((a, b) => b.hits - a.hits)
@@ -825,11 +681,200 @@ async function getAIInsights(
   };
 }
 
+function kyndrylActionLabel(
+  action: KyndrylAssessment["technologies"][number]["action"],
+  locale: ResponseLocale,
+) {
+  const labels = {
+    RECOMMEND_NOW: localizedText(
+      locale,
+      "Review the evidence and prepare a qualified recommendation.",
+      "Revisar as evidências e preparar uma recomendação qualificada.",
+    ),
+    VALIDATE: localizedText(
+      locale,
+      "Validate the strongest evidence and the decision gate with the customer.",
+      "Validar com o cliente as evidências mais fortes e o gate de decisão.",
+    ),
+    WATCHLIST: localizedText(
+      locale,
+      "Keep on the opportunity watchlist and close the discovery gaps.",
+      "Manter no radar de oportunidades e fechar as lacunas da descoberta.",
+    ),
+    LOW_PRIORITY: localizedText(
+      locale,
+      "Do not prioritize yet; collect new evidence before advancing.",
+      "Ainda não priorizar; coletar novas evidências antes de avançar.",
+    ),
+    DO_NOT_RECOMMEND: localizedText(
+      locale,
+      "Do not recommend with the evidence currently available.",
+      "Não recomendar com as evidências disponíveis.",
+    ),
+    GATE_PENDING: localizedText(
+      locale,
+      "Validate the required gate before making a recommendation.",
+      "Validar o gate obrigatório antes de recomendar.",
+    ),
+    GATE_FAILED: localizedText(
+      locale,
+      "Required gate not satisfied; no recommendation is allowed.",
+      "Gate obrigatório não atendido; nenhuma recomendação é permitida.",
+    ),
+  } as const;
+  return labels[action];
+}
+
+function kyndrylAssessmentFromAnswers(
+  answers: Answer[],
+  locale: ResponseLocale,
+) {
+  const assessmentAnswers = answers.flatMap((answer) =>
+    getQuestionById(answer.key)
+      ? [
+          {
+            questionId: answer.key,
+            status: "confirmed" as const,
+            structured: { value: answer.answer },
+            answerText: answer.answer,
+            confidence: 82,
+          },
+        ]
+      : [],
+  );
+  if (!assessmentAnswers.length) return null;
+  return scoreKyndrylAssessment({
+    answers: assessmentAnswers,
+    locale,
+  });
+}
+
+function resultFromKyndrylAssessment(
+  assessment: KyndrylAssessment,
+  answers: Answer[],
+  meetings: Meeting[],
+  locale: ResponseLocale,
+) {
+  const scores: Score[] = assessment.pillars
+    .map((pillar) => {
+      const technologies = assessment.technologies.filter(
+        (item) => item.pillarKey === pillar.key,
+      );
+      const top = technologies[0];
+      const relevantEvidence = assessment.evidence
+        .filter(
+          (item) => getQuestionById(item.questionId)?.pillar === pillar.key,
+        )
+        .slice(0, 6);
+      const businessValue = relevantEvidence.length
+        ? clamp(
+            relevantEvidence.reduce(
+              (sum, item) =>
+                sum +
+                (getKyndrylPillar(pillar.key)?.questions.find(
+                  (question) => question.id === item.questionId,
+                )?.businessImpact || 0),
+              0,
+            ) / relevantEvidence.length,
+          )
+        : 0;
+      return {
+        name: pillar.label,
+        short: getKyndrylPillar(pillar.key)?.shortLabel.en || pillar.label,
+        alignment: pillar.propensity,
+        value: businessValue,
+        readiness: pillar.maturity,
+        confidence: pillar.confidence,
+        level: level(pillar.propensity),
+        evidence: relevantEvidence.map(
+          (item) =>
+            `${item.question} → ${item.label} → ${top?.name || pillar.label}`,
+        ),
+        action: top
+          ? kyndrylActionLabel(top.action, locale)
+          : localizedText(
+              locale,
+              "Complete the pillar discovery.",
+              "Concluir a descoberta do pilar.",
+            ),
+      } satisfies Score;
+    })
+    .sort((a, b) => b.alignment - a.alignment);
+  const technologyRecommendations: Recommendation[] = assessment.technologies
+    .filter(
+      (item) =>
+        item.action !== "DO_NOT_RECOMMEND" && item.action !== "GATE_FAILED",
+    )
+    .slice(0, 5)
+    .map((item) => ({
+      type: "Software",
+      name: item.name,
+      rationale: `${item.propensity}% ${localizedText(locale, "propensity", "propensão")} · ${item.confidence}% ${localizedText(locale, "confidence", "confiança")}. ${item.explanation}`,
+    }));
+  const leadingPillar = assessment.pillars[0];
+  const recommendations: Recommendation[] = [
+    ...technologyRecommendations,
+    ...(leadingPillar
+      ? [
+          {
+            type: "Consultoria" as const,
+            name: leadingPillar.workshop,
+            rationale: localizedText(
+              locale,
+              "Recommended to validate the evidence, required gates, and the decision path before CRM handoff.",
+              "Recomendado para validar evidências, gates obrigatórios e o caminho de decisão antes do handoff ao CRM.",
+            ),
+          },
+        ]
+      : []),
+  ];
+  const topTechnology = assessment.technologies[0];
+  const latestMeeting = meetings[0];
+  const challengeSummary =
+    latestMeeting?.summary ||
+    answers.find((item) => getQuestionById(item.key))?.answer?.slice(0, 240) ||
+    localizedText(
+      locale,
+      "Kyndryl opportunity discovery is in progress.",
+      "A descoberta de oportunidades Kyndryl está em andamento.",
+    );
+  const nextEngagement =
+    topTechnology?.nextQuestion ||
+    (topTechnology
+      ? kyndrylActionLabel(topTechnology.action, locale)
+      : localizedText(
+          locale,
+          "Choose a pillar and start discovery.",
+          "Escolha um pilar e inicie a descoberta.",
+        ));
+  const priority =
+    topTechnology?.propensity >= 80 && topTechnology.confidence >= 55
+      ? "Alta"
+      : topTechnology?.propensity >= 45
+        ? "Média"
+        : "Baixa";
+  return {
+    scores,
+    recommendations,
+    challengeSummary,
+    nextEngagement,
+    priority,
+  };
+}
+
 function analyze(
   answers: Answer[],
   meetings: Meeting[] = [],
   locale: ResponseLocale = "pt-BR",
 ) {
+  const kyndrylAssessment = kyndrylAssessmentFromAnswers(answers, locale);
+  if (kyndrylAssessment)
+    return resultFromKyndrylAssessment(
+      kyndrylAssessment,
+      answers,
+      meetings,
+      locale,
+    );
   const text = [
     answers.map((item) => item.answer).join(" "),
     meetings
@@ -860,7 +905,7 @@ function analyze(
   const quote = (key: string) =>
     answers.find((item) => item.key === key)?.answer;
 
-  const scores = capabilityCatalog
+  const scores = kyndrylCapabilityCatalog
     .map((item) => {
       const hits = hitCount(text, item.keywords);
       const themeMention = meetings.some((meeting) =>
@@ -912,20 +957,59 @@ function analyze(
     .sort((a, b) => b.alignment - a.alignment);
 
   const top = scores[0];
-  const recommendations = (
-    recommendationMap[top.short] || recommendationMap["Trusted Data"]
-  ).map((item) =>
-    locale === "en-US"
-      ? {
-          ...item,
-          type: localizeDemoSystemText(
-            item.type,
-            locale,
-          ) as Recommendation["type"],
-          rationale: localizeDemoSystemText(item.rationale, locale),
-        }
-      : item,
+  const topPillar = KYNDYRL_PILLARS.find(
+    (pillar) => pillar.shortLabel.en === top.short,
   );
+  const recommendations = topPillar
+    ? [
+        {
+          type: "Capacidade" as const,
+          name: locale === "en-US" ? topPillar.label.en : topPillar.label.pt,
+          rationale: localizedText(
+            locale,
+            "The account signals align with this Kyndryl discovery pillar. Validate them through the guided questions.",
+            "Os sinais da conta se alinham a este pilar de descoberta Kyndryl. Valide-os pelas perguntas guiadas.",
+          ),
+        },
+        {
+          type: "Software" as const,
+          name: topPillar.technologies
+            .filter((item) => item.attach === "LEAD_ATTACH")
+            .slice(0, 3)
+            .map((item) => item.name)
+            .join(" + "),
+          rationale: localizedText(
+            locale,
+            "These lead technologies address the highest-priority capabilities in the pillar.",
+            "Estas tecnologias principais atendem às capacidades de maior prioridade do pilar.",
+          ),
+        },
+        {
+          type: "Consultoria" as const,
+          name:
+            locale === "en-US"
+              ? topPillar.workshop.en
+              : topPillar.workshop.pt,
+          rationale: localizedText(
+            locale,
+            "Use the workshop to confirm evidence, decision gates, and the customer journey before a commercial recommendation.",
+            "Use o workshop para confirmar evidências, gates de decisão e a jornada do cliente antes de uma recomendação comercial.",
+          ),
+        },
+      ]
+    : (recommendationMap[top.short] || recommendationMap["Trusted Data"]).map(
+        (item) =>
+          locale === "en-US"
+            ? {
+                ...item,
+                type: localizeDemoSystemText(
+                  item.type,
+                  locale,
+                ) as Recommendation["type"],
+                rationale: localizeDemoSystemText(item.rationale, locale),
+              }
+            : item,
+      );
   const latestMeeting = meetings[0];
   const challengeSummary =
     latestMeeting?.summary ||
@@ -2211,14 +2295,14 @@ function mapGuidedAnswer(
 }
 
 const scoreHintsForGuidedDiscovery = (row: Record<string, unknown>) => {
-  const keyByShort: Record<string, GuidedDiscoveryPillarKey> = {
-    FinOps: "finops",
-    "Trusted Data": "trusted-data",
-    "AI Governance": "ai-governance",
-    "Hybrid Cloud": "hybrid-cloud",
-    Automation: "automation",
-    "App Modernization": "app-modernization",
-  };
+  const keyByShort = Object.fromEntries(
+    KYNDYRL_PILLARS.flatMap((pillar) => [
+      [pillar.shortLabel.en, pillar.key],
+      [pillar.shortLabel.pt, pillar.key],
+      [pillar.label.en, pillar.key],
+      [pillar.label.pt, pillar.key],
+    ]),
+  ) as Record<string, GuidedDiscoveryPillarKey>;
   return Object.fromEntries(
     json<Score[]>(row.scores_json, [])
       .map((score) => [keyByShort[score.short], score.alignment])
@@ -2232,6 +2316,7 @@ function guidedSnapshot(input: {
   questions: GuidedDiscoveryQuestionRow[];
   answers: GuidedDiscoveryAnswerRow[];
   stakeholders: Stakeholder[];
+  locale?: ResponseLocale;
 }) {
   const discoveryId = String(input.row.id);
   const session =
@@ -2259,7 +2344,9 @@ function guidedSnapshot(input: {
     );
     const catalogIds = Array.from(
       new Set([
-        ...questionsForPillar("base").map((item) => item.id),
+        ...questionsForPillar(GUIDED_DISCOVERY_PILLARS[0]).map(
+          (item) => item.id,
+        ),
         ...legacyByCatalog.keys(),
       ]),
     );
@@ -2415,12 +2502,41 @@ function guidedSnapshot(input: {
       (item) => item.source === "ai" && item.status === "proposed",
     ) || null;
   const checkpointAlreadyUsed = checkpoint
-    ? checkpoint.kind === "base"
-      ? (effectiveSession?.checkpointCount || 0) > 0
-      : questions.some(
-          (item) => item.source === "ai" && item.pillar === checkpoint.pillar,
-        )
+    ? questions.some(
+        (item) => item.source === "ai" && item.pillar === checkpoint.pillar,
+      )
     : false;
+  const allQuestionById = new Map(
+    input.questions.map((question) => [question.id, question]),
+  );
+  const assessmentPillars = Array.from(
+    new Set([
+      ...(effectiveSession?.selectedPillars || []),
+      ...input.questions.map((question) => question.pillar),
+    ]),
+  ).filter(isGuidedDiscoveryPillar);
+  const technologyAssessment = scoreKyndrylAssessment({
+    answers: input.answers
+      .filter((answer) => answer.isCurrent)
+      .flatMap((answer) => {
+        const question = allQuestionById.get(answer.questionId);
+        const catalogQuestionId =
+          question?.catalogQuestionId || answer.questionId;
+        return getQuestionById(catalogQuestionId)
+          ? [
+              {
+                questionId: catalogQuestionId,
+                status: answer.status,
+                structured: answer.structured,
+                answerText: answer.answerText,
+                confidence: answer.confidence,
+              },
+            ]
+          : [];
+      }),
+    pillarKeys: assessmentPillars,
+    locale: input.locale || "en-US",
+  });
 
   return {
     discoveryId,
@@ -2452,16 +2568,10 @@ function guidedSnapshot(input: {
         ...meta,
         ...pillarMetrics,
         relevance:
-          key === "base"
-            ? 100
-            : ranking?.score ||
-              Number(scoreHints[key as GuidedDiscoveryPillarKey] || 0),
-        rationale:
-          key === "base"
-            ? "Diagnóstico obrigatório no modo adaptativo."
-            : ranking?.rationale || "Ainda sem evidência suficiente.",
+          ranking?.score ||
+          Number(scoreHints[key as GuidedDiscoveryPillarKey] || 0),
+        rationale: ranking?.rationale || "Ainda sem evidência suficiente.",
         selected:
-          key === "base" ||
           effectiveSession?.selectedPillars.includes(key) ||
           pillarQuestions.length > 0,
       };
@@ -2482,6 +2592,7 @@ function guidedSnapshot(input: {
       )
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     scoreHints,
+    technologyAssessment,
   };
 }
 
@@ -3634,6 +3745,7 @@ async function backfillV4(
 async function guidedSnapshotForAccount(
   db: D1Database,
   row: Record<string, unknown>,
+  responseLocale: ResponseLocale = "en-US",
 ) {
   const id = String(row.id);
   const [sessionRows, questionRows, answerRows, stakeholderRows] =
@@ -3669,6 +3781,7 @@ async function guidedSnapshotForAccount(
     questions: questionRows.results.map(mapGuidedQuestion),
     answers: answerRows.results.map(mapGuidedAnswer),
     stakeholders: stakeholderRows.results.map(mapStakeholder),
+    locale: responseLocale,
   });
 }
 
@@ -3962,6 +4075,7 @@ async function materializeLegacyGuidedAnswers(
 async function accountPayload(
   db: D1Database,
   discoveryRows: Record<string, unknown>[],
+  responseLocale: ResponseLocale = "en-US",
 ) {
   const ids = discoveryRows.map((row) => String(row.id));
   if (!ids.length)
@@ -4291,6 +4405,7 @@ async function accountPayload(
         questions: guidedQuestions,
         answers: guidedAnswers,
         stakeholders: mappedStakeholders,
+        locale: responseLocale,
       }),
     ),
     changeSets,
@@ -4391,6 +4506,7 @@ async function handleGET(request: Request) {
     accountId
       ? rows.results.filter((row) => String(row.id) === accountId)
       : rows.results,
+    responseLocale,
   );
   return Response.json(
     scope === "demo" ? localizeDemoPayload(payload, responseLocale) : payload,
@@ -5301,10 +5417,7 @@ async function handlePOST(request: Request) {
         { error: "Escolha um modo e pilares válidos." },
         { status: 400 },
       );
-    const selectedPillars = parsed.data.selectedPillars.filter(
-      (pillar): pillar is Exclude<GuidedDiscoveryPillarKey, "base"> =>
-        pillar !== "base",
-    );
+    const selectedPillars = parsed.data.selectedPillars;
     if (parsed.data.mode === "direct" && !selectedPillars.length)
       return Response.json(
         { error: "Escolha ao menos um pilar para iniciar no modo direto." },
@@ -5327,7 +5440,7 @@ async function handlePOST(request: Request) {
       return Response.json({
         ok: true,
         resumed: true,
-        guidedDiscovery: await guidedSnapshotForAccount(db, row),
+        guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
       });
     }
     const sessionId = `gds-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -5384,7 +5497,7 @@ async function handlePOST(request: Request) {
         ok: true,
         sessionId,
         resumed: false,
-        guidedDiscovery: await guidedSnapshotForAccount(db, row),
+        guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
       },
       { status: 201 },
     );
@@ -5550,12 +5663,15 @@ async function handlePOST(request: Request) {
         occurredAt: sourceDate || now,
       });
       const legacyAnswers = json<Answer[]>(row.answers_json, []);
-      if (answerStatus === "confirmed") {
+      if (answerStatus === "confirmed" || answerStatus === "unknown") {
         const key = String(questionRow.catalog_question_id || questionRow.id);
         const next = {
           key,
           question: String(questionRow.prompt),
-          answer: content,
+          answer:
+            answerStatus === "unknown"
+              ? localizedText(locale, "Don't know", "Não sei")
+              : content,
           at: now,
         };
         const index = legacyAnswers.findIndex((item) => item.key === key);
@@ -5626,7 +5742,7 @@ async function handlePOST(request: Request) {
       updatedRow.progress = accountProgress;
     }
     const afterScores = json<Score[]>(updatedRow.scores_json, []);
-    const snapshot = await guidedSnapshotForAccount(db, updatedRow);
+    const snapshot = await guidedSnapshotForAccount(db, updatedRow, locale);
     if (answerStatus !== "draft") await persistImpactMetrics(db, id, now);
     return Response.json({
       ok: true,
@@ -5709,7 +5825,7 @@ async function handlePOST(request: Request) {
       return Response.json({
         ok: true,
         status,
-        guidedDiscovery: await guidedSnapshotForAccount(db, row),
+        guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
       });
     }
     if (operation === "accept_follow_up" || operation === "dismiss_follow_up") {
@@ -5731,7 +5847,7 @@ async function handlePOST(request: Request) {
       return Response.json({
         ok: true,
         decision: nextStatus,
-        guidedDiscovery: await guidedSnapshotForAccount(db, row),
+        guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
       });
     }
     if (operation === "checkpoint") {
@@ -5744,7 +5860,7 @@ async function handlePOST(request: Request) {
           },
           { status: 429 },
         );
-      const current = await guidedSnapshotForAccount(db, row);
+      const current = await guidedSnapshotForAccount(db, row, locale);
       if (!current.checkpoint?.available)
         return Response.json(
           {
@@ -5850,7 +5966,7 @@ async function handlePOST(request: Request) {
             "The deterministic catalog remains available; no AI follow-up was saved.",
             "O catálogo determinístico continua disponível; nenhum follow-up de IA foi salvo.",
           ),
-          guidedDiscovery: await guidedSnapshotForAccount(db, row),
+          guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
         });
       }
       const citationIds = Array.isArray(followUp.citationIds)
@@ -5871,12 +5987,9 @@ async function handlePOST(request: Request) {
             ]
           : [];
       });
-      const resolvedPillar =
-        isGuidedDiscoveryPillar(followUp.pillar) && followUp.pillar !== "base"
-          ? followUp.pillar
-          : pillar === "base"
-            ? "finops"
-            : pillar;
+      const resolvedPillar = isGuidedDiscoveryPillar(followUp.pillar)
+        ? followUp.pillar
+        : pillar;
       const questionId = `gdq-ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const maxSequence =
         Number(
@@ -5982,7 +6095,7 @@ async function handlePOST(request: Request) {
         model: cached?.model || generated?.model || null,
         cached: Boolean(cached),
         requiresHumanApproval: true,
-        guidedDiscovery: await guidedSnapshotForAccount(db, row),
+        guidedDiscovery: await guidedSnapshotForAccount(db, row, locale),
       });
     }
     return Response.json(
@@ -6357,7 +6470,7 @@ async function handlePOST(request: Request) {
         lower,
       ) && "commitment",
     ]);
-    const affectedThemes = capabilityCatalog
+    const affectedThemes = kyndrylCapabilityCatalog
       .filter((item) => hitCount(lower, item.keywords) > 0)
       .map((item) => item.short);
     return Response.json({

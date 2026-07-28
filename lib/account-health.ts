@@ -4,12 +4,14 @@ export const HEALTH_SCORE_THRESHOLDS = {
 } as const;
 
 export const DEFAULT_CAPABILITY_KEYS = [
-  "FinOps",
-  "Trusted Data",
-  "AI Governance",
-  "Hybrid Cloud",
-  "Automation",
-  "App Modernization",
+  "IBM Z",
+  "Infrastructure",
+  "Applications",
+  "SAP",
+  "Operations",
+  "Data & AI",
+  "Workplace",
+  "Cyber Security",
 ] as const;
 
 export type HealthBand = "low" | "medium" | "high";
@@ -213,18 +215,33 @@ export function normalizeHealthPriority(value?: string): HealthPriority {
 export function normalizeCapabilityKey(value: string) {
   const normalized = normalizeText(value).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const aliases: Record<string, string> = {
-    finops: "finops",
-    "trusted-data": "trusted-data",
-    "dados-confiaveis": "trusted-data",
-    "ai-governance": "ai-governance",
-    "governanca-de-ia": "ai-governance",
-    "hybrid-cloud": "hybrid-cloud",
-    "nuvem-hibrida": "hybrid-cloud",
-    automation: "automation",
-    automacao: "automation",
-    "app-modernization": "app-modernization",
+    "ibm-z": "ibm-z",
+    infrastructure: "infrastructure-modernization",
+    "infrastructure-modernization": "infrastructure-modernization",
+    applications: "application-modernization",
+    "application-modernization": "application-modernization",
+    sap: "sap-transformation",
+    "sap-transformation": "sap-transformation",
+    operations: "modern-operations",
+    "modern-operations": "modern-operations",
+    "data-ai": "data-ai",
+    "data-and-ai": "data-ai",
+    workplace: "modern-workplace",
+    "modern-workplace": "modern-workplace",
+    "cyber-security": "cyber-security",
+    cybersecurity: "cyber-security",
+    finops: "infrastructure-modernization",
+    "trusted-data": "data-ai",
+    "dados-confiaveis": "data-ai",
+    "ai-governance": "data-ai",
+    "governanca-de-ia": "data-ai",
+    "hybrid-cloud": "infrastructure-modernization",
+    "nuvem-hibrida": "infrastructure-modernization",
+    automation: "modern-operations",
+    automacao: "modern-operations",
+    "app-modernization": "application-modernization",
     "application-modernization": "app-modernization",
-    "modernizacao-de-aplicacoes": "app-modernization",
+    "modernizacao-de-aplicacoes": "application-modernization",
   };
   return aliases[normalized] || normalized;
 }

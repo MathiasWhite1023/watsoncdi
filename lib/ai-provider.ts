@@ -186,7 +186,16 @@ export const ProposedActionsSchema = z.object({
 export const DiscoveryFollowUpSchema = z.object({
   question: cleanString,
   rationale: cleanString,
-  pillar: z.enum(["finops", "trusted-data", "ai-governance", "hybrid-cloud", "automation", "app-modernization"]),
+  pillar: z.enum([
+    "ibm-z",
+    "infrastructure-modernization",
+    "application-modernization",
+    "sap-transformation",
+    "modern-operations",
+    "data-ai",
+    "modern-workplace",
+    "cyber-security",
+  ]),
   affectedHypothesisIds: conciseList(8),
   citationIds: conciseList(8),
   informationValue: confidence,
@@ -424,7 +433,19 @@ const DISCOVERY_FOLLOW_UP_JSON_SCHEMA: JsonSchema = {
   properties: {
     question: stringSchema,
     rationale: stringSchema,
-    pillar: { type: "string", enum: ["finops", "trusted-data", "ai-governance", "hybrid-cloud", "automation", "app-modernization"] },
+    pillar: {
+      type: "string",
+      enum: [
+        "ibm-z",
+        "infrastructure-modernization",
+        "application-modernization",
+        "sap-transformation",
+        "modern-operations",
+        "data-ai",
+        "modern-workplace",
+        "cyber-security",
+      ],
+    },
     affectedHypothesisIds: arraySchema(stringSchema, 8),
     citationIds: arraySchema(stringSchema, 8),
     informationValue: confidenceSchema,

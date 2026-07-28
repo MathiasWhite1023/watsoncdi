@@ -323,11 +323,11 @@ const enUS = {
     q4: "What changed since the last meeting?",
   },
   guidedSummary: {
-    eyebrow: "Guided discovery · catalog {version}",
+    eyebrow: "Opportunity discovery · catalog {version}",
     continue: "Continue where you left off",
-    title: "Turn questions into actionable intelligence",
+    title: "Turn account questions into IBM opportunity intelligence",
     description:
-      "Adaptive or pillar-direct assessment with evidence, stakeholders, history, and immediate impact on IBM themes.",
+      "Choose a Kyndryl pillar, capture evidence, and generate explainable capability heatmaps and IBM technology recommendations.",
     progress: "progress",
     coverage: "coverage",
     gaps: "gaps",
@@ -781,11 +781,11 @@ const ptBR = {
     q4: "O que mudou desde a última reunião?",
   },
   guidedSummary: {
-    eyebrow: "Descoberta guiada · catálogo {version}",
+    eyebrow: "Descoberta de oportunidades · catálogo {version}",
     continue: "Continue de onde parou",
-    title: "Transforme perguntas em inteligência acionável",
+    title: "Transforme perguntas da conta em oportunidades IBM",
     description:
-      "Diagnóstico adaptativo ou direto por pilar, com evidência, stakeholder, histórico e impacto imediato nos temas IBM.",
+      "Escolha um pilar Kyndryl, registre evidências e gere heatmaps de capacidades e recomendações IBM explicáveis.",
     progress: "progresso",
     coverage: "cobertura",
     gaps: "lacunas",
