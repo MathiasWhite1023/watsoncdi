@@ -2,8 +2,9 @@
 
 ## Kyndryl UX V2 — guided multipillar experience
 
-Status: validated locally; publication pending
+Status: published as Kyndryl Sites version `2`
 Branch: `codex/kyndryl-guided-experience-v2`
+Deploy commit: `102e4615d7f762e68c022a7e160c291ed3e7cd91`
 Rollback: OpenAI Sites Kyndryl version `1` / branch `codex/kyndryl-discovery-flow`
 Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 
@@ -54,7 +55,7 @@ Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 
 ### Rollback
 
-This pilot is isolated from production. Delete or abandon `codex/kyndryl-discovery-flow` and continue from `origin/main` or tag `v5.3.1-open-authenticated-workspace`. No data migration or Sites rollback is needed because this branch has not been deployed.
+This pilot remains isolated from the original Watson CDI production site. Republish Kyndryl Sites version `1` to restore this experience; no destructive data rollback is required.
 
 ## v5.3.1-open-authenticated-workspace
 
