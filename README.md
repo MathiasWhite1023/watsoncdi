@@ -10,17 +10,21 @@ This is a portfolio/challenge project. It is not an official IBM product.
 
 ## Kyndryl Opportunity-Discovery Pilot
 
-The dedicated branch `codex/kyndryl-discovery-flow` adapts the product around the operating journey requested for the Kyndryl initiative:
+The dedicated branch `codex/kyndryl-guided-experience-v2` adapts the product around the operating journey requested for the Kyndryl initiative. It is hosted independently at https://watson-cdi-kyndryl.matheus68747.chatgpt.site, leaving the original Watson CDI deployment unchanged.
 
 ```text
 account
+  -> Portfolio
   -> select one battle-card pillar
   -> answer account-specific discovery questions
   -> review capability maturity
   -> receive explainable IBM technology recommendations
+  -> choose the next pillar
 ```
 
-The bilingual `2026.2-kyndryl` catalog contains 48 curated questions across IBM Z Modernization & Hybrid Operations, Infrastructure Modernization, Application Modernization, SAP Transformation, Modern Operations, Data Platform & AI, Modern Workplace, and Zero Trust & Cyber Security.
+The bilingual `2026.3-kyndryl` catalog contains 48 essential questions and up to 48 deterministic follow-ups across IBM Z Modernization & Hybrid Operations, Infrastructure Modernization, Application Modernization, SAP Transformation, Modern Operations, Data Platform & AI, Modern Workplace, and Zero Trust & Cyber Security.
+
+Each account keeps independent review status for all eight pillars. Pillar progress (for example, `6/6 essential questions`) is separate from account review (`1/8 pillars · 13%`), evidence coverage, and recommendation confidence. Completing one pillar never marks the account discovery as complete.
 
 The opportunity engine is deterministic and auditable. It applies the battle-card formula:
 
@@ -36,7 +40,7 @@ Technology Fit Score =
 
 Propensity and confidence are deliberately separate. `Yes` and `No` become evidence according to the question rule; `N/A` is removed from the score and confidence denominators; `Don't know` adds no evidence and reduces confidence. Required gates are evaluated before gated technologies are recommended. Every recommendation retains the chain `answer -> evidence -> capability gap -> technology`, as well as the recommended workshop and next question.
 
-The public example is read-only but exposes the complete questions and results experience. Existing guided-discovery tables and account records are reused, so the pilot introduces no destructive schema change and does not affect the OpenAI Sites production deployment.
+The public example is read-only but exposes the questions, pillar hub, heatmap, and results experience. Migration `0009` only adds the multipillar status table. Existing sessions, append-only answers, and account records remain compatible.
 
 ## What It Does
 

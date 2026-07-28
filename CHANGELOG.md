@@ -1,11 +1,36 @@
 # Changelog
 
+## Kyndryl UX V2 — guided multipillar experience
+
+Status: validated locally; publication pending
+Branch: `codex/kyndryl-guided-experience-v2`
+Rollback: OpenAI Sites Kyndryl version `1` / branch `codex/kyndryl-discovery-flow`
+Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+
+### Changed
+
+- Reduced the main navigation to `Home`, `Portfolio`, and `Settings`; the account workspace is now reached from Portfolio with a persistent breadcrumb.
+- Combined the account table and comparative heatmap under two Portfolio views, removing competition between Account Intelligence and Radar.
+- Rebuilt Home around a single `Continue discovery` action, a compact Account Health heatmap, and operational lists.
+- Introduced catalog `2026.3-kyndryl`: six essential questions and up to six deterministic contextual follow-ups per pillar.
+- Added a multipillar hub with independent status, progress, evidence coverage, and confidence for all eight pillars.
+- Corrected overall completion: one completed pillar now reports `1/8 · 13%`; 100% requires all pillars to be reviewed or marked not relevant.
+- Added pause, resume, reopen, and not-relevant operations without losing previous answers.
+- Added a results handoff to `Choose next pillar`, while keeping `Back to pillars` visible throughout the assessment.
+- Moved optional evidence details into progressive disclosure and replaced ambiguous tiles with tables, lists, tags, and explicit Carbon actions.
+- Added additive migration `0009_kyndryl_pillar_status.sql`; all historical sessions and append-only answers remain compatible.
+- Tightened recommendation governance: `Recommend now` requires a satisfied gate and at least two independent supporting answers.
+
+### Rollback
+
+Republish Kyndryl Sites version `1` or return to branch `codex/kyndryl-discovery-flow`. Migration `0009` is additive, so the previous application safely ignores the multipillar status table.
+
 ## Kyndryl opportunity-discovery pilot
 
-Status: branch validated; production unchanged
+Status: published as Kyndryl Sites version `1`; preserved for rollback
 Branch: `codex/kyndryl-discovery-flow`
 Baseline: `origin/main` / `v5.3.1-open-authenticated-workspace`
-Production URL: https://watson-cdi-challenge.matheus68747.chatgpt.site
+Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 
 ### Added
 
