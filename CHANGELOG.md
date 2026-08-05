@@ -2,8 +2,9 @@
 
 ## Kyndryl Capability-Driven CDI V3
 
-Status: validated locally; pending Kyndryl Sites publication
+Status: published as Kyndryl Sites version `3`
 Branch: `codex/kyndryl-guided-experience-v2`
+Deploy commit: `14523c5f6ef9765fc26c07512db7d761dccbbbc9`
 Rollback: tag `kyndryl-ux-v2` / Kyndryl Sites version `2`
 Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 
