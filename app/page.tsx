@@ -2110,8 +2110,8 @@ export default function Home({
               }
               description={
                 locale === "pt-BR"
-                  ? "Comece por uma conta, revise os oito pilares e acompanhe o avanço até o heatmap e as recomendações."
-                  : "Start with an account, review all eight pillars, and follow progress through heatmaps and recommendations."
+                  ? "Comece por uma conta, revise as capacidades relevantes e acompanhe a trilha de evidências até o heatmap e as recomendações."
+                  : "Start with an account, review the relevant capabilities, and follow the evidence trail to heatmaps and recommendations."
               }
               action={
                 privateMode ? (
@@ -3062,10 +3062,10 @@ function HomeView({
             <strong>{recommendedDiscovery?.overallReview.percent || 0}%</strong>
             <span>
               {recommendedDiscovery?.overallReview.reviewedPillars || 0}/
-              {recommendedDiscovery?.overallReview.totalPillars || 8}{" "}
+              {recommendedDiscovery?.overallReview.totalPillars || 14}{" "}
               {locale === "pt-BR"
-                ? "pilares revisados"
-                : "pillars reviewed"}
+                ? "capacidades revisadas"
+                : "capabilities reviewed"}
             </span>
             <ProgressBar
               label={recommendedAccount.customerName}

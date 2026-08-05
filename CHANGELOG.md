@@ -1,5 +1,35 @@
 # Changelog
 
+## Kyndryl Capability-Driven CDI V3
+
+Status: validated locally; pending Kyndryl Sites publication
+Branch: `codex/kyndryl-guided-experience-v2`
+Rollback: tag `kyndryl-ux-v2` / Kyndryl Sites version `2`
+Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+
+### Changed
+
+- Replaced product-first question routing with a deterministic capability-driven chain: `question -> evidence -> capability dimension -> journey -> IBM technology profile -> Kyndryl practice`.
+- Added catalog `2026.4-capability-driven` with 10 account-context questions, 14 capabilities, 70 core questions, and 70 deep questions in English and Portuguese.
+- Added adaptive deep-question triggers for low confidence, conflicting evidence, high-impact gaps, and unknown evidence, capped at 10 questions per capability.
+- Added five maturity dimensions: strategy, process, technology, data, and governance.
+- Preserved the published Technology Fit formula and separated fit, maturity, and evidence confidence.
+- Tightened decision bands: `Recommend now` requires fit of at least 80 and confidence of at least 70; high-fit/low-confidence results require additional discovery.
+- Added explicit IBM Z and streaming eligibility gates, contradiction penalties, and question-specific YES/NO evidence mappings.
+- Expanded results with Kyndryl-practice alignment and a full explainability path.
+- Reframed the discovery hub around 14 capabilities, with account context visible before capability selection and overall progress independent of the current capability.
+- Added additive migration `0010_capability_driven_discovery.sql` for capability snapshots, normalized evidence, conflicts, and human-reviewed technology decisions.
+- Preserved all legacy Kyndryl UX V2 tables, answers, and code paths for non-destructive rollback.
+
+### Validation
+
+- TypeScript, ESLint, Vinext build, and all 49 automated tests pass.
+- Golden rules cover catalog counts, N/A and unknown handling, IBM Z gates, score formula, deterministic output, traceability, and Kyndryl-practice mapping.
+
+### Rollback
+
+Republish Kyndryl Sites version `2` or return to tag `kyndryl-ux-v2`. Migration `0010` is additive, so the previous application ignores the new derived-artifact tables.
+
 ## Kyndryl UX V2 — guided multipillar experience
 
 Status: published as Kyndryl Sites version `2`

@@ -29,6 +29,7 @@ import {
 import type { KyndrylAssessment } from "@/lib/kyndryl-discovery";
 import type { Locale, Messages } from "@/lib/i18n";
 import KyndrylAssessmentResults from "./KyndrylAssessmentResults";
+import { CDI_CONTEXT_QUESTIONS } from "@/lib/cdi/capability-driven";
 import styles from "./GuidedDiscoveryWorkspace.module.css";
 
 export type GuidedQuestion = {
@@ -118,6 +119,7 @@ export type GuidedDiscoveryView = {
     confidencePercent: number;
     answeredCount: number;
     requiredCount: number;
+    completionMinimum?: number;
     notRelevantReason: string | null;
     reviewedAt: string | null;
     leadingTechnology: string | null;
@@ -529,7 +531,7 @@ export default function GuidedDiscoveryWorkspace({
                   setShowHistory(false);
                 }}
               >
-                {locale === "pt-BR" ? "Voltar aos pilares" : "Back to pillars"}
+                {locale === "pt-BR" ? "Voltar às capacidades" : "Back to capabilities"}
               </Button>
             )}
             {canViewResults && !showPillarHub && (
@@ -551,8 +553,8 @@ export default function GuidedDiscoveryWorkspace({
               value={`${view.overallReview.reviewedPillars}/${view.overallReview.totalPillars}`}
               label={
                 locale === "pt-BR"
-                  ? "Pilares revisados"
-                  : "Pillars reviewed"
+                  ? "Capacidades revisadas"
+                  : "Capabilities reviewed"
               }
             />
             <Metric
@@ -604,7 +606,7 @@ export default function GuidedDiscoveryWorkspace({
                 <span>{d.guided.dynamicPath}</span>
                 <strong>
                   {currentPillarAssessment?.answeredCount || 0}/
-                  {currentPillarAssessment?.requiredCount || 6}{" "}
+                  {currentPillarAssessment?.requiredCount || 5}{" "}
                   {locale === "pt-BR"
                     ? "perguntas essenciais"
                     : "essential questions"}
@@ -1048,7 +1050,7 @@ export default function GuidedDiscoveryWorkspace({
                   disabled={
                     saving ||
                     (currentPillarAssessment?.answeredCount || 0) <
-                      (currentPillarAssessment?.requiredCount || 6)
+                      (currentPillarAssessment?.completionMinimum || 4)
                   }
                   onClick={async () => {
                     const result = await onPatch({
@@ -1105,13 +1107,13 @@ function PillarHub({
   const c =
     locale === "pt-BR"
       ? {
-          eyebrow: "Descoberta multipilar",
-          title: "Escolha onde continuar",
-          help: "Revise os oito pilares para construir um heatmap confiável. Concluir um pilar atualiza resultados, mas não encerra a descoberta da conta.",
-          reviewed: "pilares revisados",
+          eyebrow: "Descoberta orientada por capacidades",
+          title: "Escolha a próxima capacidade",
+          help: "Revise as 14 capacidades em ciclos curtos. Cinco perguntas essenciais criam evidências; perguntas profundas aparecem apenas quando falta confiança, existe conflito ou uma oportunidade precisa ser diferenciada.",
+          reviewed: "capacidades revisadas",
           coverage: "Cobertura das evidências",
           confidence: "Confiança",
-          recommended: "Próximo pilar recomendado",
+          recommended: "Próxima capacidade recomendada",
           why: "Por que agora",
           start: "Iniciar",
           continue: "Continuar",
@@ -1120,20 +1122,20 @@ function PillarHub({
           notRelevant: "Não relevante",
           markNotRelevant: "Marcar como não relevante",
           reason: "Justificativa",
-          reasonPlaceholder: "Por que este pilar não se aplica à conta?",
+          reasonPlaceholder: "Por que esta capacidade não se aplica à conta?",
           cancel: "Cancelar",
           confirm: "Confirmar",
           questions: "perguntas essenciais",
           noTechnology: "Resultado ainda não calculado",
         }
       : {
-          eyebrow: "Multi-pillar discovery",
-          title: "Choose where to continue",
-          help: "Review all eight pillars to build a reliable heatmap. Completing one pillar updates results, but does not finish the account discovery.",
-          reviewed: "pillars reviewed",
+          eyebrow: "Capability-driven discovery",
+          title: "Choose the next capability",
+          help: "Review 14 capabilities in short cycles. Five core questions create evidence; deep questions appear only when confidence is low, evidence conflicts, or an opportunity needs differentiation.",
+          reviewed: "capabilities reviewed",
           coverage: "Evidence coverage",
           confidence: "Confidence",
-          recommended: "Recommended next pillar",
+          recommended: "Recommended next capability",
           why: "Why now",
           start: "Start",
           continue: "Continue",
@@ -1142,7 +1144,7 @@ function PillarHub({
           notRelevant: "Not relevant",
           markNotRelevant: "Mark as not relevant",
           reason: "Reason",
-          reasonPlaceholder: "Why does this pillar not apply to the account?",
+          reasonPlaceholder: "Why does this capability not apply to the account?",
           cancel: "Cancel",
           confirm: "Confirm",
           questions: "essential questions",
@@ -1225,9 +1227,37 @@ function PillarHub({
           </Button>
         </section>
       )}
+      <details className={styles.contextGate}>
+        <summary>
+          <span>01</span>
+          <div>
+            <strong>
+              {locale === "pt-BR"
+                ? "Contexto e elegibilidade da conta"
+                : "Account context and eligibility"}
+            </strong>
+            <small>
+              {locale === "pt-BR"
+                ? "10 sinais usados para orientar quais capacidades investigar primeiro"
+                : "10 signals used to route the capabilities worth investigating first"}
+            </small>
+          </div>
+        </summary>
+        <div>
+          {CDI_CONTEXT_QUESTIONS.map(([id, title, prompt]) => (
+            <article key={id}>
+              <span>{id}</span>
+              <div>
+                <strong>{locale === "pt-BR" ? title.pt : title.en}</strong>
+                <p>{locale === "pt-BR" ? prompt.pt : prompt.en}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </details>
       <div className={styles.pillarTable} role="table">
         <div className={styles.pillarTableHeader} role="row">
-          <span role="columnheader">{locale === "pt-BR" ? "Pilar" : "Pillar"}</span>
+          <span role="columnheader">{locale === "pt-BR" ? "Capacidade" : "Capability"}</span>
           <span role="columnheader">{locale === "pt-BR" ? "Estado" : "Status"}</span>
           <span role="columnheader">{locale === "pt-BR" ? "Progresso" : "Progress"}</span>
           <span role="columnheader">{locale === "pt-BR" ? "Resultado" : "Result"}</span>

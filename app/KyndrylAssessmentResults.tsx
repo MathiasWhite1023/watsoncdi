@@ -7,6 +7,7 @@ import type {
   KyndrylTechnologyScore,
 } from "@/lib/kyndryl-discovery";
 import type { Locale } from "@/lib/i18n";
+import type { CapabilityDrivenAssessment } from "@/lib/cdi/engine";
 import styles from "./KyndrylAssessmentResults.module.css";
 
 type Props = {
@@ -48,11 +49,15 @@ const copy = {
     gateSatisfied: "Satisfied",
     gateNotRequired: "Not required",
     continue: "Continue discovery",
-    chooseNext: "Choose next pillar",
+    chooseNext: "Choose next capability",
     noEvidence:
-      "Answer the selected pillar questions to activate the heatmap and recommendations.",
+      "Answer the selected capability questions to activate the heatmap and recommendations.",
     additional: "Highest-value questions still open",
-    traceability: "Answer → evidence → capability gap → technology",
+    traceability:
+      "Question → evidence → capability → journey → technology → Kyndryl practice",
+    practices: "Kyndryl practices activated",
+    practicesHelp:
+      "Service alignment is derived from the same evidence trail and remains subject to human validation.",
   },
   "pt-BR": {
     eyebrow: "Inteligência de oportunidade explicável",
@@ -85,18 +90,28 @@ const copy = {
     gateSatisfied: "Atendido",
     gateNotRequired: "Não necessário",
     continue: "Continuar descoberta",
-    chooseNext: "Escolher próximo pilar",
+    chooseNext: "Escolher próxima capacidade",
     noEvidence:
-      "Responda às perguntas do pilar selecionado para ativar o heatmap e as recomendações.",
+      "Responda às perguntas da capacidade selecionada para ativar o heatmap e as recomendações.",
     additional: "Perguntas de maior valor ainda abertas",
-    traceability: "Resposta → evidência → lacuna de capacidade → tecnologia",
+    traceability:
+      "Pergunta → evidência → capacidade → jornada → tecnologia → prática Kyndryl",
+    practices: "Práticas Kyndryl ativadas",
+    practicesHelp:
+      "A aderência de serviços deriva da mesma trilha de evidências e permanece sujeita à validação humana.",
   },
 } as const;
 
 const actionLabel = (
   action: KyndrylTechnologyScore["action"],
   locale: Locale,
+  propensity = 0,
+  confidence = 0,
 ) => {
+  if (action === "VALIDATE" && propensity >= 80 && confidence < 70)
+    return locale === "pt-BR"
+      ? "Alto potencial · descoberta adicional"
+      : "High potential · additional discovery";
   const labels = {
     "en-US": {
       RECOMMEND_NOW: "Recommend now",
@@ -138,6 +153,7 @@ export default function KyndrylAssessmentResults({
   onChooseNext,
 }: Props) {
   const c = copy[locale];
+  const capabilityAssessment = assessment as CapabilityDrivenAssessment;
   const hasKnownEvidence = assessment.summary.knownAnswers > 0;
   const leading = assessment.technologies.slice(0, 8);
 
@@ -216,6 +232,7 @@ export default function KyndrylAssessmentResults({
                 <h3>{c.maturity}</h3>
               </div>
               <div className={styles.legend}>
+                <span className={styles.gray}>&lt;55 {c.confidence}</span>
                 <span className={styles.red}>0–39</span>
                 <span className={styles.amber}>40–69</span>
                 <span className={styles.green}>70–100</span>
@@ -245,7 +262,7 @@ export default function KyndrylAssessmentResults({
                   </span>
                   <span
                     role="cell"
-                    className={`${styles.heatCell} ${toneFor(capability.maturity)}`}
+                    className={`${styles.heatCell} ${assessment.pillars.find((item) => String(item.key) === String(capability.pillarKey))?.confidence < 55 ? styles.gray : toneFor(capability.maturity)}`}
                     aria-label={`${capability.label}: ${capability.maturity}%`}
                   >
                     {capability.maturity}
@@ -275,7 +292,12 @@ export default function KyndrylAssessmentResults({
                       </small>
                     </div>
                     <Tag type={actionTone(technology.action)}>
-                      {actionLabel(technology.action, locale)}
+                      {actionLabel(
+                        technology.action,
+                        locale,
+                        technology.propensity,
+                        technology.confidence,
+                      )}
                     </Tag>
                   </div>
                   <div className={styles.propensity}>
@@ -320,6 +342,31 @@ export default function KyndrylAssessmentResults({
               ))}
             </div>
           </section>
+
+          {capabilityAssessment.practices?.length > 0 && (
+            <section className={styles.section}>
+              <div className={styles.sectionHeading}>
+                <div>
+                  <span>{c.traceability}</span>
+                  <h3>{c.practices}</h3>
+                  <p>{c.practicesHelp}</p>
+                </div>
+              </div>
+              <div className={styles.practiceList}>
+                {capabilityAssessment.practices.map((practice) => (
+                  <article key={practice.id}>
+                    <div>
+                      <strong>{practice.name}</strong>
+                      <small>
+                        {practice.capabilityKeys.length} capabilities · {practice.evidenceCount} evidence items
+                      </small>
+                    </div>
+                    <span>{practice.score}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           {assessment.additionalDiscovery.length > 0 && (
             <section className={styles.section}>
