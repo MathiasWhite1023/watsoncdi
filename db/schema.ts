@@ -760,6 +760,115 @@ export const guidedDiscoveryAnswers = sqliteTable(
 );
 
 /**
+ * Capability-driven CDI keeps derived, explainable artifacts separate from
+ * append-only answers. The legacy discovery tables remain untouched so the
+ * Kyndryl UX V2 release can be restored without a data rollback.
+ */
+export const cdiCapabilitySnapshots = sqliteTable(
+  "cdi_capability_snapshots",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    catalogVersion: text("catalog_version").notNull(),
+    capabilityKey: text("capability_key").notNull(),
+    maturityJson: text("maturity_json").notNull().default("{}"),
+    confidence: integer("confidence").notNull().default(0),
+    status: text("status").notNull().default("not_started"),
+    evidenceFingerprint: text("evidence_fingerprint").notNull().default(""),
+    computedAt: text("computed_at").notNull(),
+  },
+  (table) => ({
+    accountCapabilityIdx: index("cdi_capability_snapshots_account_idx").on(
+      table.discoveryId,
+      table.capabilityKey,
+      table.computedAt,
+    ),
+  }),
+);
+
+export const cdiEvidence = sqliteTable(
+  "cdi_evidence",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    answerId: text("answer_id"),
+    questionId: text("question_id").notNull(),
+    capabilityKey: text("capability_key").notNull(),
+    dimension: text("dimension").notNull(),
+    response: text("response").notNull(),
+    polarity: text("polarity"),
+    strength: integer("strength").notNull().default(0),
+    sourceJson: text("source_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    accountCapabilityIdx: index("cdi_evidence_account_capability_idx").on(
+      table.discoveryId,
+      table.capabilityKey,
+    ),
+    answerIdx: uniqueIndex("cdi_evidence_answer_idx").on(
+      table.discoveryId,
+      table.answerId,
+    ),
+  }),
+);
+
+export const cdiConflicts = sqliteTable(
+  "cdi_conflicts",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    capabilityKey: text("capability_key").notNull(),
+    dimension: text("dimension").notNull(),
+    evidenceIdsJson: text("evidence_ids_json").notNull().default("[]"),
+    status: text("status").notNull().default("open"),
+    resolutionJson: text("resolution_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    accountStatusIdx: index("cdi_conflicts_account_status_idx").on(
+      table.discoveryId,
+      table.status,
+    ),
+  }),
+);
+
+export const cdiTechnologyReviews = sqliteTable(
+  "cdi_technology_reviews",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    technologyId: text("technology_id").notNull(),
+    catalogVersion: text("catalog_version").notNull(),
+    fitScore: integer("fit_score").notNull().default(0),
+    confidence: integer("confidence").notNull().default(0),
+    decisionBand: text("decision_band").notNull(),
+    gateStatus: text("gate_status").notNull(),
+    componentsJson: text("components_json").notNull().default("{}"),
+    traceJson: text("trace_json").notNull().default("[]"),
+    humanDecision: text("human_decision"),
+    reviewedAt: text("reviewed_at"),
+    computedAt: text("computed_at").notNull(),
+  },
+  (table) => ({
+    accountTechnologyIdx: uniqueIndex("cdi_technology_reviews_account_idx").on(
+      table.discoveryId,
+      table.technologyId,
+      table.catalogVersion,
+    ),
+  }),
+);
+
+/**
  * Human-reviewable before/after records created when a meeting or another
  * material source changes the account assessment.  The source remains the
  * system of record; this table stores only a derived proposal.

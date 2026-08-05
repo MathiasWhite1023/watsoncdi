@@ -37,18 +37,18 @@ async function loadProviderModule() {
 let guidedModule;
 async function loadGuidedModule() {
   if (guidedModule) return guidedModule;
-  const [typescript, source, kyndrylSource] = await Promise.all([
+  const [typescript, source, capabilitySource] = await Promise.all([
     import("typescript"),
     readProjectFile("lib/guided-discovery.ts"),
-    readProjectFile("lib/kyndryl-discovery.ts"),
+    readProjectFile("lib/cdi/capability-driven.ts"),
   ]);
-  const kyndrylCompiled = typescript.transpileModule(kyndrylSource, {
+  const capabilityCompiled = typescript.transpileModule(capabilitySource, {
     compilerOptions: {
       module: typescript.ModuleKind.ESNext,
       target: typescript.ScriptTarget.ES2022,
     },
   }).outputText;
-  const kyndrylUrl = `data:text/javascript;base64,${Buffer.from(kyndrylCompiled).toString("base64")}`;
+  const capabilityUrl = `data:text/javascript;base64,${Buffer.from(capabilityCompiled).toString("base64")}`;
   const compiled = typescript.transpileModule(source, {
     compilerOptions: {
       module: typescript.ModuleKind.ESNext,
@@ -58,7 +58,10 @@ async function loadGuidedModule() {
   const executable = compiled.replace(
     'from "zod"',
     `from ${JSON.stringify(import.meta.resolve("zod"))}`,
-  ).replace('from "./kyndryl-discovery"', `from ${JSON.stringify(kyndrylUrl)}`);
+  ).replace(
+    'from "./cdi/capability-driven"',
+    `from ${JSON.stringify(capabilityUrl)}`,
+  );
   guidedModule = await import(
     `data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`
   );
@@ -280,7 +283,7 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
     domain,
     /informationGap \* 0\.45[\s\S]+hypothesisImpact \* 0\.3[\s\S]+staleness \* 0\.15[\s\S]+stakeholderCoverage \* 0\.1/,
   );
-  assert.match(domain, /KYNDYRL_QUESTION_CATALOG/);
+  assert.match(domain, /CDI_QUESTIONS/);
   assert.match(kyndrylDomain, /ibmz-platform/);
   assert.match(kyndrylDomain, /infra-finops/);
   assert.match(kyndrylDomain, /app-observability/);
@@ -315,32 +318,38 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
   assert.match(answerRoute, /scope: "private"/);
 });
 
-test("routes discovery directly through the eight Kyndryl pillars and keeps coverage separate from progress", async () => {
+test("routes discovery through 14 capabilities and keeps coverage separate from progress", async () => {
   const guided = await loadGuidedModule();
-  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.3-kyndryl");
-  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 96);
-  for (const pillar of [
-    "ibm-z",
-    "infrastructure-modernization",
-    "application-modernization",
-    "sap-transformation",
-    "modern-operations",
-    "data-ai",
-    "modern-workplace",
-    "cyber-security",
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG_VERSION, "2026.4-capability-driven");
+  assert.equal(guided.GUIDED_DISCOVERY_CATALOG.length, 140);
+  for (const capability of [
+    "z-run",
+    "z-modernize",
+    "z-security",
+    "finops",
+    "trusted-data",
+    "ai-governance",
+    "hybrid-cloud",
+    "automation",
+    "integration",
+    "data-streaming",
+    "it-operations",
+    "observability",
+    "security",
+    "sustainability",
   ]) {
-    assert.equal(guided.questionsForPillar(pillar).length, 6);
+    assert.equal(guided.questionsForPillar(capability).length, 5);
   }
 
   const direct = guided.materializeQuestionRoute({
     mode: "direct",
-    selectedPillars: ["data-ai"],
+    selectedPillars: ["trusted-data"],
     answers: [],
   });
-  assert.equal(direct.questionIds.length, 6);
+  assert.equal(direct.questionIds.length, 5);
   assert.ok(
     direct.questionIds.every(
-      (id) => guided.getQuestionById(id)?.pillar === "data-ai",
+      (id) => guided.getQuestionById(id)?.pillar === "trusted-data",
     ),
   );
 
@@ -356,18 +365,18 @@ test("routes discovery directly through the eight Kyndryl pillars and keeps cove
     pillarAnswers,
   );
   assert.equal(metrics.progressPercent, 100);
-  assert.equal(metrics.coveragePercent, 83);
+  assert.equal(metrics.coveragePercent, 80);
   assert.equal(metrics.gaps, 1);
 });
 
 test("uses the transparent 45/30/15/10 information-value ranking", async () => {
   const guided = await loadGuidedModule();
-  const questions = guided.questionsForPillar("modern-operations").slice(0, 2);
+  const questions = guided.questionsForPillar("it-operations").slice(0, 2);
   const ranked = guided.rankNextQuestion({
     questions,
     answers: [],
-    hypothesisImpactByPillar: { "modern-operations": 80 },
-    stakeholderCoverageByPillar: { "modern-operations": 20 },
+    hypothesisImpactByPillar: { "it-operations": 80 },
+    stakeholderCoverageByPillar: { "it-operations": 20 },
     now: new Date("2026-07-14T12:00:00Z"),
   });
   assert.equal(ranked.length, 2);

@@ -9,16 +9,16 @@ async function readProjectFile(path) {
 }
 
 async function loadTypeScriptModule(path) {
-  const [typescript, source, kyndrylSource] = await Promise.all([
+  const [typescript, source, capabilitySource] = await Promise.all([
     import("typescript"),
     readProjectFile(path),
     path === "lib/guided-discovery.ts"
-      ? readProjectFile("lib/kyndryl-discovery.ts")
+      ? readProjectFile("lib/cdi/capability-driven.ts")
       : Promise.resolve(""),
   ]);
-  const kyndrylUrl = kyndrylSource
+  const capabilityUrl = capabilitySource
     ? `data:text/javascript;base64,${Buffer.from(
-        typescript.transpileModule(kyndrylSource, {
+        typescript.transpileModule(capabilitySource, {
           compilerOptions: {
             module: typescript.ModuleKind.ESNext,
             target: typescript.ScriptTarget.ES2022,
@@ -36,10 +36,10 @@ async function loadTypeScriptModule(path) {
     'from "zod"',
     `from ${JSON.stringify(import.meta.resolve("zod"))}`,
   );
-  if (kyndrylUrl)
+  if (capabilityUrl)
     executable = executable.replace(
-      'from "./kyndryl-discovery"',
-      `from ${JSON.stringify(kyndrylUrl)}`,
+      'from "./cdi/capability-driven"',
+      `from ${JSON.stringify(capabilityUrl)}`,
     );
   return import(
     `data:text/javascript;base64,${Buffer.from(executable).toString("base64")}`
@@ -131,8 +131,8 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
     guided.getLocalizedQuestionById(question.id, "pt-BR"),
   );
 
-  assert.equal(english.length, 96);
-  assert.equal(portuguese.length, 96);
+  assert.equal(english.length, 140);
+  assert.equal(portuguese.length, 140);
   assert.deepEqual(
     english.map((question) => question.id),
     portuguese.map((question) => question.id),
@@ -156,7 +156,7 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
 
   const englishAnswer = [
     {
-      questionId: "infra-finops",
+      questionId: "FINOPS_C01",
       status: "confirmed",
       evidenceStatus: "confirmed",
       answerText: "tag showback chargeback forecast budget sponsor",
@@ -165,7 +165,7 @@ test("keeps the guided-discovery catalog IDs and scoring stable across locales",
   ];
   const portugueseAnswer = [
     {
-      questionId: "infra-finops",
+      questionId: "FINOPS_C01",
       status: "confirmed",
       evidenceStatus: "confirmed",
       answerText: "tag showback chargeback forecast budget sponsor",

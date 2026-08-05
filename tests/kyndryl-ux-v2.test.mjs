@@ -43,18 +43,19 @@ test("keeps multipillar review state additive and separate from current-pillar p
   assert.match(api, /complete_pillar/);
   assert.match(api, /reopen_pillar/);
   assert.match(api, /essentialQuestions\.length/);
-  assert.match(workspace, /Back to pillars/);
-  assert.match(workspace, /Voltar aos pilares/);
+  assert.match(workspace, /Back to capabilities/);
+  assert.match(workspace, /Voltar às capacidades/);
   assert.match(workspace, /pillarAssessments/);
   assert.match(workspace, /overallReview/);
   assert.match(workspace, /Add context and evidence/);
 });
 
-test("materializes six essential questions and no more than six deterministic follow-ups per pillar", async () => {
+test("materializes five core questions and at most one deterministic deep question per core signal", async () => {
   const domain = await read("lib/guided-discovery.ts");
   assert.match(domain, /essential: true/);
   assert.match(domain, /essential: false/);
   assert.match(domain, /questionsForPillar[\s\S]*question\.essential/);
-  assert.match(domain, /\.slice\(\s*0,\s*12,\s*\)/);
+  assert.match(domain, /question\.id\.replace\("_C", "_D"\)/);
+  assert.match(domain, /\.slice\(\s*0,\s*10,\s*\)/);
   assert.match(domain, /triggerQuestionId/);
 });

@@ -1,18 +1,18 @@
 import { z } from "zod";
 import type { Locale } from "./i18n";
 import {
-  KYNDYRL_DISCOVERY_VERSION,
-  KYNDYRL_PILLAR_KEYS,
-  KYNDYRL_PILLARS,
-  KYNDYRL_QUESTION_CATALOG,
-  getKyndrylPillar,
-  type KyndrylPillarKey,
-} from "./kyndryl-discovery";
+  CDI_CAPABILITIES,
+  CDI_CAPABILITY_CATALOG_VERSION,
+  CDI_CAPABILITY_KEYS,
+  CDI_QUESTIONS,
+  cdiQuestion,
+  type CdiCapabilityKey,
+} from "./cdi/capability-driven";
 
-export const GUIDED_DISCOVERY_CATALOG_VERSION = KYNDYRL_DISCOVERY_VERSION;
-export const GUIDED_DISCOVERY_PILLARS = KYNDYRL_PILLAR_KEYS;
+export const GUIDED_DISCOVERY_CATALOG_VERSION = CDI_CAPABILITY_CATALOG_VERSION;
+export const GUIDED_DISCOVERY_PILLARS = CDI_CAPABILITY_KEYS;
 
-export type GuidedDiscoveryPillarKey = KyndrylPillarKey;
+export type GuidedDiscoveryPillarKey = CdiCapabilityKey;
 export type GuidedDiscoveryMode = "adaptive" | "direct";
 export type GuidedDiscoveryAnswerStatus = "draft" | "confirmed" | "unknown";
 
@@ -45,6 +45,7 @@ export type GuidedDiscoveryAnswerLike = {
   sourceDate?: string | null;
   answerText?: string;
   structured?: Record<string, unknown>;
+  confidence?: number;
   updatedAt?: string;
 };
 
@@ -71,13 +72,13 @@ const responseOptionsPt = ["Sim", "Não", "Não se aplica", "Não sei"];
 const responseOptionsEn = ["Yes", "No", "Not applicable", "Don't know"];
 
 const CORE_GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] =
-  KYNDYRL_QUESTION_CATALOG.map((item) => ({
+  CDI_QUESTIONS.filter((item) => item.level === "core").map((item) => ({
     id: item.id,
-    pillar: item.pillar,
+    pillar: item.capabilityKey,
     title: item.title.pt,
-    question: item.question.pt,
+    question: item.prompt.pt,
     rationale: item.rationale.pt,
-    hint: item.hint.pt,
+    hint: "Adicione contexto somente quando ele aumentar a força da evidência.",
     input: {
       kind: "single",
       label: "Resposta",
@@ -88,14 +89,13 @@ const CORE_GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] =
   }));
 
 const FOLLOW_UP_CATALOG: GuidedDiscoveryCatalogQuestion[] =
-  CORE_GUIDED_DISCOVERY_CATALOG.map((item) => ({
-    id: `${item.id}-f1`,
-    pillar: item.pillar,
-    title: `Evidência para ${item.title}`,
-    question: `Qual evidência, métrica ou responsável pode confirmar “${item.title}”?`,
-    rationale:
-      "Este follow-up reduz a incerteza sem alterar livremente as regras de score.",
-    hint: "Registre uma fonte, métrica, responsável ou prazo verificável.",
+  CDI_QUESTIONS.filter((item) => item.level === "deep").map((item) => ({
+    id: item.id,
+    pillar: item.capabilityKey,
+    title: item.title.pt,
+    question: item.prompt.pt,
+    rationale: item.rationale.pt,
+    hint: "Registre uma métrica, sistema, responsável ou decisão verificável.",
     input: {
       kind: "single",
       label: "Confirmação",
@@ -103,7 +103,7 @@ const FOLLOW_UP_CATALOG: GuidedDiscoveryCatalogQuestion[] =
     },
     keywords: item.keywords,
     essential: false,
-    triggerQuestionId: item.id,
+    triggerQuestionId: item.id.replace("_D", "_C"),
   }));
 
 export const GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] = [
@@ -115,13 +115,13 @@ export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<
   string,
   Omit<GuidedDiscoveryCatalogQuestion, "id" | "pillar">
 > = Object.fromEntries([
-  ...KYNDYRL_QUESTION_CATALOG.map((item) => [
+  ...CDI_QUESTIONS.filter((item) => item.level === "core").map((item) => [
     item.id,
     {
       title: item.title.en,
-      question: item.question.en,
+      question: item.prompt.en,
       rationale: item.rationale.en,
-      hint: item.hint.en,
+      hint: "Add context only when it increases the strength of the evidence.",
       input: {
         kind: "single",
         label: "Answer",
@@ -131,14 +131,13 @@ export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<
       essential: true,
     },
   ]),
-  ...KYNDYRL_QUESTION_CATALOG.map((item) => [
-    `${item.id}-f1`,
+  ...CDI_QUESTIONS.filter((item) => item.level === "deep").map((item) => [
+    item.id,
     {
-      title: `Evidence for ${item.title.en}`,
-      question: `Which evidence, metric, or owner can confirm “${item.title.en}”?`,
-      rationale:
-        "This follow-up reduces uncertainty without changing the scoring rules.",
-      hint: "Record a verifiable source, metric, owner, or timeline.",
+      title: item.title.en,
+      question: item.prompt.en,
+      rationale: item.rationale.en,
+      hint: "Record a verifiable metric, system, owner, or decision.",
       input: {
         kind: "single" as const,
         label: "Confirmation",
@@ -146,7 +145,7 @@ export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<
       },
       keywords: item.keywords,
       essential: false,
-      triggerQuestionId: item.id,
+      triggerQuestionId: item.id.replace("_D", "_C"),
     },
   ]),
 ]);
@@ -155,17 +154,17 @@ export const GUIDED_DISCOVERY_PILLAR_META: Record<
   GuidedDiscoveryPillarKey,
   { label: string; description: string }
 > = Object.fromEntries(
-  KYNDYRL_PILLARS.map((pillar) => [
-    pillar.key,
-    { label: pillar.label.pt, description: pillar.description.pt },
+  CDI_CAPABILITIES.map((capability) => [
+    capability.key,
+    { label: capability.label.pt, description: capability.description.pt },
   ]),
 ) as Record<GuidedDiscoveryPillarKey, { label: string; description: string }>;
 
 export const GUIDED_DISCOVERY_PILLAR_META_EN_US: typeof GUIDED_DISCOVERY_PILLAR_META =
   Object.fromEntries(
-    KYNDYRL_PILLARS.map((pillar) => [
-      pillar.key,
-      { label: pillar.label.en, description: pillar.description.en },
+    CDI_CAPABILITIES.map((capability) => [
+      capability.key,
+      { label: capability.label.en, description: capability.description.en },
     ]),
   ) as typeof GUIDED_DISCOVERY_PILLAR_META;
 
@@ -254,12 +253,12 @@ export function allQuestionsForPillar(pillar: GuidedDiscoveryPillarKey) {
 
 export const legacyQuestionId = (legacyKey: string) =>
   ({
-    context: "infra-visibility",
-    landscape: "app-platform",
-    finops: "infra-finops",
-    data: "data-governance",
-    security: "cyber-data",
-    readiness: "ops-governance",
+    context: "FINOPS_C05",
+    landscape: "HYBRID_CLOUD_C01",
+    finops: "FINOPS_C01",
+    data: "TRUSTED_DATA_C03",
+    security: "SECURITY_C02",
+    readiness: "IT_OPERATIONS_C01",
   })[legacyKey] || null;
 
 const answerText = (answer: GuidedDiscoveryAnswerLike) =>
@@ -374,18 +373,28 @@ export function materializeQuestionRoute(input: {
       const essential = questionsForPillar(pillar);
       const followUps = essential.flatMap((question) => {
         const answer = answerByQuestion.get(question.id);
+        const response = String(answer?.structured?.value || "").toLowerCase();
+        const highImpactGap =
+          (response === "no" || response === "não" || response === "nao") &&
+          Number(cdiQuestion(question.id)?.businessImpact || 0) >= 95;
         const needsFollowUp =
           Boolean(answer) &&
           (answer?.status === "unknown" ||
             answer?.evidenceStatus === "unknown" ||
             answer?.evidenceStatus === "hypothesis" ||
+            (Number(answer?.confidence || 0) > 0 &&
+              Number(answer?.confidence) < 70) ||
+            highImpactGap ||
             Boolean(answer?.structured?.contradiction) ||
             !answer?.answerText?.trim());
-        return needsFollowUp ? [`${question.id}-f1`] : [];
+        const deepQuestionId = question.id.replace("_C", "_D");
+        return needsFollowUp && getQuestionById(deepQuestionId)
+          ? [deepQuestionId]
+          : [];
       });
       return [...essential.map((question) => question.id), ...followUps].slice(
         0,
-        12,
+        10,
       );
     }),
     selectedPillars: limitedPillars,
@@ -554,5 +563,5 @@ export function humanizeStructuredAnswer(value: Record<string, unknown>) {
 }
 
 export function pillarQuestionCount(pillar: GuidedDiscoveryPillarKey) {
-  return getKyndrylPillar(pillar)?.questions.length || 0;
+  return questionsForPillar(pillar).length;
 }

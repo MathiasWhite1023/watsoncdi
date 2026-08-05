@@ -76,6 +76,8 @@ import {
   scoreKyndrylAssessment,
   type KyndrylAssessment,
 } from "../../../lib/kyndryl-discovery";
+import { scoreCapabilityDrivenAssessment } from "../../../lib/cdi/engine";
+import { cdiFeatureFlags } from "../../../lib/cdi/feature-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -766,9 +768,22 @@ function kyndrylAssessmentFromAnswers(
       : [],
   );
   if (!assessmentAnswers.length) return null;
+  return cdiFeatureFlags().capabilityDrivenFlow
+    ? scoreCapabilityDrivenAssessment({ answers: assessmentAnswers, locale })
+    : scoreKyndrylAssessment({ answers: assessmentAnswers, locale });
+}
+
+function scoreActiveDiscoveryAssessment(input: {
+  answers: Parameters<typeof scoreCapabilityDrivenAssessment>[0]["answers"];
+  capabilityKeys?: string[];
+  locale: ResponseLocale;
+}) {
+  if (cdiFeatureFlags().capabilityDrivenFlow)
+    return scoreCapabilityDrivenAssessment(input);
   return scoreKyndrylAssessment({
-    answers: assessmentAnswers,
-    locale,
+    answers: input.answers,
+    pillarKeys: input.capabilityKeys,
+    locale: input.locale,
   });
 }
 
@@ -2343,7 +2358,7 @@ function mapGuidedPillarStatus(
     coveragePercent: Number(row.coverage_percent || 0),
     confidencePercent: Number(row.confidence_percent || 0),
     answeredCount: Number(row.answered_count || 0),
-    requiredCount: Number(row.required_count || 6),
+    requiredCount: Number(row.required_count || 5),
     notRelevantReason: row.not_relevant_reason
       ? String(row.not_relevant_reason)
       : null,
@@ -2456,7 +2471,7 @@ function guidedSnapshot(input: {
               sessionId: virtualSessionId,
               questionId: question.id,
               discoveryId,
-              structured: {},
+              structured: { value: "NO", importedLegacyContext: true },
               answerText: item.answer,
               evidenceStatus: "confirmed" as const,
               stakeholderId: null,
@@ -2570,7 +2585,7 @@ function guidedSnapshot(input: {
       )
     : false;
   const allQuestionById = new Map(
-    input.questions.map((question) => [question.id, question]),
+    [...input.questions, ...questions].map((question) => [question.id, question]),
   );
   const assessmentPillars = (
     effectiveSession?.selectedPillars.length
@@ -2579,9 +2594,12 @@ function guidedSnapshot(input: {
           new Set(input.questions.map((question) => question.pillar)),
         )
   ).filter(isGuidedDiscoveryPillar);
-  const technologyAssessment = scoreKyndrylAssessment({
-    answers: input.answers
-      .filter((answer) => answer.isCurrent)
+  const technologyAssessment = scoreActiveDiscoveryAssessment({
+    answers: [...input.answers, ...answers]
+      .filter((answer, index, collection) =>
+        answer.isCurrent &&
+        collection.findIndex((candidate) => candidate.id === answer.id) === index,
+      )
       .flatMap((answer) => {
         const question = allQuestionById.get(answer.questionId);
         const catalogQuestionId =
@@ -2598,7 +2616,7 @@ function guidedSnapshot(input: {
             ]
           : [];
       }),
-    pillarKeys: assessmentPillars,
+    capabilityKeys: assessmentPillars,
     locale: input.locale || "en-US",
   });
   const storedStatusByPillar = new Map<
@@ -2663,7 +2681,7 @@ function guidedSnapshot(input: {
           ? "reviewed_sufficient"
           : "reviewed_gaps"
         : "in_progress";
-    const assessment = scoreKyndrylAssessment({
+    const assessment = scoreActiveDiscoveryAssessment({
       answers: input.answers
         .filter((answer) => answer.isCurrent)
         .flatMap((answer) => {
@@ -2683,7 +2701,7 @@ function guidedSnapshot(input: {
               ]
             : [];
         }),
-      pillarKeys: [pillarKey],
+      capabilityKeys: [pillarKey],
       locale: input.locale || "en-US",
     });
     return {
@@ -2697,7 +2715,8 @@ function guidedSnapshot(input: {
         stored?.coveragePercent || pillarMetrics.coveragePercent,
       confidencePercent: stored?.confidencePercent || confidencePercent,
       answeredCount: stored?.answeredCount || answeredCount,
-      requiredCount: stored?.requiredCount || 6,
+      requiredCount: stored?.requiredCount || 5,
+      completionMinimum: 4,
       notRelevantReason: stored?.notRelevantReason || null,
       reviewedAt: stored?.reviewedAt || pillarSession?.completedAt || null,
       leadingTechnology:
@@ -4095,7 +4114,7 @@ async function upsertGuidedPillarStatus(
       input.coveragePercent || 0,
       input.confidencePercent || 0,
       input.answeredCount || 0,
-      input.requiredCount || 6,
+      input.requiredCount || 5,
       input.notRelevantReason || null,
       input.reviewedAt || null,
       input.now,
@@ -4313,7 +4332,7 @@ async function refreshGuidedSession(
         (answer) =>
           answer.status === "confirmed" || answer.status === "unknown",
       ).length,
-      requiredCount: essentialQuestions.length || 6,
+      requiredCount: essentialQuestions.length || 5,
       now,
     });
   }
@@ -6162,7 +6181,7 @@ async function handlePOST(request: Request) {
         notRelevantReason: reason,
         reviewedAt: now,
         progressPercent: 100,
-        requiredCount: 6,
+        requiredCount: 5,
         now,
       });
       return Response.json({
@@ -6204,6 +6223,7 @@ async function handlePOST(request: Request) {
             answeredCount: number;
             requiredCount: number;
             unknownCount: number;
+            conflictCount: number;
           }
         | undefined;
       if (isComplete) {
@@ -6242,10 +6262,11 @@ async function handlePOST(request: Request) {
           (answer) =>
             answer.status === "confirmed" || answer.status === "unknown",
         );
-        if (answered.length < essentialQuestions.length)
+        const completionMinimum = Math.min(4, essentialQuestions.length || 5);
+        if (answered.length < completionMinimum)
           return Response.json(
             {
-              error: `Conclua as ${essentialQuestions.length || 6} perguntas essenciais antes de revisar este pilar.`,
+              error: `Responda pelo menos ${completionMinimum} das ${essentialQuestions.length || 5} perguntas essenciais antes de revisar esta capacidade.`,
             },
             { status: 400 },
           );
@@ -6266,9 +6287,12 @@ async function handlePOST(request: Request) {
               )
             : 0,
           answeredCount: answered.length,
-          requiredCount: essentialQuestions.length || 6,
+          requiredCount: essentialQuestions.length || 5,
           unknownCount: essentialAnswers.filter(
             (answer) => answer.status === "unknown",
+          ).length,
+          conflictCount: essentialAnswers.filter((answer) =>
+            Boolean(answer.structured.contradiction),
           ).length,
         };
       }
@@ -6292,9 +6316,10 @@ async function handlePOST(request: Request) {
         .run();
       if (pillarKey && completion) {
         const reviewedStatus =
-          completion.coveragePercent >= 60 &&
-          completion.confidencePercent >= 60 &&
-          completion.unknownCount === 0
+          completion.coveragePercent >= 70 &&
+          completion.confidencePercent >= 70 &&
+          completion.unknownCount === 0 &&
+          completion.conflictCount === 0
             ? "reviewed_sufficient"
             : "reviewed_gaps";
         await upsertGuidedPillarStatus(db, {
