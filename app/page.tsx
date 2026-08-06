@@ -31,6 +31,13 @@ import {
   SideNavLink,
   SkeletonText,
   SkipToContent,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
   Tag,
   TextArea,
   TextInput,
@@ -39,6 +46,7 @@ import {
 import {
   Add,
   Analytics,
+  ArrowLeft,
   ArrowRight,
   Asleep,
   Calendar,
@@ -2671,10 +2679,10 @@ export default function Home({
             selected={selected}
             aiStatus={aiStatus}
             privateMode={privateMode}
-            onSettings={(payload) =>
-              selected &&
+            saving={saving}
+            onSettings={(accountId, payload) =>
               mutate(
-                { action: "account_settings", id: selected.id, ...payload },
+                { action: "account_settings", id: accountId, ...payload },
                 copy.notifications.actionDecision,
               )
             }
@@ -4249,19 +4257,23 @@ function SettingsView({
   selected,
   aiStatus,
   privateMode,
+  saving,
   onSettings,
 }: {
   data: ApiData;
   selected?: Discovery;
   aiStatus: AIStatus | null;
   privateMode: boolean;
-  onSettings: (payload: Record<string, unknown>) => void;
+  saving: boolean;
+  onSettings: (
+    accountId: string,
+    payload: Record<string, unknown>,
+  ) => Promise<unknown>;
 }) {
   const { locale, copy } = usePageCopy();
-  const [classification, setClassification] = useState<
-    Discovery["dataClassification"]
-  >(selected?.dataClassification || "test");
-  const [domain, setDomain] = useState(selected?.companyDomain || "");
+  const [settingsSection, setSettingsSection] = useState<
+    "overview" | "account-policies"
+  >("overview");
   const controls = [
     copy.settings.controlAuthorization,
     copy.settings.controlDemo,
@@ -4270,6 +4282,20 @@ function SettingsView({
     copy.settings.controlQuota,
     copy.settings.controlRollback,
   ];
+
+  if (settingsSection === "account-policies") {
+    return (
+      <AccountPoliciesView
+        data={data}
+        selectedId={selected?.id}
+        privateMode={privateMode}
+        saving={saving}
+        onBack={() => setSettingsSection("overview")}
+        onSettings={onSettings}
+      />
+    );
+  }
+
   return (
     <section className="v5-page">
       <PageHeading
@@ -4333,51 +4359,34 @@ function SettingsView({
             />
           </div>
         </section>
-        <section className="v5-card">
-          <CardHeader
-            eyebrow={copy.settings.accountPolicy}
-            title={selected?.customerName || copy.settings.selectAccount}
-          />
-          <div className="v5-settings-form">
-            <Select
-              id="account-classification"
-              labelText={copy.settings.classification}
-              value={classification}
-              onChange={(event) =>
-                setClassification(
-                  event.target.value as Discovery["dataClassification"],
-                )
-              }
-              disabled={!privateMode}
-            >
-              <SelectItem value="test" text={copy.settings.testAllowed} />
-              <SelectItem
-                value="confidential"
-                text={copy.settings.confidentialBlocked}
-              />
-            </Select>
-            <TextInput
-              id="company-domain-setting"
-              labelText={copy.settings.confirmedDomain}
-              value={domain}
-              onChange={(event) => setDomain(event.target.value)}
-              placeholder={copy.settings.domainPlaceholder}
-              disabled={!privateMode}
-            />
-            <Button
-              size="sm"
-              disabled={!privateMode || !selected}
-              onClick={() =>
-                onSettings({
-                  dataClassification: classification,
-                  companyDomain: domain,
-                })
-              }
-            >
-              {copy.settings.savePolicy}
-            </Button>
-          </div>
-        </section>
+        <button
+          type="button"
+          className="v5-card v5-settings-entry"
+          onClick={() => setSettingsSection("account-policies")}
+        >
+          <span>
+            <small>{copy.settings.accountPolicies}</small>
+            <strong>{copy.settings.policyAssignments}</strong>
+            <p>{copy.settings.accountPoliciesDescription}</p>
+          </span>
+          <span className="v5-settings-entry-metrics">
+            <Tag type="blue">
+              {data.discoveries.length} {copy.settings.accounts}
+            </Tag>
+            <Tag type="red">
+              {
+                data.discoveries.filter(
+                  (account) => account.dataClassification === "confidential",
+                ).length
+              }{" "}
+              {copy.settings.confidentialAccounts}
+            </Tag>
+          </span>
+          <span className="v5-settings-entry-action">
+            {copy.settings.managePolicies}
+            <ArrowRight size={20} />
+          </span>
+        </button>
         <section className="v5-card">
           <CardHeader
             eyebrow={copy.settings.activeControls}
@@ -4449,6 +4458,247 @@ function SettingsView({
             ))}
           </div>
         </section>
+      </div>
+    </section>
+  );
+}
+
+function AccountPoliciesView({
+  data,
+  selectedId,
+  privateMode,
+  saving,
+  onBack,
+  onSettings,
+}: {
+  data: ApiData;
+  selectedId?: string;
+  privateMode: boolean;
+  saving: boolean;
+  onBack: () => void;
+  onSettings: (
+    accountId: string,
+    payload: Record<string, unknown>,
+  ) => Promise<unknown>;
+}) {
+  const { copy, formatDate } = usePageCopy();
+  const [policyAccountId, setPolicyAccountId] = useState(
+    selectedId || data.discoveries[0]?.id || "",
+  );
+  const policyAccount =
+    data.discoveries.find((account) => account.id === policyAccountId) ||
+    data.discoveries[0];
+  const [classification, setClassification] = useState<
+    Discovery["dataClassification"]
+  >(policyAccount?.dataClassification || "test");
+  const [domain, setDomain] = useState(policyAccount?.companyDomain || "");
+  const confidentialCount = data.discoveries.filter(
+    (account) => account.dataClassification === "confidential",
+  ).length;
+  const confirmedDomainCount = data.discoveries.filter((account) =>
+    Boolean(account.companyDomain),
+  ).length;
+
+  useEffect(() => {
+    if (!policyAccount) return;
+    setClassification(policyAccount.dataClassification);
+    setDomain(policyAccount.companyDomain || "");
+  }, [
+    policyAccount?.companyDomain,
+    policyAccount?.dataClassification,
+    policyAccount?.id,
+  ]);
+
+  const resetEditor = () => {
+    setClassification(policyAccount?.dataClassification || "test");
+    setDomain(policyAccount?.companyDomain || "");
+  };
+
+  return (
+    <section className="v5-page">
+      <Button
+        className="v5-settings-back"
+        kind="ghost"
+        size="sm"
+        renderIcon={ArrowLeft}
+        onClick={onBack}
+      >
+        {copy.settings.backSettings}
+      </Button>
+      <PageHeading
+        eyebrow={`${copy.settings.eyebrow} · ${copy.settings.accountPolicies}`}
+        title={copy.settings.policyAssignments}
+        description={copy.settings.policyAssignmentsDescription}
+      />
+
+      <div className="v5-policy-summary" aria-label={copy.settings.policySummary}>
+        <article>
+          <span>{copy.settings.accounts}</span>
+          <strong>{data.discoveries.length}</strong>
+        </article>
+        <article>
+          <span>{copy.settings.testAccounts}</span>
+          <strong>{data.discoveries.length - confidentialCount}</strong>
+        </article>
+        <article>
+          <span>{copy.settings.confidentialAccounts}</span>
+          <strong>{confidentialCount}</strong>
+        </article>
+        <article>
+          <span>{copy.settings.domainsConfirmed}</span>
+          <strong>
+            {confirmedDomainCount}/{data.discoveries.length}
+          </strong>
+        </article>
+      </div>
+
+      <div className="v5-policy-layout">
+        <section className="v5-card v5-policy-table-card">
+          <TableContainer
+            title={copy.settings.assignedPolicies}
+            description={copy.settings.selectPolicyHelp}
+          >
+            <Table size="lg" useZebraStyles={false}>
+              <TableHead>
+                <TableRow>
+                  <TableHeader>{copy.settings.account}</TableHeader>
+                  <TableHeader>{copy.settings.assignedPolicy}</TableHeader>
+                  <TableHeader>{copy.settings.externalProcessing}</TableHeader>
+                  <TableHeader>{copy.settings.confirmedDomain}</TableHeader>
+                  <TableHeader>{copy.settings.lastUpdated}</TableHeader>
+                  <TableHeader>{copy.settings.action}</TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {data.discoveries.map((account) => {
+                  const confidential =
+                    account.dataClassification === "confidential";
+                  const active = account.id === policyAccount?.id;
+                  return (
+                    <TableRow
+                      key={account.id}
+                      className={active ? "v5-policy-row-active" : ""}
+                    >
+                      <TableCell>
+                        <span className="v5-policy-account-cell">
+                          <strong>{account.customerName}</strong>
+                          <small>{account.industry}</small>
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Tag type={confidential ? "red" : "blue"}>
+                          {confidential
+                            ? copy.settings.confidentialPolicy
+                            : copy.settings.testPolicy}
+                        </Tag>
+                      </TableCell>
+                      <TableCell>
+                        <Tag type={confidential ? "red" : "green"}>
+                          {confidential
+                            ? copy.settings.blocked
+                            : copy.settings.allowed}
+                        </Tag>
+                      </TableCell>
+                      <TableCell>
+                        {account.companyDomain ? (
+                          account.companyDomain
+                        ) : (
+                          <Tag type="warm-gray">
+                            {copy.settings.domainMissing}
+                          </Tag>
+                        )}
+                      </TableCell>
+                      <TableCell>{formatDate(account.updatedAt)}</TableCell>
+                      <TableCell>
+                        <Button
+                          kind="ghost"
+                          size="sm"
+                          onClick={() => setPolicyAccountId(account.id)}
+                        >
+                          {copy.settings.editPolicy}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </section>
+
+        <aside className="v5-card v5-policy-editor">
+          <CardHeader
+            eyebrow={copy.settings.editPolicy}
+            title={policyAccount?.customerName || copy.settings.selectAccount}
+          />
+          {policyAccount ? (
+            <div className="v5-settings-form">
+              <InlineNotification
+                kind={classification === "confidential" ? "warning" : "info"}
+                lowContrast
+                hideCloseButton
+                title={
+                  classification === "confidential"
+                    ? copy.settings.confidentialImpact
+                    : copy.settings.testImpact
+                }
+                subtitle={copy.settings.policyImpactHelp}
+              />
+              <Select
+                id={`account-classification-${policyAccount.id}`}
+                labelText={copy.settings.classification}
+                value={classification}
+                onChange={(event) =>
+                  setClassification(
+                    event.target.value as Discovery["dataClassification"],
+                  )
+                }
+                disabled={!privateMode || saving}
+              >
+                <SelectItem value="test" text={copy.settings.testAllowed} />
+                <SelectItem
+                  value="confidential"
+                  text={copy.settings.confidentialBlocked}
+                />
+              </Select>
+              <TextInput
+                id={`company-domain-setting-${policyAccount.id}`}
+                labelText={copy.settings.confirmedDomain}
+                value={domain}
+                onChange={(event) => setDomain(event.target.value)}
+                placeholder={copy.settings.domainPlaceholder}
+                disabled={!privateMode || saving}
+              />
+              <small className="v5-policy-scope-note">
+                {copy.settings.changesAccountOnly}
+              </small>
+              <div className="v5-policy-editor-actions">
+                <Button
+                  kind="secondary"
+                  size="sm"
+                  disabled={saving}
+                  onClick={resetEditor}
+                >
+                  {copy.settings.cancel}
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!privateMode || saving}
+                  onClick={() =>
+                    onSettings(policyAccount.id, {
+                      dataClassification: classification,
+                      companyDomain: domain,
+                    })
+                  }
+                >
+                  {copy.settings.savePolicy}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p>{copy.settings.noAccounts}</p>
+          )}
+        </aside>
       </div>
     </section>
   );

@@ -59,3 +59,36 @@ test("materializes five core questions and at most one deterministic deep questi
   assert.match(domain, /\.slice\(\s*0,\s*10,\s*\)/);
   assert.match(domain, /triggerQuestionId/);
 });
+
+test("keeps the active discovery open when the next question changes", async () => {
+  const workspace = await read("app/GuidedDiscoveryWorkspace.tsx");
+  const openReset =
+    workspace.match(
+      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*setShowPillarHub\(true\);[\s\S]*?\}, \[open\]\);/,
+    )?.[0] || "";
+  const questionAdvance =
+    workspace.match(
+      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\([\s\S]*?view\?\.nextQuestion\?\.id\]\);/,
+    )?.[0] || "";
+
+  assert.match(openReset, /setShowPillarHub\(true\)/);
+  assert.match(questionAdvance, /setActiveQuestionId/);
+  assert.doesNotMatch(questionAdvance, /setShowPillarHub/);
+});
+
+test("opens account policies as a governed portfolio-level list", async () => {
+  const [page, messages, api] = await Promise.all([
+    read("app/page.tsx"),
+    read("lib/app-messages.ts"),
+    read("app/api/discoveries/route.ts"),
+  ]);
+
+  assert.match(page, /"overview" \| "account-policies"/);
+  assert.match(page, /function AccountPoliciesView/);
+  assert.match(page, /data\.discoveries\.map\(\(account\)/);
+  assert.match(page, /onSettings\(policyAccount\.id/);
+  assert.match(page, /<TableHeader>\{copy\.settings\.assignedPolicy\}/);
+  assert.match(messages, /accountPolicies: "Account policies"/);
+  assert.match(messages, /accountPolicies: "Políticas das contas"/);
+  assert.match(api, /account_policy_updated/);
+});

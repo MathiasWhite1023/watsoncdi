@@ -356,6 +356,10 @@ export default function GuidedDiscoveryWorkspace({
     setShowPillarHub(true);
     setShowResults(false);
     setShowHistory(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const timer = window.setTimeout(
       () =>
         setActiveQuestionId(

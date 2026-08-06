@@ -39,6 +39,7 @@ import {
   GUIDED_DISCOVERY_CATALOG,
   GUIDED_DISCOVERY_CATALOG_VERSION,
   GUIDED_DISCOVERY_PILLAR_META,
+  GUIDED_DISCOVERY_PILLAR_META_EN_US,
   GUIDED_DISCOVERY_PILLARS,
   GuidedDiscoveryAnswerPayloadSchema,
   GuidedDiscoveryStartPayloadSchema,
@@ -801,7 +802,9 @@ function resultFromKyndrylAssessment(
       const top = technologies[0];
       const relevantEvidence = assessment.evidence
         .filter(
-          (item) => getQuestionById(item.questionId)?.pillar === pillar.key,
+          (item) =>
+            String(getQuestionById(item.questionId)?.pillar || "") ===
+            String(pillar.key),
         )
         .slice(0, 6);
       const businessValue = relevantEvidence.length
@@ -2370,11 +2373,10 @@ function mapGuidedPillarStatus(
 
 const scoreHintsForGuidedDiscovery = (row: Record<string, unknown>) => {
   const keyByShort = Object.fromEntries(
-    KYNDYRL_PILLARS.flatMap((pillar) => [
-      [pillar.shortLabel.en, pillar.key],
-      [pillar.shortLabel.pt, pillar.key],
-      [pillar.label.en, pillar.key],
-      [pillar.label.pt, pillar.key],
+    GUIDED_DISCOVERY_PILLARS.flatMap((pillarKey) => [
+      [pillarKey, pillarKey],
+      [GUIDED_DISCOVERY_PILLAR_META[pillarKey].label, pillarKey],
+      [GUIDED_DISCOVERY_PILLAR_META_EN_US[pillarKey].label, pillarKey],
     ]),
   ) as Record<string, GuidedDiscoveryPillarKey>;
   return Object.fromEntries(
@@ -7948,6 +7950,12 @@ async function handlePOST(request: Request) {
         },
         { status: 400 },
       );
+    const previousPolicy = await db
+      .prepare(
+        "SELECT data_classification, company_domain FROM discoveries WHERE id = ?",
+      )
+      .bind(id)
+      .first<Record<string, unknown>>();
     await db
       .prepare(
         "UPDATE discoveries SET data_classification = ?, company_domain = ?, updated_at = ? WHERE id = ?",
@@ -7955,6 +7963,26 @@ async function handlePOST(request: Request) {
       .bind(classification, domain, now, id)
       .run();
     await db.batch([
+      db
+        .prepare(
+          "INSERT INTO audit_events (discovery_id, type, detail, created_at) VALUES (?, 'account_policy_updated', ?, ?)",
+        )
+        .bind(
+          id,
+          JSON.stringify({
+            previous: {
+              dataClassification: String(
+                previousPolicy?.data_classification || "test",
+              ),
+              companyDomain: previousPolicy?.company_domain || null,
+            },
+            next: {
+              dataClassification: classification,
+              companyDomain: domain,
+            },
+          }),
+          now,
+        ),
       db.prepare("DELETE FROM ai_cache WHERE discovery_id = ?").bind(id),
       db
         .prepare("DELETE FROM daily_briefings WHERE owner_email = ?")

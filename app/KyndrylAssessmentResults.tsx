@@ -262,7 +262,7 @@ export default function KyndrylAssessmentResults({
                   </span>
                   <span
                     role="cell"
-                    className={`${styles.heatCell} ${assessment.pillars.find((item) => String(item.key) === String(capability.pillarKey))?.confidence < 55 ? styles.gray : toneFor(capability.maturity)}`}
+                    className={`${styles.heatCell} ${(assessment.pillars.find((item) => String(item.key) === String(capability.pillarKey))?.confidence ?? 0) < 55 ? styles.gray : toneFor(capability.maturity)}`}
                     aria-label={`${capability.label}: ${capability.maturity}%`}
                   >
                     {capability.maturity}

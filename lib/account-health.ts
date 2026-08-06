@@ -240,7 +240,6 @@ export function normalizeCapabilityKey(value: string) {
     automation: "modern-operations",
     automacao: "modern-operations",
     "app-modernization": "application-modernization",
-    "application-modernization": "app-modernization",
     "modernizacao-de-aplicacoes": "application-modernization",
   };
   return aliases[normalized] || normalized;

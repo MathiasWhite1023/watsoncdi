@@ -1,5 +1,28 @@
 # Changelog
 
+## Kyndryl Capability Discovery V3.1
+
+Status: validated; pending Kyndryl Sites publication
+Branch: `codex/kyndryl-guided-experience-v2`
+Rollback: tag `kyndryl-capability-driven-v3` / Kyndryl Sites version `3`
+Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+
+### Fixed
+
+- Kept the discovery workspace on the next question after `Confirm and continue`; changing the returned question no longer reopens the capability hub.
+- Corrected capability-key typing and low-confidence rendering in the capability-driven assessment.
+
+### Changed
+
+- Replaced the isolated selected-account policy form with a clickable `Account policies` section.
+- Added a portfolio-level Carbon table showing every account, assigned policy, external-processing status, confirmed domain, last update, and an explicit edit action.
+- Added a focused per-account policy editor without changing the globally selected account.
+- Added an `account_policy_updated` audit event containing the previous and approved policy state.
+
+### Validation
+
+- TypeScript, Vinext production build, and all 51 automated tests pass.
+
 ## Kyndryl Capability-Driven CDI V3
 
 Status: published as Kyndryl Sites version `3`
