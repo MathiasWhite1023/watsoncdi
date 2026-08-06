@@ -64,16 +64,43 @@ test("keeps the active discovery open when the next question changes", async () 
   const workspace = await read("app/GuidedDiscoveryWorkspace.tsx");
   const openReset =
     workspace.match(
-      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*setShowPillarHub\(true\);[\s\S]*?\}, \[open\]\);/,
+      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\(\(\) => \{[\s\S]*?setShowPillarHub\(true\);[\s\S]*?\}, 0\);[\s\S]*?\}, \[open\]\);/,
     )?.[0] || "";
   const questionAdvance =
     workspace.match(
-      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\([\s\S]*?view\?\.nextQuestion\?\.id\]\);/,
+      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\(\s*\(\) =>\s*setActiveQuestionId\([\s\S]*?view\?\.nextQuestion\?\.id\]\);/,
     )?.[0] || "";
 
   assert.match(openReset, /setShowPillarHub\(true\)/);
   assert.match(questionAdvance, /setActiveQuestionId/);
   assert.doesNotMatch(questionAdvance, /setShowPillarHub/);
+  assert.match(workspace, /result\.guidedDiscovery/);
+  assert.match(workspace, /setShowPillarHub\(false\)/);
+  assert.match(workspace, /updatedView\?\.nextQuestion/);
+});
+
+test("opens a capability on the first click with explicit loading feedback", async () => {
+  const [workspace, styles] = await Promise.all([
+    read("app/GuidedDiscoveryWorkspace.tsx"),
+    read("app/GuidedDiscoveryWorkspace.module.css"),
+  ]);
+  const openPillar =
+    workspace.match(
+      /const openPillar = async \([\s\S]*?const markNotRelevant = async/,
+    )?.[0] || "";
+  const optimisticTransition = openPillar.indexOf("setShowPillarHub(false)");
+  const requestStart = Math.min(
+    ...[openPillar.indexOf("await onPatch"), openPillar.indexOf("await onStart")].filter(
+      (index) => index >= 0,
+    ),
+  );
+
+  assert.ok(optimisticTransition >= 0);
+  assert.ok(requestStart >= 0);
+  assert.ok(optimisticTransition < requestStart);
+  assert.match(workspace, /setOpeningPillar\(pillar\.key\)/);
+  assert.match(workspace, /<InlineLoading/);
+  assert.match(styles, /\.openingPillar/);
 });
 
 test("opens account policies as a governed portfolio-level list", async () => {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
+  InlineLoading,
   InlineNotification,
   ProgressBar,
   Select,
@@ -153,6 +154,7 @@ export type GuidedDiscoveryView = {
 
 type StakeholderOption = { id: string; name: string; role: string };
 type MutationResult = {
+  guidedDiscovery?: GuidedDiscoveryView;
   scoreDeltas?: Array<{
     label: string;
     before: number;
@@ -168,9 +170,12 @@ type Props = {
   stakeholders: StakeholderOption[];
   saving: boolean;
   onClose: () => void;
-  onStart: (mode: "adaptive" | "direct", pillars: string[]) => Promise<unknown>;
+  onStart: (
+    mode: "adaptive" | "direct",
+    pillars: string[],
+  ) => Promise<MutationResult>;
   onAnswer: (payload: Record<string, unknown>) => Promise<MutationResult>;
-  onPatch: (payload: Record<string, unknown>) => Promise<unknown>;
+  onPatch: (payload: Record<string, unknown>) => Promise<MutationResult>;
 };
 
 function localizeQuestion(question: GuidedQuestion | null, locale: Locale) {
@@ -273,6 +278,8 @@ export default function GuidedDiscoveryWorkspace({
   const [showHistory, setShowHistory] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [showPillarHub, setShowPillarHub] = useState(true);
+  const [openingPillar, setOpeningPillar] = useState("");
+  const [referenceTime, setReferenceTime] = useState(0);
   const [markingPillar, setMarkingPillar] = useState("");
   const [notRelevantReason, setNotRelevantReason] = useState("");
 
@@ -353,9 +360,14 @@ export default function GuidedDiscoveryWorkspace({
 
   useEffect(() => {
     if (!open) return;
-    setShowPillarHub(true);
-    setShowResults(false);
-    setShowHistory(false);
+    const timer = window.setTimeout(() => {
+      setShowPillarHub(true);
+      setShowResults(false);
+      setShowHistory(false);
+      setOpeningPillar("");
+      setReferenceTime(Date.now());
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {
@@ -427,7 +439,18 @@ export default function GuidedDiscoveryWorkspace({
       confidence: status === "unknown" ? 0 : confidence,
       responseLocale: locale,
     });
-    if (result?.scoreDeltas) setScoreDeltas(result.scoreDeltas);
+    if (!result) return;
+    if (result.scoreDeltas) setScoreDeltas(result.scoreDeltas);
+    const updatedView = localizeDiscovery(
+      result.guidedDiscovery || null,
+      locale,
+    );
+    const nextQuestion =
+      updatedView?.nextQuestion || updatedView?.currentQuestion || null;
+    if (nextQuestion) setActiveQuestionId(nextQuestion.id);
+    setShowPillarHub(false);
+    setShowResults(false);
+    setShowHistory(false);
   };
   const openPillar = async (
     pillar: GuidedDiscoveryView["pillarAssessments"][number],
@@ -443,18 +466,48 @@ export default function GuidedDiscoveryWorkspace({
       }
       return;
     }
-    if (pillar.sessionId) {
-      await onPatch({
-        sessionId: pillar.sessionId,
-        operation: "reopen_pillar",
-        responseLocale: locale,
-      });
-    } else {
-      await onStart("direct", [pillar.key]);
-    }
+    const localQuestion =
+      view.questions.find(
+        (question) =>
+          question.pillar === pillar.key && question.status !== "answered",
+      ) ||
+      view.questions.find((question) => question.pillar === pillar.key);
+    if (localQuestion) setActiveQuestionId(localQuestion.id);
     setShowPillarHub(false);
     setShowResults(false);
     setShowHistory(false);
+    setOpeningPillar(pillar.key);
+    try {
+      const result = pillar.sessionId
+        ? await onPatch({
+            sessionId: pillar.sessionId,
+            operation: "reopen_pillar",
+            responseLocale: locale,
+          })
+        : await onStart("direct", [pillar.key]);
+      if (!result) {
+        setShowPillarHub(true);
+        return;
+      }
+      const updatedView = localizeDiscovery(
+        result.guidedDiscovery || null,
+        locale,
+      );
+      const updatedQuestion =
+        updatedView?.questions.find(
+          (question) =>
+            question.pillar === pillar.key && question.status !== "answered",
+        ) ||
+        updatedView?.questions.find(
+          (question) => question.pillar === pillar.key,
+        ) ||
+        updatedView?.nextQuestion ||
+        updatedView?.currentQuestion ||
+        null;
+      if (updatedQuestion) setActiveQuestionId(updatedQuestion.id);
+    } finally {
+      setOpeningPillar("");
+    }
   };
   const markNotRelevant = async (pillarKey: string) => {
     if (notRelevantReason.trim().length < 5) return;
@@ -499,7 +552,8 @@ export default function GuidedDiscoveryWorkspace({
     stale: currentPillarAnswers.filter(
       (answer) =>
         Boolean(answer.sourceDate) &&
-        Date.now() - new Date(answer.sourceDate!).getTime() > 90 * 86400000,
+        referenceTime > 0 &&
+        referenceTime - new Date(answer.sourceDate!).getTime() > 90 * 86400000,
     ).length,
     contradictions: currentPillarAnswers.filter(
       (answer) => Boolean(answer.structured.contradiction),
@@ -603,6 +657,25 @@ export default function GuidedDiscoveryWorkspace({
             onMarkConfirm={markNotRelevant}
             onOpen={openPillar}
           />
+        ) : openingPillar ? (
+          <div
+            className={styles.openingPillar}
+            role="status"
+            aria-live="polite"
+          >
+            <InlineLoading
+              description={
+                locale === "pt-BR"
+                  ? `Abrindo ${view.pillarAssessments.find((pillar) => pillar.key === openingPillar)?.label || "trilha de descoberta"}…`
+                  : `Opening ${view.pillarAssessments.find((pillar) => pillar.key === openingPillar)?.label || "discovery path"}…`
+              }
+            />
+            <p>
+              {locale === "pt-BR"
+                ? "Preparando a próxima pergunta e preservando o progresso desta conta."
+                : "Preparing the next question and preserving this account's progress."}
+            </p>
+          </div>
         ) : (
           <div className={styles.body}>
             <aside className={styles.rail}>

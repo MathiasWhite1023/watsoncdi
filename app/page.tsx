@@ -45,7 +45,6 @@ import {
 } from "@carbon/react";
 import {
   Add,
-  Analytics,
   ArrowLeft,
   ArrowRight,
   Asleep,
@@ -2784,14 +2783,14 @@ export default function Home({
         }))}
         saving={saving}
         onClose={() => setGuidedOpen(false)}
-        onStart={async (guidedMode, pillars) => {
-          await guidedMutation(
+        onStart={(guidedMode, pillars) =>
+          guidedMutation(
             "/sessions",
             "POST",
             { mode: guidedMode, selectedPillars: pillars },
             copy.notifications.discoveryStarted,
-          );
-        }}
+          )
+        }
         onAnswer={async (payload) =>
           guidedMutation(
             "/answers",
@@ -4501,13 +4500,12 @@ function AccountPoliciesView({
 
   useEffect(() => {
     if (!policyAccount) return;
-    setClassification(policyAccount.dataClassification);
-    setDomain(policyAccount.companyDomain || "");
-  }, [
-    policyAccount?.companyDomain,
-    policyAccount?.dataClassification,
-    policyAccount?.id,
-  ]);
+    const timer = window.setTimeout(() => {
+      setClassification(policyAccount.dataClassification);
+      setDomain(policyAccount.companyDomain || "");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [policyAccount]);
 
   const resetEditor = () => {
     setClassification(policyAccount?.dataClassification || "test");
