@@ -1,9 +1,28 @@
 # Changelog
 
+## Kyndryl Discovery Flow V3.2
+
+Status: published as Kyndryl Sites version `5`
+Branch: `codex/kyndryl-guided-experience-v2`
+Deploy commit: `93f15da7601a74b9af37ce21adc4918a4704e238`
+Rollback: Kyndryl Sites version `4` / commit `4438ba90a02543cdbbde63cb7044734d9cb93fa1`
+Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+
+### Fixed
+
+- Opens a discovery track on the first click with immediate progress feedback while the session is loaded.
+- Keeps the user inside the active track after `Confirm and continue`, selecting the next returned question instead of reopening the capability hub.
+- Returns to capability selection only after an explicit navigation action or when the session cannot be opened.
+
+### Validation
+
+- TypeScript, ESLint, Vinext production build, and all 52 automated tests pass.
+
 ## Kyndryl Capability Discovery V3.1
 
-Status: validated; pending Kyndryl Sites publication
+Status: published as Kyndryl Sites version `4`; preserved for rollback
 Branch: `codex/kyndryl-guided-experience-v2`
+Deploy commit: `4438ba90a02543cdbbde63cb7044734d9cb93fa1`
 Rollback: tag `kyndryl-capability-driven-v3` / Kyndryl Sites version `3`
 Pilot URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 
