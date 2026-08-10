@@ -2,10 +2,11 @@
 
 ## Kyndryl CDI V4 — account-centric capability intelligence
 
-Status: implementation validated; Kyndryl Sites version `6` awaiting explicit publication approval
+Status: published as Kyndryl Sites version `6` on 2026-08-10
 Branch: `codex/kyndryl-account-centric-v4`
 Rollback: Kyndryl Sites version `5` / commit `93f15da7601a74b9af37ce21adc4918a4704e238`
-Pilot URL after approval: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+Production URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+Deployment commit: `94378b6532f1a9a7839f01e8702b6ea47fa17f53`
 
 ### Changed
 
@@ -25,7 +26,7 @@ Pilot URL after approval: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 - Added only additive migration `0011_kyndryl_account_centric.sql` for stakeholder capability assignments and immutable answer impacts.
 - Began materializing the existing CDI evidence, capability snapshot, conflict, and technology-review tables after confirmed answers.
 - TypeScript, ESLint, Vinext production build, and all 70 automated tests pass.
-- Public deployment remains unchanged until explicit approval is provided.
+- Kyndryl Sites version `6` is live; version `5` remains available for application rollback.
 
 ## Kyndryl Discovery Flow V3.2
 
