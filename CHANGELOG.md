@@ -1,5 +1,32 @@
 # Changelog
 
+## Kyndryl CDI V4 — account-centric capability intelligence
+
+Status: implementation validated; Kyndryl Sites version `6` awaiting explicit publication approval
+Branch: `codex/kyndryl-account-centric-v4`
+Rollback: Kyndryl Sites version `5` / commit `93f15da7601a74b9af37ce21adc4918a4704e238`
+Pilot URL after approval: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+
+### Changed
+
+- Reduced the primary navigation to `Home`, `Accounts`, and `Settings` and removed the isolated Portfolio Radar destination.
+- Rebuilt Home around the 14 capabilities in catalog `2026.4-capability-driven`, current-catalog account coverage, and an accounts-by-capabilities Technology Fit heatmap.
+- Added single-click deep links from a capability or heatmap cell to the exact account discovery, without relying on asynchronous selected-account state.
+- Reorganized every account into `Discovery`, `Relationships`, `Strategy`, and `Governance`.
+- Embedded the multipillar discovery runner in the account workspace and kept it on the next question after every confirmed answer.
+- Unified the organization and capability-responsibility maps in one React Flow canvas.
+- Added confirmed stakeholder-to-capability roles for owner, decision maker, influencer, and technical contact.
+- Added an Opportunity Cockpit with technology fit, confidence, impact, gates, stakeholder gaps, hypotheses, and the 30/60/90 Account Plan.
+- Added an answer-impact ledger covering evidence, score deltas, gates, penalties, technologies, recommendations, sources, stakeholders, and revisions.
+- Removed unreachable V2/V3 navigation surfaces from the client bundle while preserving their data and Git history for rollback.
+
+### Data and validation
+
+- Added only additive migration `0011_kyndryl_account_centric.sql` for stakeholder capability assignments and immutable answer impacts.
+- Began materializing the existing CDI evidence, capability snapshot, conflict, and technology-review tables after confirmed answers.
+- TypeScript, ESLint, Vinext production build, and all 70 automated tests pass.
+- Public deployment remains unchanged until explicit approval is provided.
+
 ## Kyndryl Discovery Flow V3.2
 
 Status: published as Kyndryl Sites version `5`

@@ -8,23 +8,23 @@ Live demo: https://watson-cdi-challenge.matheus68747.chatgpt.site
 
 This is a portfolio/challenge project. It is not an official IBM product.
 
-## Kyndryl Opportunity-Discovery Pilot
+## Kyndryl CDI V4 Pilot
 
-The dedicated branch `codex/kyndryl-guided-experience-v2` adapts the product around the operating journey requested for the Kyndryl initiative. It is hosted independently at https://watson-cdi-kyndryl.matheus68747.chatgpt.site, leaving the original Watson CDI deployment unchanged.
+The dedicated branch `codex/kyndryl-account-centric-v4` organizes the Kyndryl experience around capabilities and accounts. After publication approval it will replace only the separate Kyndryl pilot at https://watson-cdi-kyndryl.matheus68747.chatgpt.site; the original Watson CDI deployment remains unchanged.
 
 ```text
-account
-  -> Portfolio
-  -> select one battle-card pillar
+Home capability or portfolio heatmap
+  -> select an account
+  -> open one capability
   -> answer account-specific discovery questions
-  -> review capability maturity
+  -> review evidence, score, gates and penalties
   -> receive explainable IBM technology recommendations
-  -> choose the next pillar
+  -> choose the next capability
 ```
 
-The bilingual `2026.3-kyndryl` catalog contains 48 essential questions and up to 48 deterministic follow-ups across IBM Z Modernization & Hybrid Operations, Infrastructure Modernization, Application Modernization, SAP Transformation, Modern Operations, Data Platform & AI, Modern Workplace, and Zero Trust & Cyber Security.
+The bilingual `2026.4-capability-driven` catalog contains 14 capabilities, 70 core questions and 70 deterministic deep questions. Home reports the current-catalog review percentage for each capability across all accounts and displays Technology Fit, confidence, and discovery state in one portfolio heatmap.
 
-Each account keeps independent review status for all eight pillars. Pillar progress (for example, `6/6 essential questions`) is separate from account review (`1/8 pillars · 13%`), evidence coverage, and recommendation confidence. Completing one pillar never marks the account discovery as complete.
+Each account has four focused modes: `Discovery`, `Relationships`, `Strategy`, and `Governance`. Capability progress remains separate from portfolio coverage and recommendation confidence. Completing one capability never marks the account discovery as complete.
 
 The opportunity engine is deterministic and auditable. It applies the battle-card formula:
 
@@ -40,7 +40,7 @@ Technology Fit Score =
 
 Propensity and confidence are deliberately separate. `Yes` and `No` become evidence according to the question rule; `N/A` is removed from the score and confidence denominators; `Don't know` adds no evidence and reduces confidence. Required gates are evaluated before gated technologies are recommended. Every recommendation retains the chain `answer -> evidence -> capability gap -> technology`, as well as the recommended workshop and next question.
 
-The public example is read-only but exposes the questions, pillar hub, heatmap, and results experience. Migration `0009` only adds the multipillar status table. Existing sessions, append-only answers, and account records remain compatible.
+Relationships combines the organization chart and capability responsibility map in one canvas. Strategy provides a technology Opportunity Cockpit. Governance explains the deterministic chain from every answer to evidence, maturity, fit, gates, penalties, technologies, and recommendations. Migration `0011` is additive; existing sessions, append-only answers, maps, and account records remain compatible.
 
 ## What It Does
 
@@ -117,7 +117,7 @@ Cells are keyboard-accessible and open an evidence panel or the exact account co
 
 ## Opportunity Discovery
 
-On the Kyndryl branch, open `Account intelligence -> Strategy -> Opportunity discovery` (or `Inteligência de contas -> Estratégia -> Descoberta de oportunidades` in Portuguese). Select a single battle-card pillar, answer its account-specific questions and open the resulting capability heatmap and IBM technology ranking.
+On the Kyndryl branch, start from a capability card or heatmap cell on Home, or open `Accounts -> account -> Discovery`. Select a capability, answer its account-specific questions, and review the resulting capability heatmap and IBM technology ranking without leaving the account workspace.
 
 Two modes are available in both languages:
 
@@ -202,6 +202,8 @@ npm test
 ```
 
 ## Versioning And Rollback
+
+Kyndryl CDI V4 is developed on `codex/kyndryl-account-centric-v4`. Its validated rollback baseline is Kyndryl Sites version `5` at commit `93f15da7601a74b9af37ce21adc4918a4704e238`. Migration `0011` is additive, so version 5 safely ignores assignments and answer-impact records created by V4.
 
 V5.3.1 is developed on `codex/open-workspace-v5-3-1`. Its validated rollback baseline is `v5.3-commercial-proof`. The access change does not require a database migration: it removes the administrative email pre-authorization gate while preserving authentication and owner-scoped queries.
 
