@@ -362,11 +362,12 @@ test("builds distinct Capability Health and Portfolio Fit datasets", async () =>
   assert.equal(fit[0].leadingFit, 81);
 });
 
-test("wires three accessible, interactive heatmap surfaces without duplicating purpose", async () => {
-  const [component, styles, page] = await Promise.all([
+test("preserves accessible health matrices and wires the V4 portfolio heatmap", async () => {
+  const [component, styles, page, v4Home] = await Promise.all([
     readProjectFile("app/HealthHeatmaps.tsx"),
     readProjectFile("app/HealthHeatmaps.module.css"),
     readProjectFile("app/page.tsx"),
+    readProjectFile("app/KyndrylV4Home.tsx"),
   ]);
 
   assert.match(component, /export function AccountHealthHeatmap/);
@@ -380,9 +381,11 @@ test("wires three accessible, interactive heatmap surfaces without duplicating p
   assert.match(component, /40–69/);
   assert.match(component, /70–100/);
   assert.match(styles, /position:\s*sticky/);
-  assert.match(page, /<AccountHealthHeatmap/);
-  assert.match(page, /<CapabilityHealthHeatmap/);
-  assert.match(page, /<PortfolioFitHeatmap/);
+  assert.match(page, /<KyndrylV4Home/);
+  assert.match(v4Home, /function PortfolioCapabilityHeatmap/);
+  assert.match(v4Home, /<table className=\{styles\.heatmapTable\}>/);
+  assert.match(v4Home, /Technology fit across all accounts/);
+  assert.match(v4Home, /onStartDiscovery\(account\.id, capability\.key\)/);
 });
 
 test("keeps V5.2 storage additive and locale-specific", async () => {

@@ -2480,8 +2480,16 @@
   .v5-form.two > :nth-last-child(2) {
     grid-column: span 1;
   }
-  .v5-account-tabs button {
-    min-width: 8rem;
+  .v5-account-tabs.v4-account-tabs {
+    height: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .v5-account-tabs.v4-account-tabs button {
+    width: 100%;
+    min-width: 0;
+    min-height: 3.25rem;
   }
   .v5-action-table article {
     grid-template-columns: 1fr auto;

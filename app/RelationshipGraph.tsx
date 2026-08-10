@@ -40,8 +40,29 @@ export type RelationshipType =
   | "decide"
   | "possui_iniciativa";
 
-export type RelationshipGraphMode = "hierarchy" | "influence";
+export type RelationshipGraphMode = "hierarchy" | "influence" | "capability";
 export type GraphPosition = { x: number; y: number };
+
+export type RelationshipCapability = {
+  key: string;
+  label: string;
+  description?: string;
+};
+
+export type StakeholderCapabilityRole =
+  | "owner"
+  | "decision_maker"
+  | "influencer"
+  | "technical_contact";
+
+export type StakeholderCapabilityAssignment = {
+  id?: string;
+  stakeholderId: string;
+  capabilityKey: string;
+  role: StakeholderCapabilityRole;
+  status: "confirmed" | "proposed" | "suggested" | "dismissed";
+  evidence?: RelationshipEvidence[];
+};
 
 export type RelationshipEvidence = {
   id: string;
@@ -80,6 +101,9 @@ export type AccountRelationship = {
 export type RelationshipGraphProps = {
   stakeholders: RelationshipStakeholder[];
   relationships: AccountRelationship[];
+  /** When supplied, the canvas exposes the V4 capability-responsibility view. */
+  capabilities?: RelationshipCapability[];
+  capabilityAssignments?: StakeholderCapabilityAssignment[];
   /** Posições persistidas por modo. Posições arrastadas localmente têm precedência até a próxima montagem. */
   savedPositions?: Partial<
     Record<RelationshipGraphMode, Record<string, GraphPosition>>
@@ -105,6 +129,13 @@ export type RelationshipGraphProps = {
   onRequestEdit?: (stakeholder: RelationshipStakeholder) => void;
   onRequestAddStakeholder?: () => void;
   onRequestRelationship?: (stakeholderId: string) => void;
+  onRequestAssignment?: (
+    stakeholderId?: string,
+    capabilityKey?: string,
+  ) => void;
+  onConfirmAssignment?: (
+    assignment: StakeholderCapabilityAssignment,
+  ) => void | Promise<void>;
 };
 
 type RelationshipNodeData = {
@@ -118,6 +149,18 @@ type RelationshipNodeData = {
 } & Record<string, unknown>;
 
 type RelationshipFlowNode = Node<RelationshipNodeData, "stakeholder">;
+
+type CapabilityNodeData = {
+  capability: RelationshipCapability;
+  selected: boolean;
+  confirmedAssignments: number;
+  proposedAssignments: number;
+  missingRoles: StakeholderCapabilityRole[];
+  onSelect: (key: string) => void;
+} & Record<string, unknown>;
+
+type CapabilityFlowNode = Node<CapabilityNodeData, "capability">;
+type AccountFlowNode = RelationshipFlowNode | CapabilityFlowNode;
 
 const relationshipColors: Record<RelationshipType, string> = {
   reporta_para: "#0f62fe",
@@ -217,7 +260,126 @@ function StakeholderNode({ data }: NodeProps<RelationshipFlowNode>) {
   );
 }
 
-const nodeTypes: NodeTypes = { stakeholder: StakeholderNode };
+function CapabilityNode({ data }: NodeProps<CapabilityFlowNode>) {
+  const { locale } = useI18n();
+  const c = locale === "pt-BR"
+    ? {
+        reviewed: "responsabilidades confirmadas",
+        proposed: "propostas",
+        gaps: "Lacunas",
+      }
+    : {
+        reviewed: "confirmed responsibilities",
+        proposed: "proposed",
+        gaps: "Gaps",
+      };
+  const roleLabels = useMemo(() => capabilityRoleLabels(locale), [locale]);
+  const select = () => data.onSelect(data.capability.key);
+
+  return (
+    <div
+      className={`${styles.capabilityNode} ${data.selected ? styles.nodeSelected : ""} ${data.missingRoles.length ? styles.capabilityNodeGap : ""}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={data.selected}
+      aria-label={`${data.capability.label}: ${data.confirmedAssignments} ${c.reviewed}`}
+      onClick={select}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      }}
+    >
+      <Handle
+        className={styles.capabilityHandle}
+        type="source"
+        position={Position.Right}
+      />
+      <span className={styles.capabilityEyebrow}>Capability</span>
+      <strong>{data.capability.label}</strong>
+      <span>
+        {data.confirmedAssignments} {c.reviewed}
+        {data.proposedAssignments > 0
+          ? ` · ${data.proposedAssignments} ${c.proposed}`
+          : ""}
+      </span>
+      {data.missingRoles.length > 0 && (
+        <small>
+          {c.gaps}: {data.missingRoles.map((role) => roleLabels[role]).join(", ")}
+        </small>
+      )}
+    </div>
+  );
+}
+
+const nodeTypes: NodeTypes = {
+  stakeholder: StakeholderNode,
+  capability: CapabilityNode,
+};
+
+function capabilityRoleLabels(locale: "en-US" | "pt-BR") {
+  return locale === "pt-BR"
+    ? {
+        owner: "Owner",
+        decision_maker: "Decisor",
+        influencer: "Influenciador",
+        technical_contact: "Contato técnico",
+      }
+    : {
+        owner: "Owner",
+        decision_maker: "Decision maker",
+        influencer: "Influencer",
+        technical_contact: "Technical contact",
+      };
+}
+
+const requiredCapabilityRoles: StakeholderCapabilityRole[] = [
+  "owner",
+  "decision_maker",
+  "technical_contact",
+];
+const emptyCapabilities: RelationshipCapability[] = [];
+const emptyCapabilityAssignments: StakeholderCapabilityAssignment[] = [];
+const isProposedAssignment = (
+  assignment: StakeholderCapabilityAssignment,
+) => assignment.status === "proposed" || assignment.status === "suggested";
+
+function capabilityPositions(
+  stakeholders: RelationshipStakeholder[],
+  capabilities: RelationshipCapability[],
+  assignments: StakeholderCapabilityAssignment[],
+) {
+  const positions: Record<string, GraphPosition> = {};
+  capabilities.forEach((capability, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    positions[`capability:${capability.key}`] = {
+      x: column * 280,
+      y: row * 132,
+    };
+  });
+  const assignmentCount = new Map<string, number>();
+  assignments.forEach((item) => {
+    assignmentCount.set(
+      item.stakeholderId,
+      (assignmentCount.get(item.stakeholderId) || 0) + 1,
+    );
+  });
+  [...stakeholders]
+    .sort(
+      (a, b) =>
+        (assignmentCount.get(b.id) || 0) -
+          (assignmentCount.get(a.id) || 0) || a.name.localeCompare(b.name),
+    )
+    .forEach((stakeholder, index) => {
+      positions[stakeholder.id] = {
+        x: 690 + (index % 2) * 285,
+        y: Math.floor(index / 2) * 152,
+      };
+    });
+  return positions;
+}
 
 function hierarchyPositions(
   stakeholders: RelationshipStakeholder[],
@@ -370,6 +532,8 @@ function approachFor(stakeholder: RelationshipStakeholder, d: Messages) {
 export default function RelationshipGraph({
   stakeholders,
   relationships,
+  capabilities = emptyCapabilities,
+  capabilityAssignments = emptyCapabilityAssignments,
   savedPositions,
   defaultMode = "hierarchy",
   mode,
@@ -386,6 +550,8 @@ export default function RelationshipGraph({
   onRequestEdit,
   onRequestAddStakeholder,
   onRequestRelationship,
+  onRequestAssignment,
+  onConfirmAssignment,
 }: RelationshipGraphProps) {
   const { locale, dictionary: d, t } = useI18n();
   const [internalMode, setInternalMode] =
@@ -393,15 +559,16 @@ export default function RelationshipGraph({
   const [internalSelected, setInternalSelected] = useState<string | null>(
     selectedStakeholderId || null,
   );
+  const [selectedCapabilityKey, setSelectedCapabilityKey] = useState<
+    string | null
+  >(null);
   const [relationType, setRelationType] =
     useState<RelationshipType>("reporta_para");
   const [flow, setFlow] = useState<ReactFlowInstance<
-    RelationshipFlowNode,
+    AccountFlowNode,
     Edge
   > | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<RelationshipFlowNode>(
-    [],
-  );
+  const [nodes, setNodes, onNodesChange] = useNodesState<AccountFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const positionsRef = useRef<
     Partial<Record<RelationshipGraphMode, Record<string, GraphPosition>>>
@@ -413,6 +580,10 @@ export default function RelationshipGraph({
       : selectedStakeholderId;
   const selected =
     stakeholders.find((item) => item.id === currentSelected) || null;
+  const selectedCapability =
+    activeMode === "capability"
+      ? capabilities.find((item) => item.key === selectedCapabilityKey) || null
+      : null;
   const sponsor =
     stakeholders.find((item) => item.id === sponsorId) ||
     stakeholders.find((item) => item.isSponsor) ||
@@ -433,6 +604,64 @@ export default function RelationshipGraph({
     }),
     [d.relationship],
   );
+  const c = locale === "pt-BR"
+    ? {
+        organization: "Organização",
+        capabilityResponsibility: "Responsabilidade por capability",
+        assignedCapabilities: "Capabilities sob responsabilidade",
+        noAssignments: "Nenhuma responsabilidade confirmada.",
+        proposed: "Proposto",
+        confirmed: "Confirmado",
+        confirm: "Confirmar",
+        assignCapability: "Atribuir capability",
+        coverageGaps: "Lacunas de cobertura",
+        assignedPeople: "Pessoas atribuídas",
+        noAssignedPeople: "Nenhuma pessoa atribuída.",
+        missing: "Ausente",
+        capabilityProfile: "Responsabilidade por capability",
+        responsibilityMap: "Mapa de pessoas e responsabilidades",
+      }
+    : {
+        organization: "Organization",
+        capabilityResponsibility: "Capability responsibility",
+        assignedCapabilities: "Capability responsibilities",
+        noAssignments: "No confirmed responsibility yet.",
+        proposed: "Proposed",
+        confirmed: "Confirmed",
+        confirm: "Confirm",
+        assignCapability: "Assign capability",
+        coverageGaps: "Coverage gaps",
+        assignedPeople: "Assigned people",
+        noAssignedPeople: "No people assigned.",
+        missing: "Missing",
+        capabilityProfile: "Capability responsibility",
+        responsibilityMap: "People and capability responsibility map",
+      };
+  const roleLabels = useMemo(() => capabilityRoleLabels(locale), [locale]);
+
+  const assignmentCoverage = useMemo(() => {
+    return new Map(
+      capabilities.map((capability) => {
+        const relevant = capabilityAssignments.filter(
+          (item) =>
+            item.capabilityKey === capability.key && item.status !== "dismissed",
+        );
+        const confirmed = relevant.filter((item) => item.status === "confirmed");
+        const confirmedRoles = new Set(confirmed.map((item) => item.role));
+        return [
+          capability.key,
+          {
+            relevant,
+            confirmed,
+            proposed: relevant.filter(isProposedAssignment),
+            missingRoles: requiredCapabilityRoles.filter(
+              (role) => !confirmedRoles.has(role),
+            ),
+          },
+        ];
+      }),
+    );
+  }, [capabilities, capabilityAssignments]);
 
   const degree = useMemo(() => {
     const result = new Map<string, number>();
@@ -461,6 +690,7 @@ export default function RelationshipGraph({
   const selectStakeholder = useCallback(
     (id: string | null) => {
       if (selectedStakeholderId === undefined) setInternalSelected(id);
+      if (id) setSelectedCapabilityKey(null);
       onStakeholderSelect?.(
         stakeholders.find((item) => item.id === id) || null,
       );
@@ -468,23 +698,37 @@ export default function RelationshipGraph({
     [onStakeholderSelect, selectedStakeholderId, stakeholders],
   );
 
+  const selectCapability = useCallback((key: string | null) => {
+    setSelectedCapabilityKey(key);
+    if (key) selectStakeholder(null);
+  }, [selectStakeholder]);
+
   useEffect(() => {
     const automatic =
       activeMode === "hierarchy"
         ? hierarchyPositions(stakeholders, relationships)
-        : influencePositions(stakeholders, sponsor?.id);
+        : activeMode === "capability"
+          ? capabilityPositions(
+              stakeholders,
+              capabilities,
+              capabilityAssignments,
+            )
+          : influencePositions(stakeholders, sponsor?.id);
     const current = positionsRef.current[activeMode] || {};
     const persisted = savedPositions?.[activeMode] || {};
     const positions = { ...automatic, ...persisted, ...current };
     positionsRef.current[activeMode] = positions;
 
-    setNodes(
-      stakeholders.map((stakeholder) => ({
+    const stakeholderNodes: RelationshipFlowNode[] = stakeholders.map(
+      (stakeholder) => ({
         id: stakeholder.id,
         type: "stakeholder",
         position: positions[stakeholder.id] || { x: 0, y: 0 },
         draggable: !readOnly,
-        connectable: !readOnly && Boolean(onCreateRelationship),
+        connectable:
+          activeMode !== "capability" &&
+          !readOnly &&
+          Boolean(onCreateRelationship),
         focusable: true,
         ariaLabel: `${stakeholder.name}, ${stakeholder.role}`,
         data: {
@@ -496,11 +740,70 @@ export default function RelationshipGraph({
           missingRelationship: missingIds.has(stakeholder.id),
           readOnly,
         },
-      })),
+      }),
     );
+    const capabilityNodes: CapabilityFlowNode[] =
+      activeMode === "capability"
+        ? capabilities.map((capability) => {
+            const coverage = assignmentCoverage.get(capability.key);
+            return {
+              id: `capability:${capability.key}`,
+              type: "capability",
+              position:
+                positions[`capability:${capability.key}`] || { x: 0, y: 0 },
+              draggable: !readOnly,
+              connectable: false,
+              focusable: true,
+              ariaLabel: capability.label,
+              data: {
+                capability,
+                selected: capability.key === selectedCapabilityKey,
+                confirmedAssignments: coverage?.confirmed.length || 0,
+                proposedAssignments: coverage?.proposed.length || 0,
+                missingRoles: coverage?.missingRoles || requiredCapabilityRoles,
+                onSelect: selectCapability,
+              },
+            };
+          })
+        : [];
+    setNodes([...capabilityNodes, ...stakeholderNodes]);
 
     setEdges(
-      relationships.map((relationship, index) => {
+      activeMode === "capability"
+        ? capabilityAssignments
+          .filter((assignment) => assignment.status !== "dismissed")
+          .map((assignment, index) => {
+            const id =
+              assignment.id ||
+              `assignment:${assignment.capabilityKey}:${assignment.stakeholderId}:${assignment.role}:${index}`;
+            const proposed = isProposedAssignment(assignment);
+            return {
+              id,
+              source: `capability:${assignment.capabilityKey}`,
+              target: assignment.stakeholderId,
+              type: "smoothstep",
+              label: roleLabels[assignment.role],
+              ariaLabel: `${roleLabels[assignment.role]}: ${assignment.capabilityKey} to ${assignment.stakeholderId}`,
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: proposed ? "#8a3ffc" : "#0f62fe",
+              },
+              style: {
+                stroke: proposed ? "#8a3ffc" : "#0f62fe",
+                strokeWidth: proposed ? 1.5 : 2,
+                strokeDasharray: proposed ? "6 5" : undefined,
+              },
+              labelStyle: {
+                fill: proposed ? "#6929c4" : "#0043ce",
+                fontSize: 11,
+                fontWeight: 600,
+              },
+              labelBgStyle: { fill: "#fff", fillOpacity: 0.92 },
+              labelBgPadding: [5, 3] as [number, number],
+              labelBgBorderRadius: 0,
+            };
+          })
+        : relationships.map((relationship, index) => {
         const id =
           relationship.id ||
           `${relationship.source}:${relationship.target}:${relationship.type}:${index}`;
@@ -530,10 +833,13 @@ export default function RelationshipGraph({
           labelBgPadding: [5, 3] as [number, number],
           labelBgBorderRadius: 0,
         };
-      }),
+          }),
     );
   }, [
     activeMode,
+    assignmentCoverage,
+    capabilities,
+    capabilityAssignments,
     currentSelected,
     missingIds,
     onCreateRelationship,
@@ -541,7 +847,9 @@ export default function RelationshipGraph({
     relationships,
     relationshipLabels,
     savedPositions,
+    selectCapability,
     selectStakeholder,
+    selectedCapabilityKey,
     setEdges,
     setNodes,
     sponsor?.id,
@@ -549,11 +857,13 @@ export default function RelationshipGraph({
     sponsorPath.nodes,
     stakeholders,
     t,
+    roleLabels,
   ]);
 
   const changeMode = (nextMode: RelationshipGraphMode) => {
     if (!mode) setInternalMode(nextMode);
     setRelationType(nextMode === "hierarchy" ? "reporta_para" : "influencia");
+    selectCapability(null);
     onModeChange?.(nextMode);
     requestAnimationFrame(() =>
       flow?.fitView({ padding: 0.22, duration: 280, maxZoom: 1 }),
@@ -561,7 +871,7 @@ export default function RelationshipGraph({
   };
 
   const persistPosition = useCallback(
-    (_event: unknown, node: RelationshipFlowNode) => {
+    (_event: unknown, node: AccountFlowNode) => {
       const positions = {
         ...(positionsRef.current[activeMode] || {}),
         [node.id]: { x: node.position.x, y: node.position.y },
@@ -596,7 +906,13 @@ export default function RelationshipGraph({
     const positions =
       activeMode === "hierarchy"
         ? hierarchyPositions(stakeholders, relationships)
-        : influencePositions(stakeholders, sponsor?.id);
+        : activeMode === "capability"
+          ? capabilityPositions(
+              stakeholders,
+              capabilities,
+              capabilityAssignments,
+            )
+          : influencePositions(stakeholders, sponsor?.id);
     positionsRef.current[activeMode] = positions;
     setNodes((current) =>
       current.map((node) => ({
@@ -612,7 +928,7 @@ export default function RelationshipGraph({
   };
 
   const style = {
-    "--graph-panel-width": selected ? "22rem" : "0rem",
+    "--graph-panel-width": selected || selectedCapability ? "22rem" : "0rem",
   } as CSSProperties;
 
   if (loading) {
@@ -637,7 +953,7 @@ export default function RelationshipGraph({
     <section
       className={`${styles.shell} ${className}`}
       style={style}
-      aria-label={d.relationship.mapLabel}
+      aria-label={capabilities.length ? c.responsibilityMap : d.relationship.mapLabel}
     >
       <header className={styles.toolbar}>
         <div
@@ -650,18 +966,28 @@ export default function RelationshipGraph({
             aria-pressed={activeMode === "hierarchy"}
             onClick={() => changeMode("hierarchy")}
           >
-            {d.relationship.hierarchy}
+            {capabilities.length ? c.organization : d.relationship.hierarchy}
           </button>
-          <button
-            type="button"
-            aria-pressed={activeMode === "influence"}
-            onClick={() => changeMode("influence")}
-          >
-            {d.relationship.influenceNetwork}
-          </button>
+          {capabilities.length ? (
+            <button
+              type="button"
+              aria-pressed={activeMode === "capability"}
+              onClick={() => changeMode("capability")}
+            >
+              {c.capabilityResponsibility}
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-pressed={activeMode === "influence"}
+              onClick={() => changeMode("influence")}
+            >
+              {d.relationship.influenceNetwork}
+            </button>
+          )}
         </div>
         <div className={styles.toolbarActions}>
-          {!readOnly && onCreateRelationship && (
+          {!readOnly && onCreateRelationship && activeMode !== "capability" && (
             <label>
               <span>{d.relationship.newRelationship}</span>
               <select
@@ -701,8 +1027,8 @@ export default function RelationshipGraph({
       </header>
 
       <div className={styles.graphArea}>
-        {stakeholders.length ? (
-          <ReactFlow<RelationshipFlowNode, Edge>
+        {stakeholders.length || (activeMode === "capability" && capabilities.length) ? (
+          <ReactFlow<AccountFlowNode, Edge>
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
@@ -710,10 +1036,17 @@ export default function RelationshipGraph({
             onEdgesChange={onEdgesChange}
             onNodeDragStop={persistPosition}
             onConnect={connect}
-            onPaneClick={() => selectStakeholder(null)}
+            onPaneClick={() => {
+              selectStakeholder(null);
+              selectCapability(null);
+            }}
             onInit={setFlow}
             nodesDraggable={!readOnly}
-            nodesConnectable={!readOnly && Boolean(onCreateRelationship)}
+            nodesConnectable={
+              activeMode !== "capability" &&
+              !readOnly &&
+              Boolean(onCreateRelationship)
+            }
             elementsSelectable
             fitView
             fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
@@ -755,8 +1088,20 @@ export default function RelationshipGraph({
                 <i className={styles.legendGap} />
                 {d.relationship.pendingRelationship}
               </span>
-              {!readOnly && onCreateRelationship && (
+              {!readOnly && onCreateRelationship && activeMode !== "capability" && (
                 <small>{d.relationship.dragHelp}</small>
+              )}
+              {activeMode === "capability" && (
+                <>
+                  <span>
+                    <i className={styles.legendConfirmed} />
+                    {c.confirmed}
+                  </span>
+                  <span>
+                    <i className={styles.legendProposed} />
+                    {c.proposed}
+                  </span>
+                </>
               )}
             </div>
           </ReactFlow>
@@ -848,6 +1193,65 @@ export default function RelationshipGraph({
               <p className={styles.gapText}>{d.relationship.noPriorities}</p>
             )}
           </div>
+          {capabilities.length > 0 && (
+            <div className={styles.panelSection}>
+              <small>{c.assignedCapabilities}</small>
+              {capabilityAssignments.some(
+                (item) =>
+                  item.stakeholderId === selected.id &&
+                  item.status !== "dismissed",
+              ) ? (
+                <ul className={styles.assignmentList}>
+                  {capabilityAssignments
+                    .filter((item) => item.stakeholderId === selected.id)
+                    .filter((item) => item.status !== "dismissed")
+                    .map((assignment, index) => (
+                      <li
+                        key={
+                          assignment.id ||
+                          `${assignment.capabilityKey}:${assignment.role}:${index}`
+                        }
+                      >
+                        <div>
+                          <strong>
+                            {capabilities.find(
+                              (item) => item.key === assignment.capabilityKey,
+                            )?.label || assignment.capabilityKey}
+                          </strong>
+                          <span>{roleLabels[assignment.role]}</span>
+                        </div>
+                        <span
+                          className={
+                            assignment.status === "confirmed"
+                              ? styles.assignmentConfirmed
+                              : styles.assignmentProposed
+                          }
+                        >
+                          {assignment.status === "confirmed"
+                            ? c.confirmed
+                            : c.proposed}
+                        </span>
+                        {isProposedAssignment(assignment) &&
+                          onConfirmAssignment &&
+                          !readOnly && (
+                            <button
+                              type="button"
+                              className={styles.assignmentAction}
+                              onClick={() =>
+                                void onConfirmAssignment(assignment)
+                              }
+                            >
+                              {c.confirm}
+                            </button>
+                          )}
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <p className={styles.gapText}>{c.noAssignments}</p>
+              )}
+            </div>
+          )}
           <div className={styles.panelSection}>
             <small>{d.relationship.recommendedApproach}</small>
             <p>{approachFor(selected, d)}</p>
@@ -909,6 +1313,131 @@ export default function RelationshipGraph({
                   {d.relationship.addRelationship}
                 </button>
               )}
+              {onRequestAssignment && capabilities.length > 0 && (
+                <button
+                  type="button"
+                  className={styles.quietButton}
+                  onClick={() => onRequestAssignment(selected.id)}
+                >
+                  {c.assignCapability}
+                </button>
+              )}
+            </div>
+          )}
+        </aside>
+      )}
+      {selectedCapability && !selected && (
+        <aside
+          className={styles.contextPanel}
+          aria-label={`${c.capabilityProfile}: ${selectedCapability.label}`}
+        >
+          <div className={`${styles.panelHeader} ${styles.capabilityPanelHeader}`}>
+            <span className={styles.capabilityPanelIcon} aria-hidden="true">
+              C
+            </span>
+            <div>
+              <small>{c.capabilityProfile}</small>
+              <h3>{selectedCapability.label}</h3>
+              {selectedCapability.description && (
+                <p>{selectedCapability.description}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.closeButton}
+              onClick={() => selectCapability(null)}
+              aria-label={d.common.close}
+            >
+              ×
+            </button>
+          </div>
+          <div className={styles.panelSection}>
+            <small>{c.coverageGaps}</small>
+            {(assignmentCoverage.get(selectedCapability.key)?.missingRoles
+              .length || 0) > 0 ? (
+              <ul className={styles.gapList}>
+                {assignmentCoverage
+                  .get(selectedCapability.key)
+                  ?.missingRoles.map((role) => (
+                    <li key={role}>
+                      <span>{c.missing}</span>
+                      <strong>{roleLabels[role]}</strong>
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p>{locale === "pt-BR" ? "Papéis essenciais cobertos." : "Required roles are covered."}</p>
+            )}
+          </div>
+          <div className={styles.panelSection}>
+            <small>{c.assignedPeople}</small>
+            {(assignmentCoverage.get(selectedCapability.key)?.relevant.length ||
+              0) > 0 ? (
+              <ul className={styles.assignmentList}>
+                {assignmentCoverage
+                  .get(selectedCapability.key)
+                  ?.relevant.map((assignment, index) => {
+                    const person = stakeholders.find(
+                      (item) => item.id === assignment.stakeholderId,
+                    );
+                    return (
+                      <li
+                        key={
+                          assignment.id ||
+                          `${assignment.stakeholderId}:${assignment.role}:${index}`
+                        }
+                      >
+                        <button
+                          type="button"
+                          className={styles.assignmentPerson}
+                          onClick={() => selectStakeholder(assignment.stakeholderId)}
+                        >
+                          <strong>{person?.name || assignment.stakeholderId}</strong>
+                          <span>{roleLabels[assignment.role]}</span>
+                        </button>
+                        <span
+                          className={
+                            assignment.status === "confirmed"
+                              ? styles.assignmentConfirmed
+                              : styles.assignmentProposed
+                          }
+                        >
+                          {assignment.status === "confirmed"
+                            ? c.confirmed
+                            : c.proposed}
+                        </span>
+                        {isProposedAssignment(assignment) &&
+                          onConfirmAssignment &&
+                          !readOnly && (
+                            <button
+                              type="button"
+                              className={styles.assignmentAction}
+                              onClick={() =>
+                                void onConfirmAssignment(assignment)
+                              }
+                            >
+                              {c.confirm}
+                            </button>
+                          )}
+                      </li>
+                    );
+                  })}
+              </ul>
+            ) : (
+              <p className={styles.gapText}>{c.noAssignedPeople}</p>
+            )}
+          </div>
+          {onRequestAssignment && !readOnly && (
+            <div className={styles.panelActions}>
+              <button
+                type="button"
+                className={styles.primaryButton}
+                onClick={() =>
+                  onRequestAssignment(undefined, selectedCapability.key)
+                }
+              >
+                {c.assignCapability}
+              </button>
             </div>
           )}
         </aside>

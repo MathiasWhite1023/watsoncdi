@@ -256,10 +256,11 @@ test("reports observed impact and refuses to infer an efficiency percentage", as
   assert.equal("timeSavedPercent" in metric, false);
 });
 
-test("wires the commercial proof, evidence navigation and customer context surfaces", async () => {
-  const [commercialPanels, contextMap, page, api] = await Promise.all([
+test("preserves commercial proof and unifies customer context in the relationship canvas", async () => {
+  const [commercialPanels, contextMap, relationshipGraph, page, api] = await Promise.all([
     readProjectFile("app/CommercialProofPanels.tsx"),
     readProjectFile("app/CustomerContextMap.tsx"),
+    readProjectFile("app/RelationshipGraph.tsx"),
     readProjectFile("app/page.tsx"),
     readProjectFile("app/api/discoveries/route.ts"),
   ]);
@@ -276,7 +277,10 @@ test("wires the commercial proof, evidence navigation and customer context surfa
   assert.match(contextMap, /objective/);
   assert.match(contextMap, /initiative/);
   assert.match(contextMap, /capability/);
-  assert.match(page, /<CustomerContextMap/);
+  assert.doesNotMatch(page, /<CustomerContextMap/);
+  assert.match(page, /<KyndrylV4RelationshipsPanel/);
+  assert.match(relationshipGraph, /Capability responsibility/);
+  assert.match(relationshipGraph, /capabilityAssignments/);
   assert.match(page, /source-\$\{event\.sourceId \|\| event\.id\}/);
 
   for (const action of [

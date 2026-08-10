@@ -120,7 +120,7 @@ test("documents Watson CDI V5.3.1 and its non-destructive rollback path", async 
   assert.match(packageJson, /"version": "5\.3\.1"/);
 });
 
-test("keeps the V5 proactive account intelligence surfaces wired", async () => {
+test("keeps the V4 account-centric capability intelligence surfaces wired", async () => {
   const [
     page,
     appMessages,
@@ -158,12 +158,14 @@ test("keeps the V5 proactive account intelligence surfaces wired", async () => {
   assert.match(page, /LanguageSwitcher/);
   assert.match(page, /useI18n/);
   assert.match(i18n, /home: "Home"/);
-  assert.match(i18n, /portfolio: "Portfolio"/);
+  assert.match(i18n, /accounts: "Accounts"/);
   assert.match(i18n, /settings: "Settings"/);
   assert.match(appMessages, /overview: "Overview"/);
   assert.match(appMessages, /activity: "Evidence & activity"/);
   assert.match(appMessages, /relationships: "Relationships"/);
-  assert.match(appMessages, /strategy: "Discovery"/);
+  assert.match(appMessages, /discovery: "Discovery"/);
+  assert.match(appMessages, /strategy: "Strategy"/);
+  assert.match(appMessages, /governance: "Governance"/);
   assert.match(appMessages, /title: "Account copilot"/);
   assert.match(appMessages, /prepare: "Prepare conversation"/);
   assert.match(appMessages, /next: "Next step"/);
@@ -263,7 +265,9 @@ test("wires the V5.1 guided discovery workspace, additive storage and account ro
     readProjectFile("app/api/accounts/[id]/guided-discovery/answers/route.ts"),
   ]);
 
-  assert.match(page, /GuidedDiscoverySummary/);
+  assert.match(page, /<GuidedDiscoveryWorkspace/);
+  assert.match(page, /variant="embedded"/);
+  assert.match(page, /<KyndrylV4Home/);
   assert.match(workspace, /useI18n/);
   assert.match(workspace, /getLocalizedQuestionById/);
   assert.match(workspace, /localizeGuidedDiscoveryOption/);

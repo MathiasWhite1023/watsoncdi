@@ -43,7 +43,7 @@ const enUS = {
   navigation: {
     home: "Home",
     portfolio: "Portfolio",
-    accounts: "Account intelligence",
+    accounts: "Accounts",
     radar: "Portfolio radar",
     settings: "Settings",
   },
@@ -308,7 +308,7 @@ const ptBR = {
   navigation: {
     home: "Início",
     portfolio: "Portfólio",
-    accounts: "Inteligência de contas",
+    accounts: "Contas",
     radar: "Radar da carteira",
     settings: "Configurações",
   },

@@ -1,0 +1,634 @@
+.workspace {
+  --v4-border: #e0e0e0;
+  --v4-text: #161616;
+  --v4-muted: #525252;
+  --v4-layer: #ffffff;
+  display: grid;
+  gap: 1rem;
+  color: var(--v4-text);
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+
+.capabilitySurface,
+.heatmapSurface,
+.accountsSurface {
+  min-width: 0;
+  background: var(--v4-layer);
+  border: 1px solid var(--v4-border);
+}
+
+.hero,
+.sectionHeader {
+  min-height: 10rem;
+  padding: 2rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+  border-bottom: 1px solid var(--v4-border);
+}
+
+.hero {
+  display: block;
+  color: #ffffff;
+  background: #161616;
+}
+
+.hero > span,
+.sectionHeader > div > span {
+  display: block;
+  margin-bottom: .55rem;
+  color: #78a9ff;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.sectionHeader > div > span {
+  color: #0f62fe;
+}
+
+.hero h1,
+.sectionHeader h1,
+.sectionHeader h2 {
+  max-width: 54rem;
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.75rem);
+  font-weight: 300;
+  letter-spacing: -.035em;
+  line-height: 1.08;
+}
+
+.sectionHeader h1,
+.sectionHeader h2 {
+  font-size: clamp(1.5rem, 2.5vw, 2.25rem);
+}
+
+.hero p,
+.sectionHeader p {
+  max-width: 48rem;
+  margin: .9rem 0 0;
+  color: #c6c6c6;
+  font-size: .95rem;
+  line-height: 1.55;
+}
+
+.sectionHeader p {
+  color: var(--v4-muted);
+}
+
+.sectionActions {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--v4-border);
+  gap: 1px;
+}
+
+.capabilityCard {
+  min-width: 0;
+  min-height: 22rem;
+  padding: 1.25rem !important;
+  display: flex !important;
+  flex-direction: column;
+  color: var(--v4-text) !important;
+  background: #ffffff !important;
+  text-decoration: none !important;
+}
+
+.capabilityCard:hover {
+  background: #edf5ff !important;
+}
+
+.capabilityCard:focus-visible {
+  outline: 3px solid #0f62fe;
+  outline-offset: -3px;
+}
+
+.cardHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.cardHeading span {
+  color: #525252;
+  font-size: .65rem;
+  font-weight: 600;
+  letter-spacing: .07em;
+}
+
+.cardHeading strong {
+  color: #0f62fe;
+  font-size: 1.75rem;
+  font-weight: 300;
+  letter-spacing: -.04em;
+}
+
+.capabilityCard h3 {
+  min-height: 3.2rem;
+  margin: 1rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.capabilityCard > p {
+  min-height: 4.5rem;
+  margin: .6rem 0 1.25rem;
+  color: var(--v4-muted);
+  font-size: .8rem;
+  line-height: 1.45;
+}
+
+.coverageLine {
+  margin-top: .65rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: .72rem;
+}
+
+.coverageLine strong {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.coverageLine span {
+  color: var(--v4-muted);
+}
+
+.cardStatuses {
+  margin: 1rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--v4-border);
+  border-bottom: 1px solid var(--v4-border);
+}
+
+.cardStatuses > div {
+  padding: .75rem .5rem .75rem 0;
+}
+
+.cardStatuses dt {
+  min-height: 2rem;
+  color: var(--v4-muted);
+  font-size: .62rem;
+  line-height: 1.25;
+}
+
+.cardStatuses dd {
+  margin: .35rem 0 0;
+  font-size: 1rem;
+}
+
+.needsReview {
+  min-height: 2.1rem;
+  padding-top: .65rem;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: #6929c4;
+  font-size: .72rem;
+}
+
+.cardAction {
+  margin-top: auto;
+  padding-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #0f62fe;
+  font-size: .78rem;
+}
+
+.modalHelp {
+  max-width: 48rem;
+  margin: 0 0 1.5rem;
+  color: var(--v4-muted);
+  line-height: 1.5;
+}
+
+.accountChoices {
+  border-top: 1px solid var(--v4-border);
+}
+
+.accountChoice {
+  min-height: 6rem;
+  padding: 1rem 0;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.2fr) minmax(10rem, .8fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid var(--v4-border);
+}
+
+.accountChoice > div:first-child {
+  display: grid;
+  gap: .3rem;
+}
+
+.accountChoice > div:first-child strong {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.accountChoice > div:first-child span,
+.accountChoiceStatus small {
+  color: var(--v4-muted);
+  font-size: .72rem;
+}
+
+.accountChoiceStatus {
+  display: grid;
+  justify-items: start;
+  gap: .45rem;
+}
+
+.accountChoiceActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .25rem;
+}
+
+.heatmapLegend {
+  min-height: 3rem;
+  padding: .65rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: .75rem 1rem;
+  background: #f4f4f4;
+  border-bottom: 1px solid var(--v4-border);
+  color: var(--v4-muted);
+  font-size: .68rem;
+}
+
+.heatmapLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.heatmapLegend span::before {
+  width: .75rem;
+  height: .75rem;
+  content: "";
+  background: #e0e0e0;
+}
+
+.heatmapLegend span[data-status="in_progress"]::before {
+  background: #78a9ff;
+}
+
+.heatmapLegend span[data-status="reviewed_gaps"]::before {
+  background: #be95ff;
+}
+
+.heatmapLegend span[data-status="reviewed_sufficient"]::before {
+  background: #42be65;
+}
+
+.heatmapLegend span[data-status="not_relevant"]::before {
+  background: #8d8d8d;
+}
+
+.heatmapLegend span[data-status="needs_review"]::before {
+  background: #a56eff;
+}
+
+.heatmapRegion,
+.accountTableRegion {
+  max-width: 100%;
+  overflow: auto;
+  scrollbar-color: #8d8d8d #f4f4f4;
+  scrollbar-width: thin;
+}
+
+.heatmapRegion:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: -2px;
+}
+
+.heatmapTable {
+  width: 100%;
+  min-width: 88rem;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.heatmapTable th,
+.heatmapTable td {
+  padding: 0;
+  border-right: 1px solid #ffffff;
+  border-bottom: 1px solid var(--v4-border);
+}
+
+.heatmapTable thead th {
+  height: 4.5rem;
+  padding: .5rem;
+  color: var(--v4-muted);
+  background: #f4f4f4;
+  font-size: .58rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  vertical-align: bottom;
+}
+
+.heatmapTable th:first-child {
+  width: 14rem;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #ffffff;
+  box-shadow: 1px 0 0 var(--v4-border);
+}
+
+.heatmapTable thead th:first-child {
+  z-index: 3;
+  background: #f4f4f4;
+  text-align: left;
+}
+
+.heatmapAccount {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: .75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.heatmapAccount:disabled {
+  cursor: default;
+}
+
+.heatmapAccount strong {
+  overflow: hidden;
+  font-size: .8rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heatmapAccount small {
+  color: var(--v4-muted);
+  font-size: .68rem;
+}
+
+.heatmapCell {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: .35rem;
+  position: relative;
+  display: grid;
+  place-content: center;
+  gap: .1rem;
+  border: 0;
+  color: #161616;
+  background: #e0e0e0;
+  cursor: pointer;
+}
+
+.heatmapCell::after {
+  width: .45rem;
+  height: .45rem;
+  position: absolute;
+  right: .3rem;
+  bottom: .3rem;
+  content: "";
+  border-radius: 50%;
+  background: #8d8d8d;
+}
+
+.heatmapCell[data-status="in_progress"]::after {
+  background: #0043ce;
+}
+
+.heatmapCell[data-status="reviewed_gaps"]::after {
+  background: #6929c4;
+}
+
+.heatmapCell[data-status="reviewed_sufficient"]::after {
+  background: #198038;
+}
+
+.heatmapCell[data-status="needs_review"]::after {
+  background: #8a3ffc;
+}
+
+.heatmapCell[data-band="low"] {
+  background: #fff1f1;
+}
+
+.heatmapCell[data-band="medium"] {
+  background: #d0e2ff;
+}
+
+.heatmapCell[data-band="high"] {
+  color: #ffffff;
+  background: #0f62fe;
+}
+
+.heatmapCell[data-status="in_progress"][data-band="none"] {
+  background: #d0e2ff;
+}
+
+.heatmapCell[data-status="reviewed_gaps"][data-band="none"] {
+  background: #e8daff;
+}
+
+.heatmapCell[data-status="reviewed_sufficient"][data-band="none"] {
+  background: #a7f0ba;
+}
+
+.heatmapCell[data-status="needs_review"] {
+  background: #e8daff;
+}
+
+.heatmapCell:hover,
+.heatmapAccount:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 2px #0f62fe;
+}
+
+.heatmapCell:focus-visible,
+.heatmapAccount:focus-visible,
+.accountNameButton:focus-visible {
+  outline: 3px solid #0f62fe;
+  outline-offset: -3px;
+}
+
+.heatmapCell strong {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.heatmapCell small {
+  font-size: .6rem;
+  opacity: .82;
+}
+
+.statusMark {
+  min-height: 1rem;
+  display: grid;
+  place-items: center;
+  font-size: .9rem;
+}
+
+.visuallyHidden {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.accountFilters {
+  min-height: 5.5rem;
+  padding: .75rem 1rem;
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) minmax(13rem, 18rem);
+  align-items: end;
+  gap: 1rem;
+  background: #f4f4f4;
+  border-bottom: 1px solid var(--v4-border);
+}
+
+.accountTableRegion table {
+  min-width: 76rem;
+}
+
+.accountNameButton {
+  border: 0;
+  color: #0f62fe;
+  background: transparent;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tableCoverage {
+  min-width: 7rem;
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  align-items: center;
+  gap: .5rem;
+}
+
+.tableCoverage span {
+  font-size: .75rem;
+}
+
+.tableFooter {
+  min-height: 3rem;
+  padding: .85rem 1rem;
+  color: var(--v4-muted);
+  background: #f4f4f4;
+  border-top: 1px solid var(--v4-border);
+  font-size: .72rem;
+}
+
+.emptyState {
+  min-height: 8rem;
+  padding: 2rem;
+  display: grid;
+  place-items: center;
+  color: var(--v4-muted);
+  background: #ffffff;
+  text-align: center;
+}
+
+@media (max-width: 78rem) {
+  .capabilityGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .accountChoice {
+    grid-template-columns: minmax(11rem, 1fr) minmax(9rem, .7fr);
+  }
+
+  .accountChoiceActions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 62rem) {
+  .capabilityGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero,
+  .sectionHeader {
+    min-height: auto;
+    padding: 1.5rem;
+  }
+}
+
+@media (max-width: 42rem) {
+  .capabilityGrid,
+  .accountFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .capabilityCard {
+    min-height: 20rem;
+  }
+
+  .capabilityCard h3,
+  .capabilityCard > p {
+    min-height: 0;
+  }
+
+  .accountChoice {
+    grid-template-columns: 1fr;
+  }
+
+  .accountChoiceActions {
+    grid-column: auto;
+    flex-wrap: wrap;
+  }
+
+  .heatmapLegend {
+    justify-content: flex-start;
+  }
+
+  .sectionHeader {
+    flex-direction: column;
+  }
+
+  .sectionActions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capabilityCard,
+  .heatmapCell {
+    scroll-behavior: auto;
+    transition: none;
+  }
+}

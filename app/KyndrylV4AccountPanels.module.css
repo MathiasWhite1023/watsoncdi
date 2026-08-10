@@ -1,0 +1,115 @@
+.panel {
+  display: grid;
+  gap: 1rem;
+  color: #161616;
+  font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+
+.panelHeading {
+  display: flex;
+  min-height: 8.5rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 1.5rem;
+  border-top: 3px solid #0f62fe;
+  background: #fff;
+}
+.panelHeading > div:first-child { max-width: 48rem; }
+.panelHeading > div > span { color: #0043ce; font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.panelHeading h2 { margin: .35rem 0 .5rem; font-size: clamp(1.55rem, 3vw, 2.25rem); font-weight: 400; line-height: 1.1; }
+.panelHeading p { max-width: 52rem; margin: 0; color: #525252; line-height: 1.5; }
+
+.compactMetrics { display: grid; grid-template-columns: repeat(3, minmax(7rem, 1fr)); margin: 0; }
+.compactMetrics div { display: grid; min-height: 5rem; align-content: space-between; padding: .75rem; border-left: 1px solid #e0e0e0; background: #f4f4f4; }
+.compactMetrics dt { color: #525252; font-size: .7rem; }
+.compactMetrics dd { margin: 0; font-size: 1.6rem; font-weight: 300; }
+
+.chartGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(20rem, .8fr); gap: 1rem; }
+.chartSurface, .operationalSection, .accountPlan, .supportSection { min-width: 0; border-top: 1px solid #8d8d8d; background: #fff; }
+.chartSurface { padding: 1rem; }
+.surfaceHeading { display: flex; min-height: 2.5rem; align-items: center; gap: .6rem; }
+.surfaceHeading h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.bandLegend { display: flex; flex-wrap: wrap; gap: .35rem; padding-top: .75rem; border-top: 1px solid #e0e0e0; }
+
+.strategyColumns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.sectionHeading { display: flex; min-height: 3.5rem; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid #e0e0e0; }
+.sectionHeading h3 { margin: 0; font-size: 1.05rem; font-weight: 500; }
+.sectionHeading small { color: #6f6f6f; }
+.recommendationList { display: grid; gap: .75rem; margin: 0; padding: 0; list-style: none; }
+.recommendationList > li { padding: .75rem; border-left: 3px solid #0f62fe; background: #f4f4f4; }
+.recommendationList p { margin: .5rem 0; color: #393939; font-size: .82rem; line-height: 1.45; }
+.recommendationTitle { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.recommendationMeta { display: flex; flex-wrap: wrap; gap: .75rem; padding: .5rem 0; color: #525252; font-size: .72rem; }
+.recommendationDetail { margin-top: .65rem; padding-top: .65rem; border-top: 1px solid #c6c6c6; }
+.recommendationDetail > strong { display: block; margin-bottom: .35rem; color: #161616; font-size: .72rem; }
+.recommendationDetail ul { margin: 0; padding-left: 1rem; color: #525252; font-size: .72rem; line-height: 1.45; }
+.operationalSection :global(.cds--structured-list-td) { vertical-align: middle; }
+.operationalSection :global(.cds--structured-list-td:first-child) { display: grid; gap: .2rem; }
+.operationalSection :global(.cds--structured-list-td small) { color: #6f6f6f; }
+
+.accountPlan { padding-bottom: 1rem; }
+.planGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.planGrid section { min-height: 10rem; padding: 1rem; border-right: 1px solid #e0e0e0; }
+.planGrid section:last-child { border-right: 0; }
+.planGrid h4 { margin: 0 0 .75rem; color: #0043ce; font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; }
+.planGrid ul, .ruleGrid ul { display: grid; gap: .55rem; margin: 0; padding-left: 1.1rem; }
+.planGrid li, .planGrid p, .ruleGrid li, .ruleGrid p { color: #393939; font-size: .8rem; line-height: 1.45; }
+
+.filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: #c6c6c6; }
+.filters > div { background: #fff; }
+.ledger { background: #fff; }
+.ledgerTitle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 1rem; padding-right: 1rem; }
+.ledgerTitle > span:first-child { display: grid; min-width: 0; gap: .2rem; }
+.ledgerTitle strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledgerTitle small { color: #6f6f6f; font-size: .7rem; }
+.ledgerTitle > span:last-child { display: flex; gap: .3rem; }
+.ledgerBody { display: grid; gap: 1rem; padding: .5rem 0 1rem; }
+.ledgerBody h4 { margin: 0 0 .65rem; font-size: .78rem; letter-spacing: .03em; text-transform: uppercase; }
+.trace { display: grid; grid-template-columns: repeat(6, minmax(7.5rem, 1fr)); gap: 1.5rem; overflow-x: auto; margin: 0; padding: 0 0 .5rem; list-style: none; }
+.trace li { position: relative; display: grid; min-height: 5rem; align-content: space-between; gap: .5rem; padding: .65rem; border-top: 3px solid #0f62fe; background: #f4f4f4; }
+.trace li:not(:last-child)::after { position: absolute; top: 50%; right: -1.15rem; content: "→"; color: #0f62fe; font-size: 1.1rem; }
+.trace span { color: #6f6f6f; font-size: .65rem; text-transform: uppercase; }
+.trace strong { font-size: .75rem; line-height: 1.35; }
+.deltaGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .5rem; }
+.deltaGrid > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem; padding: .65rem; background: #f4f4f4; }
+.deltaGrid span { color: #525252; font-size: .7rem; }
+.deltaGrid strong { grid-row: 2; font-size: .85rem; }
+.deltaGrid :global(.cds--tag) { grid-column: 2; grid-row: 1 / span 2; }
+.ruleGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.ruleGrid section { padding: .75rem; border-left: 2px solid #8a3ffc; background: #f4f4f4; }
+.ledgerMeta { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; padding-top: .75rem; border-top: 1px solid #e0e0e0; color: #525252; font-size: .7rem; }
+
+.governanceSections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.supportSection { padding: 1rem; }
+.supportSection > p { color: #6f6f6f; font-size: .8rem; }
+.supportList { display: grid; margin: .5rem 0 0; padding: 0; list-style: none; }
+.supportList li { display: flex; min-height: 3.5rem; align-items: center; justify-content: space-between; gap: .75rem; padding: .65rem 0; border-top: 1px solid #e0e0e0; }
+.supportList li > div { display: grid; gap: .15rem; }
+.supportList strong { font-size: .8rem; }
+.supportList span { color: #6f6f6f; font-size: .7rem; }
+
+.emptyState { display: grid; min-height: 9rem; place-content: center; padding: 1.5rem; background: #f4f4f4; color: #6f6f6f; font-size: .85rem; text-align: center; }
+
+@media (max-width: 1050px) {
+  .panelHeading { align-items: stretch; flex-direction: column; }
+  .chartGrid, .strategyColumns { grid-template-columns: 1fr; }
+  .planGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .planGrid section:nth-child(2) { border-right: 0; }
+  .planGrid section:nth-child(-n+2) { border-bottom: 1px solid #e0e0e0; }
+  .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 650px) {
+  .panelHeading { padding: 1rem; }
+  .compactMetrics { grid-template-columns: 1fr; }
+  .compactMetrics div { min-height: 3.5rem; grid-template-columns: 1fr auto; align-items: center; border-top: 1px solid #e0e0e0; border-left: 0; }
+  .filters, .governanceSections, .ruleGrid, .planGrid { grid-template-columns: 1fr; }
+  .planGrid section { min-height: auto; border-right: 0; border-bottom: 1px solid #e0e0e0; }
+  .ledgerTitle { align-items: flex-start; flex-direction: column; }
+  .trace { grid-template-columns: repeat(6, 12rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel *, .panel *::before, .panel *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+}

@@ -13,6 +13,7 @@ import {
   Accordion,
   AccordionItem,
   Button,
+  Checkbox,
   ComposedModal,
   Header,
   HeaderGlobalAction,
@@ -47,7 +48,6 @@ import {
   Add,
   ArrowLeft,
   ArrowRight,
-  Asleep,
   Calendar,
   Chat,
   Checkmark,
@@ -55,50 +55,43 @@ import {
   Dashboard,
   Document,
   Watsonx,
-  Launch,
   Logout,
   Menu,
-  Renew,
   Search,
   Settings,
   UserAvatar,
-  WatsonHealthTextAnnotationToggle,
 } from "@carbon/icons-react";
-import RelationshipGraph, {
-  type AccountRelationship as GraphRelationship,
-  type GraphPosition,
-  type RelationshipGraphMode,
+import type {
+  AccountRelationship as GraphRelationship,
+  GraphPosition,
+  RelationshipGraphMode,
 } from "./RelationshipGraph";
 import {
-  HypothesisConfidenceChart,
-  PortfolioBubbleChart,
-  StakeholderCoverageChart,
-} from "./V5Charts";
+  KyndrylV4GovernancePanel,
+  KyndrylV4RelationshipsPanel,
+  KyndrylV4StrategyPanel,
+  type AnswerScoreDelta,
+  type CapabilityRelationshipCoverage,
+  type GovernanceActivityView,
+  type GovernanceEvidenceView,
+  type GovernanceLedgerItem,
+  type OpportunitySnapshot,
+  type OpportunityTechnology,
+} from "./KyndrylV4AccountPanels";
+import {
+  KyndrylV4Accounts,
+  KyndrylV4Home,
+  type KyndrylV4Account,
+  type KyndrylV4CapabilityStatus,
+} from "./KyndrylV4Home";
 import GuidedDiscoveryWorkspace, {
   type GuidedDiscoveryView,
 } from "./GuidedDiscoveryWorkspace";
 import {
-  AccountHealthHeatmap,
-  CapabilityHealthHeatmap,
-  PortfolioFitHeatmap,
-} from "./HealthHeatmaps";
-import CustomerContextMap from "./CustomerContextMap";
-import {
-  AnalysisPipelinePanel,
-  ConversationImpactPanel,
   CrmHandoffModal,
-  ImpactMetricsPanel,
   type CrmHandoffData,
-  type LogicalAgentRun,
 } from "./CommercialProofPanels";
 import { LanguageSwitcher, useI18n } from "./I18nProvider";
-import {
-  buildAccountHealthPortfolio,
-  buildCapabilityHealth,
-  buildPortfolioFit,
-  type AccountHealthRow,
-  type CapabilityHealthRow,
-} from "@/lib/account-health";
 import {
   appInterpolate,
   appMessages,
@@ -109,10 +102,12 @@ import {
   localeRequestHeaders,
   type Locale,
 } from "@/lib/i18n";
+import { type KyndrylAssessment } from "@/lib/kyndryl-discovery";
 import {
-  localizedKyndrylPlaybooks,
-  type KyndrylAssessment,
-} from "@/lib/kyndryl-discovery";
+  CDI_CAPABILITIES,
+  CDI_CAPABILITY_CATALOG_VERSION,
+  localizeCdi,
+} from "@/lib/cdi/capability-driven";
 
 type Priority = "Alta" | "Média" | "Baixa";
 type Evidence = {
@@ -350,6 +345,145 @@ type Snapshot = {
   confidence: number;
   createdAt: string;
 };
+type StakeholderCapabilityAssignmentRecord = {
+  id: string;
+  discoveryId: string;
+  stakeholderId: string;
+  capabilityKey: string;
+  role: "owner" | "decision_maker" | "influencer" | "technical_contact";
+  status: "confirmed" | "suggested" | "dismissed";
+  confidence: number;
+  sourceType: string;
+  sourceId: string | null;
+  evidence: Evidence[];
+  createdAt: string;
+  updatedAt: string;
+};
+type CapabilityPortfolioCoverage = {
+  catalogVersion: string;
+  totalAccounts: number;
+  capabilities: Array<{
+    key: string;
+    label: string;
+    description: string;
+    totalAccounts: number;
+    reviewedAccounts: number;
+    coveragePercent: number;
+    inProgress: number;
+    reviewedSufficient: number;
+    reviewedWithGaps: number;
+    notRelevant: number;
+    notStarted: number;
+    needsReview: number;
+    accounts: Array<{
+      accountId: string;
+      accountName: string;
+      status:
+        | "not_started"
+        | "in_progress"
+        | "reviewed_sufficient"
+        | "reviewed_gaps"
+        | "not_relevant"
+        | "needs_review";
+      technologyFit: number | null;
+      confidence: number | null;
+      reviewedAt: string | null;
+      leadingTechnology: string | null;
+    }>;
+  }>;
+};
+type RelationshipCapabilityCoverageRecord = {
+  discoveryId: string;
+  catalogVersion: string;
+  capabilities: Array<{
+    key: string;
+    label: string;
+    assignments: StakeholderCapabilityAssignmentRecord[];
+    stakeholderIds: string[];
+    roles: string[];
+    coveragePercent: number;
+    gaps: string[];
+  }>;
+};
+type AnswerImpactRecord = {
+  id: string;
+  discoveryId: string;
+  answerId: string;
+  questionId: string;
+  catalogVersion: string;
+  capabilityKey: string;
+  dimension: string;
+  response: string;
+  evidenceId: string | null;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  delta: {
+    maturity?: number;
+    technologyFit?: number;
+    confidence?: number;
+    evidenceCount?: number;
+    conflictChanged?: boolean;
+    penalties?: { before: number; after: number; delta: number };
+    penaltyChanges?: Array<Record<string, unknown>>;
+  };
+  journeyIds: string[];
+  technologyIds: string[];
+  gateChanges: Array<Record<string, unknown>>;
+  recommendationChanges: Array<Record<string, unknown>>;
+  ruleTrace: Record<string, unknown>;
+  source: Record<string, unknown>;
+  createdAt: string;
+};
+type CdiEvidenceRecord = {
+  id: string;
+  discoveryId: string;
+  answerId: string | null;
+  questionId: string;
+  capabilityKey: string;
+  dimension: string;
+  response: string;
+  polarity: string | null;
+  strength: number;
+  source: Record<string, unknown>;
+  createdAt: string;
+};
+type CdiCapabilitySnapshotRecord = {
+  id: string;
+  discoveryId: string;
+  catalogVersion: string;
+  capabilityKey: string;
+  maturity: Record<string, unknown>;
+  confidence: number;
+  status: string;
+  evidenceFingerprint: string;
+  computedAt: string;
+};
+type CdiConflictRecord = {
+  id: string;
+  discoveryId: string;
+  capabilityKey: string;
+  dimension: string;
+  evidenceIds: string[];
+  status: string;
+  resolution: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+type CdiTechnologyReviewRecord = {
+  id: string;
+  discoveryId: string;
+  technologyId: string;
+  catalogVersion: string;
+  fitScore: number;
+  confidence: number;
+  decisionBand: string;
+  gateStatus: string;
+  components: Record<string, unknown>;
+  trace: Array<Record<string, unknown>>;
+  humanDecision: string | null;
+  reviewedAt: string | null;
+  computedAt: string;
+};
 type AIRun = {
   id: string;
   discoveryId: string;
@@ -487,22 +621,14 @@ type ApiData = {
   impactMetrics: AccountImpactMetric[];
   agentPipelineRuns: CommercialAgentRun[];
   commercialProof: CommercialProof[];
-};
-type Briefing = {
-  headline: string;
-  summary: string;
-  focusAccounts: Array<{
-    accountId: string;
-    accountName: string;
-    headline: string;
-    whyNow: string;
-    priority: number;
-    suggestedAction: string;
-    citationIds: string[];
-  }>;
-  changes: string[];
-  meetingsToPrepare: string[];
-  overdueCommitments: string[];
+  capabilityPortfolioCoverage: CapabilityPortfolioCoverage | null;
+  stakeholderCapabilityAssignments: StakeholderCapabilityAssignmentRecord[];
+  relationshipCapabilityCoverage: RelationshipCapabilityCoverageRecord[];
+  answerImpacts: AnswerImpactRecord[];
+  cdiEvidence: CdiEvidenceRecord[];
+  cdiCapabilitySnapshots: CdiCapabilitySnapshotRecord[];
+  cdiConflicts: CdiConflictRecord[];
+  cdiTechnologyReviews: CdiTechnologyReviewRecord[];
 };
 type AIStatus = {
   mode: string;
@@ -530,13 +656,6 @@ type ChatResult = {
   facts?: string[];
   hypotheses?: string[];
   inferences?: string[];
-};
-type BriefingResponse = {
-  briefing?: Briefing;
-  provider?: string;
-  model?: string | null;
-  cached?: boolean;
-  error?: string;
 };
 type GuidedDiscoveryQuestion = {
   id: string;
@@ -691,18 +810,29 @@ const emptyData: ApiData = {
   impactMetrics: [],
   agentPipelineRuns: [],
   commercialProof: [],
+  capabilityPortfolioCoverage: null,
+  stakeholderCapabilityAssignments: [],
+  relationshipCapabilityCoverage: [],
+  answerImpacts: [],
+  cdiEvidence: [],
+  cdiCapabilitySnapshots: [],
+  cdiConflicts: [],
+  cdiTechnologyReviews: [],
 };
 const navItems = [
   { id: "home", key: "home", icon: Dashboard },
-  { id: "portfolio", key: "portfolio", icon: Document },
+  { id: "accounts", key: "accounts", icon: Document },
   { id: "settings", key: "settings", icon: Settings },
 ] as const;
 const accountModeItems = [
-  { id: "overview", key: "overview" },
-  { id: "strategy", key: "strategy" },
+  { id: "discovery", key: "discovery" },
   { id: "relationships", key: "relationships" },
-  { id: "activity", key: "activity" },
+  { id: "strategy", key: "strategy" },
+  { id: "governance", key: "governance" },
 ] as const;
+type CurrentAccountMode = (typeof accountModeItems)[number]["id"];
+type AccountMode = CurrentAccountMode;
+type ActiveView = (typeof navItems)[number]["id"];
 const statusTone = (status: string) =>
   status === "qualified" || status === "completed"
     ? "green"
@@ -743,147 +873,6 @@ const numberValue = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
-
-function conversationImpactFromChangeSet(
-  changeSet: CommercialChangeSet | null | undefined,
-  locale: Locale,
-) {
-  if (!changeSet) return { scoreDeltas: [], addedFindings: [], changes: [] };
-  const delta = objectValue(changeSet.delta);
-  const progress = objectValue(delta.progress);
-  const scoreDeltas = [] as Array<{
-    id: string;
-    label: string;
-    before: number;
-    after: number;
-  }>;
-  if ("before" in progress || "after" in progress)
-    scoreDeltas.push({
-      id: "pre-crm-maturity",
-      label: locale === "pt-BR" ? "Maturidade pré-CRM" : "Pre-CRM maturity",
-      before: numberValue(progress.before),
-      after: numberValue(progress.after),
-    });
-  for (const capabilityValue of listValue(delta.capabilities)) {
-    const capability = objectValue(capabilityValue);
-    const before = objectValue(capability.before);
-    const after = objectValue(capability.after);
-    for (const metric of [
-      "alignment",
-      "value",
-      "readiness",
-      "confidence",
-    ] as const) {
-      const previous = numberValue(before[metric]);
-      const next = numberValue(after[metric]);
-      if (previous === next) continue;
-      const metricLabel =
-        locale === "pt-BR"
-          ? {
-              alignment: "alinhamento",
-              value: "valor",
-              readiness: "prontidão",
-              confidence: "confiança",
-            }[metric]
-          : metric;
-      scoreDeltas.push({
-        id: `${String(capability.key || capability.name)}-${metric}`,
-        label: `${String(capability.name || capability.key || "Capability")} · ${metricLabel}`,
-        before: previous,
-        after: next,
-      });
-    }
-  }
-  const entityDelta = objectValue(delta.entities);
-  const stakeholderDelta = objectValue(delta.stakeholders);
-  const rawFindings = [
-    ...listValue(entityDelta.added),
-    ...listValue(entityDelta.suggested),
-    ...listValue(stakeholderDelta.added).map((item) => ({
-      ...objectValue(item),
-      type: "stakeholder",
-    })),
-    ...listValue(stakeholderDelta.suggested).map((item) => ({
-      ...objectValue(item),
-      type: "stakeholder",
-    })),
-  ];
-  const allowedFindingKinds = new Set([
-    "fact",
-    "stakeholder",
-    "pain",
-    "initiative",
-    "system",
-    "risk",
-  ]);
-  const addedFindings = rawFindings.map((item, index) => {
-    const finding = objectValue(item);
-    const rawKind = String(finding.type || "fact").toLowerCase();
-    const kind = (allowedFindingKinds.has(rawKind) ? rawKind : "fact") as
-      | "fact"
-      | "stakeholder"
-      | "pain"
-      | "initiative"
-      | "system"
-      | "risk";
-    return {
-      id: String(finding.id || `${kind}-${index}`),
-      kind,
-      title: String(finding.name || finding.title || finding.label || "—"),
-      detail: String(finding.detail || finding.status || ""),
-      confidence:
-        finding.confidence === undefined
-          ? undefined
-          : numberValue(finding.confidence),
-    };
-  });
-  const changes = [
-    ...listValue(delta.hypotheses).map((item, index) => {
-      const hypothesis = objectValue(item);
-      const before = objectValue(hypothesis.before);
-      const after = objectValue(hypothesis.after);
-      const previousConfidence = numberValue(before.confidence);
-      const nextConfidence = numberValue(after.confidence);
-      return {
-        id: String(hypothesis.id || `hypothesis-${index}`),
-        kind: "hypothesis" as const,
-        state: (!hypothesis.before
-          ? "new"
-          : nextConfidence > previousConfidence
-            ? "strengthened"
-            : nextConfidence < previousConfidence
-              ? "weakened"
-              : "updated") as "new" | "strengthened" | "weakened" | "updated",
-        title: String(hypothesis.title || hypothesis.capabilityKey || "—"),
-        previous: hypothesis.before
-          ? `${String(before.stage || "draft")} · ${previousConfidence}%`
-          : undefined,
-        proposed: `${String(after.stage || "draft")} · ${nextConfidence}% · ${String(hypothesis.nextStep || "")}`,
-        confidence: nextConfidence,
-      };
-    }),
-    ...listValue(delta.actions).map((item, index) => {
-      const action = objectValue(item);
-      return {
-        id: String(action.id || `action-${index}`),
-        kind: "action" as const,
-        state: "updated" as const,
-        title: String(action.title || action.type || "—"),
-        proposed: String(action.nextStep || action.status || "—"),
-        confidence: numberValue(action.priorityScore),
-      };
-    }),
-  ];
-  return {
-    scoreDeltas: scoreDeltas
-      .sort(
-        (a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before),
-      )
-      .slice(0, 8),
-    addedFindings,
-    changes,
-  };
-}
 
 function crmHandoffDataFromRecord(
   record: CrmHandoffRecord | null | undefined,
@@ -955,209 +944,19 @@ function crmHandoffDataFromRecord(
   };
 }
 
-function logicalPipelineForProof(
-  proof: CommercialProof | null | undefined,
-  data: ApiData,
-  locale: Locale,
-): LogicalAgentRun[] {
-  if (!proof) return [];
-  const latestWorkflowId = proof.latestWorkflowId;
-  const runs = latestWorkflowId
-    ? proof.agentPipeline.filter((item) => item.workflowId === latestWorkflowId)
-    : proof.agentPipeline;
-  const labels: Record<string, [string, string]> = {
-    "source-normalizer": ["Source intake", "Entrada de fontes"],
-    "account-memory": ["Account memory", "Memória da conta"],
-    "stakeholder-intelligence": [
-      "Stakeholder intelligence",
-      "Inteligência de stakeholders",
-    ],
-    "capability-fit": ["IBM capability fit", "Aderência às capacidades IBM"],
-    "opportunity-hypothesis": [
-      "Opportunity hypotheses",
-      "Hipóteses de oportunidade",
-    ],
-    "next-best-action": ["Next best action", "Próxima melhor ação"],
-    governance: ["Governance review", "Revisão de governança"],
-  };
-  const sourceFor = (sourceId: string) => {
-    const event = data.accountEvents.find(
-      (item) => item.id === sourceId || item.sourceId === sourceId,
-    );
-    const meeting = data.meetings.find((item) => item.id === sourceId);
-    const accountDocument = data.documents.find((item) => item.id === sourceId);
-    return {
-      id: sourceId,
-      label:
-        event?.title || meeting?.title || accountDocument?.name || sourceId,
-      sourceType:
-        event?.sourceType ||
-        (meeting ? "meeting" : accountDocument ? "document" : "source"),
-      excerpt:
-        event?.content ||
-        meeting?.summary ||
-        meeting?.notes ||
-        accountDocument?.summary ||
-        "",
-    };
-  };
-  return runs.map((run) => ({
-    id: run.id,
-    name: labels[run.agent]?.[locale === "pt-BR" ? 1 : 0] || run.agent,
-    status: ([
-      "pending",
-      "running",
-      "completed",
-      "fallback",
-      "needs-review",
-      "error",
-      "failed",
-    ].includes(run.status)
-      ? run.status
-      : "completed") as LogicalAgentRun["status"],
-    provider:
-      run.engineKind === "deterministic"
-        ? "deterministic"
-        : isWatsonxProvider(run.provider)
-          ? "watsonx"
-          : "configured-model",
-    model: isWatsonxProvider(run.provider) ? run.model : undefined,
-    sources: run.sources.map(sourceFor),
-    conclusion: run.conclusion,
-    confidence: run.confidence,
-    durationMs:
-      run.completedAt && run.startedAt
-        ? Math.max(
-            0,
-            new Date(run.completedAt).getTime() -
-              new Date(run.startedAt).getTime(),
-          )
-        : undefined,
-  }));
+function localizeCitationSystemText(value: string, locale: Locale) {
+  if (locale === "pt-BR") return value;
+  return value
+    .replace(/^Documento\b/, "Document")
+    .replace(/ · pág\. /g, " · p. ")
+    .replace(/(^| )Prioridades:/g, "$1Priorities:")
+    .replace(/(^| )Área:/g, "$1Area:")
+    .replace(/(^| )Influência:/g, "$1Influence:")
+    .replace(/(^| )Postura:/g, "$1Stance:")
+    .replace(/(^| )Próximo passo:/g, "$1Next step:")
+    .replace(/(^| )Lacunas:/g, "$1Gaps:");
 }
 
-function deterministicPipelinePreview(
-  account: Discovery | undefined,
-  events: AccountEvent[],
-  locale: Locale,
-): LogicalAgentRun[] {
-  if (!account) return [];
-  const source = events[0]
-    ? [
-        {
-          id: events[0].sourceId || events[0].id,
-          label: events[0].title,
-          sourceType: events[0].sourceType,
-          excerpt: events[0].content,
-        },
-      ]
-    : [];
-  const entries: Array<[string, string, string, string, number]> = [
-    [
-      "source-normalizer",
-      "Source intake",
-      "Entrada de fontes",
-      "Recorded sources were normalized without changing the original content.",
-      100,
-    ],
-    [
-      "account-memory",
-      "Account memory",
-      "Memória da conta",
-      "Known facts, assumptions, gaps, and stale signals were recomputed.",
-      82,
-    ],
-    [
-      "stakeholder-intelligence",
-      "Stakeholder intelligence",
-      "Inteligência de stakeholders",
-      "Relationship coverage and missing executive roles were checked.",
-      76,
-    ],
-    [
-      "capability-fit",
-      "IBM capability fit",
-      "Aderência às capacidades IBM",
-      "Capability alignment, value, readiness, and confidence were recalculated.",
-      78,
-    ],
-    [
-      "opportunity-hypothesis",
-      "Opportunity hypotheses",
-      "Hipóteses de oportunidade",
-      "Opportunity hypotheses were checked against deterministic qualification gates.",
-      74,
-    ],
-    [
-      "next-best-action",
-      "Next best action",
-      "Próxima melhor ação",
-      "The action queue was reordered by impact, urgency, confidence, and maturity.",
-      79,
-    ],
-    [
-      "governance",
-      "Governance review",
-      "Revisão de governança",
-      "All derived changes remain subject to human approval and no external write occurred.",
-      100,
-    ],
-  ];
-  const ptConclusions: Record<string, string> = {
-    "source-normalizer":
-      "As fontes registradas foram normalizadas sem alterar o conteúdo original.",
-    "account-memory":
-      "Fatos, suposições, lacunas e sinais desatualizados foram recalculados.",
-    "stakeholder-intelligence":
-      "A cobertura de relacionamento e os papéis executivos ausentes foram verificados.",
-    "capability-fit":
-      "Alinhamento, valor, prontidão e confiança das capacidades foram recalculados.",
-    "opportunity-hypothesis":
-      "As hipóteses foram verificadas pelos critérios determinísticos de qualificação.",
-    "next-best-action":
-      "A fila foi reordenada por impacto, urgência, confiança e maturidade.",
-    governance:
-      "Toda mudança derivada exige aprovação humana e nenhuma escrita externa ocorreu.",
-  };
-  return entries.map(([id, enName, ptName, conclusion, confidence]) => ({
-    id: `demo-${account.id}-${id}`,
-    name: locale === "pt-BR" ? ptName : enName,
-    status: "completed",
-    provider: "deterministic",
-    sources: source,
-    conclusion: locale === "pt-BR" ? ptConclusions[id] : conclusion,
-    confidence,
-  }));
-}
-
-function impactDataForPanel(metric: AccountImpactMetric | null | undefined) {
-  if (!metric)
-    return {
-      discoveryCoverage: 0,
-      openGaps: 0,
-      resolvedGaps: 0,
-      confirmedEvidence: 0,
-      totalEvidence: 0,
-      qualifiedAccounts: 0,
-      observedAccounts: 0,
-    };
-  return {
-    baseline: null,
-    observedDiscoveryMinutes: metric.elapsedMinutes || null,
-    discoveryCoverage: metric.discoveryCoverage,
-    openGaps: metric.openGaps,
-    resolvedGaps: metric.questionsConfirmed,
-    confirmedEvidence: metric.confirmedEvidenceCount,
-    totalEvidence: metric.evidenceCount,
-    timeToQualificationDays: metric.qualifiedAt
-      ? Math.max(0, Math.round((metric.elapsedMinutes / 1440) * 10) / 10)
-      : null,
-    qualifiedAccounts: metric.qualifiedHypothesisCount > 0 ? 1 : 0,
-    observedAccounts: 1,
-    lastUpdated: metric.computedAt,
-  };
-}
-const pageLoadedAt = Date.now();
 const desktopNavMedia = "(min-width: 901px)";
 const subscribeDesktopNav = (onStoreChange: () => void) => {
   const query = window.matchMedia(desktopNavMedia);
@@ -1190,7 +989,6 @@ function usePageCopy() {
     copy.copilot.q3,
     copy.copilot.q4,
   ];
-  const playbooks = localizedKyndrylPlaybooks(i18n.locale);
   const formatDate = (value?: string | null) =>
     value
       ? i18n.formatDate(value, {
@@ -1205,7 +1003,6 @@ function usePageCopy() {
     text,
     statusLabels,
     questions,
-    playbooks,
     formatDate,
   };
 }
@@ -1217,14 +1014,16 @@ export default function Home({
   mode?: "demo" | "private";
   userName?: string;
 }) {
-  const { locale, dictionary, copy, text, playbooks } = usePageCopy();
+  const { locale, dictionary, copy, text } = usePageCopy();
   const privateMode = mode === "private";
-  const [active, setActive] = useState<(typeof navItems)[number]["id"]>("home");
-  const [portfolioMode, setPortfolioMode] = useState<
-    "accounts" | "radar" | "account"
-  >("accounts");
-  const [accountMode, setAccountMode] =
-    useState<(typeof accountModeItems)[number]["id"]>("overview");
+  const [active, setActive] = useState<ActiveView>("home");
+  const [portfolioMode, setPortfolioMode] = useState<"accounts" | "account">(
+    "accounts",
+  );
+  const [accountMode, setAccountMode] = useState<AccountMode>("discovery");
+  const [entryCapabilityKey, setEntryCapabilityKey] = useState<string | null>(
+    null,
+  );
   const [data, setData] = useState<ApiData>(emptyData);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1236,12 +1035,6 @@ export default function Home({
     getServerDesktopNavSnapshot,
   );
   const [notice, setNotice] = useState("");
-  const [briefing, setBriefing] = useState<Briefing | null>(null);
-  const [briefMeta, setBriefMeta] = useState<{
-    provider: string;
-    model?: string | null;
-    cached: boolean;
-  } | null>(null);
   const [aiStatus, setAIStatus] = useState<AIStatus | null>(null);
   const [copilot, setCopilot] = useState(false);
   const [copilotMode, setCopilotMode] = useState<"ask" | "prepare" | "next">(
@@ -1256,11 +1049,17 @@ export default function Home({
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [modal, setModal] = useState<
-    "new-account" | "information" | "stakeholder" | "action" | "research" | null
+    | "new-account"
+    | "information"
+    | "stakeholder"
+    | "capability-assignment"
+    | "plan"
+    | null
   >(null);
   const [editingStakeholder, setEditingStakeholder] =
     useState<Stakeholder | null>(null);
-  const [editingAction, setEditingAction] = useState<Action | null>(null);
+  const [pendingCapabilityAssignmentKey, setPendingCapabilityAssignmentKey] =
+    useState<string | null>(null);
   const [informationDraft, setInformationDraft] = useState<Record<
     string,
     unknown
@@ -1269,14 +1068,11 @@ export default function Home({
     string,
     unknown
   > | null>(null);
-  const [radarFilter, setRadarFilter] = useState<"all" | Priority>("all");
-  const [guidedOpen, setGuidedOpen] = useState(false);
-  const [latestConversationReview, setLatestConversationReview] =
-    useState<CommercialChangeSet | null>(null);
   const [handoffRecord, setHandoffRecord] = useState<CrmHandoffRecord | null>(
     null,
   );
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [referenceNow] = useState(() => Date.now());
 
   const endpoint = `/api/accounts?scope=${mode}`;
   const apiFetch = useCallback(
@@ -1306,20 +1102,6 @@ export default function Home({
   }, [load]);
   useEffect(() => {
     if (!privateMode) return;
-    void apiFetch("/api/briefing", { cache: "no-store" })
-      .then(async (response) =>
-        response.ok ? (response.json() as Promise<BriefingResponse>) : null,
-      )
-      .then((payload) => {
-        if (payload?.briefing) {
-          setBriefing(payload.briefing);
-          setBriefMeta({
-            provider: payload.provider || "fallback",
-            model: payload.model,
-            cached: Boolean(payload.cached),
-          });
-        }
-      });
     void apiFetch("/api/ai/status", { cache: "no-store" })
       .then(async (response) =>
         response.ok ? (response.json() as Promise<AIStatus>) : null,
@@ -1340,6 +1122,61 @@ export default function Home({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+  useEffect(() => {
+    const applyLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get("view");
+      const accountId = params.get("account");
+      const tab = params.get("tab");
+      const capability = params.get("capability");
+      if ((!view || view === "home") && !accountId) {
+        setActive("home");
+        setPortfolioMode("accounts");
+        setAccountMode("discovery");
+        setEntryCapabilityKey(null);
+        return;
+      }
+      if (view === "settings") {
+        setActive("settings");
+        setEntryCapabilityKey(null);
+        return;
+      }
+      if (view === "accounts" || accountId) {
+        setActive("accounts");
+        setPortfolioMode(accountId ? "account" : "accounts");
+        if (!accountId) setEntryCapabilityKey(null);
+      }
+      if (accountId) setSelectedId(accountId);
+      if (
+        tab &&
+        accountModeItems.some((item) => item.id === tab)
+      )
+        setAccountMode(tab as CurrentAccountMode);
+      setEntryCapabilityKey(capability || null);
+    };
+    applyLocation();
+    window.addEventListener("popstate", applyLocation);
+    return () => window.removeEventListener("popstate", applyLocation);
+  }, []);
+
+  const writeLocation = useCallback(
+    (input: {
+      view: "home" | "accounts" | "settings";
+      accountId?: string | null;
+      tab?: CurrentAccountMode | null;
+      capability?: string | null;
+    }) => {
+      const url = new URL(window.location.href);
+      url.search = "";
+      if (input.view !== "home") url.searchParams.set("view", input.view);
+      if (input.accountId) url.searchParams.set("account", input.accountId);
+      if (input.tab) url.searchParams.set("tab", input.tab);
+      if (input.capability)
+        url.searchParams.set("capability", input.capability);
+      window.history.pushState({}, "", `${url.pathname}${url.search}`);
+    },
+    [],
+  );
 
   const selected =
     data.discoveries.find((item) => item.id === selectedId) ||
@@ -1372,46 +1209,16 @@ export default function Home({
   const graphLayouts = data.graphLayouts.filter(
     (item) => item.discoveryId === selected?.id,
   );
-  const signals = data.externalSignals.filter(
-    (item) => item.discoveryId === selected?.id,
-  );
   const guidedDiscovery =
     data.guidedDiscoveries.find((item) => item.discoveryId === selected?.id) ||
     null;
   const commercialProof =
     data.commercialProof.find((item) => item.discoveryId === selected?.id) ||
     null;
-  const conversationReview =
-    latestConversationReview?.discoveryId === selected?.id
-      ? latestConversationReview
-      : commercialProof?.latestChangeSet || null;
   const activeHandoff =
     handoffRecord?.discoveryId === selected?.id
       ? handoffRecord
       : commercialProof?.latestHandoff || null;
-  const conversationImpact = conversationImpactFromChangeSet(
-    conversationReview,
-    locale,
-  );
-  const recordedLogicalPipeline = logicalPipelineForProof(
-    commercialProof,
-    data,
-    locale,
-  );
-  const logicalPipeline = recordedLogicalPipeline.length
-    ? recordedLogicalPipeline
-    : !privateMode
-      ? deterministicPipelinePreview(selected, accountEvents, locale)
-      : [];
-  const portfolioActions = [...data.actions]
-    .filter(
-      (item) => !["completed", "discarded", "snoozed"].includes(item.status),
-    )
-    .sort((a, b) => b.priorityScore - a.priorityScore);
-  const filteredAccounts =
-    radarFilter === "all"
-      ? data.discoveries
-      : data.discoveries.filter((item) => item.priority === radarFilter);
   const sponsor =
     stakeholders.find(
       (person) =>
@@ -1423,16 +1230,360 @@ export default function Home({
       (person) =>
         person.source === "manual" && /chief|diretor|vp/i.test(person.role),
     );
-  const accountHealthRows = buildAccountHealthPortfolio(data.discoveries, {
-    stakeholders: data.stakeholders,
-    events: data.accountEvents,
-    actions: data.actions,
-    guidedDiscoveries: data.guidedDiscoveries,
+  const v4Accounts = useMemo<KyndrylV4Account[]>(() => {
+    const capabilityCoverage = data.capabilityPortfolioCoverage?.capabilities || [];
+    const latestActivity = (accountId: string, fallback: string) => {
+      const timestamps = [
+        fallback,
+        ...data.accountEvents
+          .filter((item) => item.discoveryId === accountId)
+          .map((item) => item.occurredAt),
+        ...data.meetings
+          .filter((item) => item.discoveryId === accountId)
+          .map((item) => item.createdAt),
+      ].filter(Boolean);
+      return timestamps.sort((left, right) => right.localeCompare(left))[0] || null;
+    };
+    return data.discoveries.map((account) => {
+      const guided = data.guidedDiscoveries.find(
+        (item) => item.discoveryId === account.id,
+      );
+      const capabilities = CDI_CAPABILITIES.map((capability) => {
+        const portfolioSignal = capabilityCoverage
+          .find((item) => item.key === capability.key)
+          ?.accounts.find((item) => item.accountId === account.id);
+        const assessment = guided?.pillarAssessments.find(
+          (item) => item.key === capability.key,
+        );
+        const status = (portfolioSignal?.status ||
+          assessment?.status ||
+          "not_started") as KyndrylV4CapabilityStatus;
+        const hasCurrentAssessment =
+          status === "in_progress" ||
+          status === "reviewed_sufficient" ||
+          status === "reviewed_gaps";
+        return {
+          capabilityKey: capability.key,
+          catalogVersion:
+            status === "needs_review"
+              ? "legacy"
+              : guided?.catalogVersion || CDI_CAPABILITY_CATALOG_VERSION,
+          status,
+          technologyFit: hasCurrentAssessment
+            ? portfolioSignal
+              ? portfolioSignal.technologyFit
+              : assessment?.propensity ?? null
+            : null,
+          confidence: hasCurrentAssessment
+            ? portfolioSignal
+              ? portfolioSignal.confidence
+              : assessment?.confidencePercent ?? null
+            : null,
+          updatedAt: portfolioSignal?.reviewedAt || assessment?.reviewedAt || null,
+        };
+      });
+      const leading = [...capabilities]
+        .filter(
+          (item) =>
+            item.technologyFit != null &&
+            (item.status === "in_progress" ||
+              item.status === "reviewed_sufficient" ||
+              item.status === "reviewed_gaps"),
+        )
+        .sort(
+          (left, right) =>
+            Number(right.technologyFit || 0) - Number(left.technologyFit || 0),
+        )[0];
+      return {
+        id: account.id,
+        name: account.customerName,
+        industry: account.industry,
+        owner: account.owner,
+        maturity: account.progress,
+        lastActivityAt: latestActivity(account.id, account.updatedAt),
+        nextStep:
+          guided?.recommendedNextPillar?.label || account.nextEngagement || null,
+        leadingCapabilityKey: leading?.capabilityKey || null,
+        capabilities,
+      };
+    });
+  }, [
+    data.accountEvents,
+    data.capabilityPortfolioCoverage,
+    data.discoveries,
+    data.guidedDiscoveries,
+    data.meetings,
+  ]);
+  const relationshipCapabilities = CDI_CAPABILITIES.map((capability) => ({
+    key: capability.key,
+    label: localizeCdi(capability.label, locale),
+    description: localizeCdi(capability.description, locale),
+  }));
+  const selectedCapabilityAssignments = data.stakeholderCapabilityAssignments
+    .filter((item) => item.discoveryId === selected?.id)
+    .filter((item) => item.status !== "dismissed");
+  const selectedRelationshipCoverage = data.relationshipCapabilityCoverage.find(
+    (item) => item.discoveryId === selected?.id,
+  );
+  const technologyAssessment = guidedDiscovery?.technologyAssessment;
+  const opportunityTechnologies: OpportunityTechnology[] = (
+    technologyAssessment?.technologies || []
+  ).map((item) => {
+    const ownerAssignment = selectedCapabilityAssignments.find(
+      (assignment) =>
+        assignment.capabilityKey === String(item.pillarKey) &&
+        assignment.status === "confirmed" &&
+        (assignment.role === "owner" ||
+          assignment.role === "decision_maker"),
+    );
+    const owner = stakeholders.find(
+      (person) => person.id === ownerAssignment?.stakeholderId,
+    );
+    const relationshipGaps =
+      selectedRelationshipCoverage?.capabilities.find(
+        (capability) => capability.key === String(item.pillarKey),
+      )?.gaps || [];
+    return {
+      id: item.id,
+      name: item.name,
+      capabilityKeys: item.capabilities,
+      fit: item.propensity,
+      confidence: item.confidence,
+      impact: item.components.businessImpact,
+      action: item.action,
+      gateStatus: item.gateStatus,
+      evidenceCount: item.evidence.length,
+      evidence: item.evidence.map((evidence) => ({
+        id: evidence.id,
+        label: evidence.label,
+      })),
+      explanation: item.explanation,
+      nextStep: item.nextQuestion || undefined,
+      ownerName: owner?.name,
+      gaps: relationshipGaps,
+    };
   });
-  const capabilityHealthRows = selected
-    ? buildCapabilityHealth({ account: selected, guidedDiscovery, playbooks })
-    : [];
-  const portfolioFitRows = buildPortfolioFit(data.discoveries);
+  const stakeholderCoverage: CapabilityRelationshipCoverage[] =
+    (selectedRelationshipCoverage?.capabilities || []).map((item) => {
+      const requiredRoles = [
+        "owner",
+        "decision_maker",
+        "technical_contact",
+      ];
+      return {
+        capabilityKey: item.key,
+        capabilityLabel: item.label,
+        confirmedRoles: requiredRoles.filter((role) =>
+          item.roles.includes(role),
+        ).length,
+        requiredRoles: requiredRoles.length,
+        ownerCount: item.assignments.filter(
+          (assignment) => assignment.role === "owner",
+        ).length,
+        decisionMakerCount: item.assignments.filter(
+          (assignment) => assignment.role === "decision_maker",
+        ).length,
+        technicalContactCount: item.assignments.filter(
+          (assignment) => assignment.role === "technical_contact",
+        ).length,
+      };
+    });
+  const opportunitySnapshots: OpportunitySnapshot[] = data.cdiCapabilitySnapshots
+    .filter(
+      (item) =>
+        item.discoveryId === selected?.id &&
+        item.catalogVersion === guidedDiscovery?.catalogVersion,
+    )
+    .flatMap((item) => {
+      const leading = String(item.maturity.leadingTechnology || "");
+      const fit = Number(item.maturity.propensity);
+      if (!leading || !Number.isFinite(fit)) return [];
+      const knownTechnology = technologyAssessment?.technologies.find(
+        (technology) => technology.name === leading,
+      );
+      return [
+        {
+          id: item.id,
+          technologyId:
+            knownTechnology?.id || `${item.capabilityKey}:${leading}`,
+          technologyName: leading,
+          createdAt: item.computedAt,
+          fit,
+          confidence: item.confidence,
+        },
+      ];
+    })
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const governanceEvidence: GovernanceEvidenceView[] = data.cdiEvidence
+    .filter((item) => item.discoveryId === selected?.id)
+    .map((item) => {
+      const sourceDate = String(item.source.sourceDate || item.createdAt);
+      const sourceTimestamp = new Date(sourceDate).getTime();
+      const isStale =
+        Number.isFinite(sourceTimestamp) &&
+        referenceNow - sourceTimestamp > 90 * 24 * 60 * 60 * 1000;
+      const isContradicted = data.cdiConflicts.some(
+        (conflict) =>
+          conflict.discoveryId === item.discoveryId &&
+          (conflict.evidenceIds.includes(item.id) ||
+            conflict.capabilityKey === item.capabilityKey) &&
+          conflict.status !== "resolved",
+      );
+      return {
+        id: item.id,
+        label: item.response || item.id,
+        source: String(item.source.sourceType || item.source.sourceId || ""),
+        status: isContradicted
+          ? "contradicted"
+          : isStale
+            ? "stale"
+            : item.polarity === "GAP"
+              ? "hypothesis"
+              : "confirmed",
+        confidence: Number(item.source.confidence || item.strength || 0),
+        updatedAt: sourceDate,
+      } satisfies GovernanceEvidenceView;
+    });
+  const governanceLedger: GovernanceLedgerItem[] = data.answerImpacts
+    .filter((impact) => impact.discoveryId === selected?.id)
+    .map((impact) => {
+      const question = guidedDiscovery?.questions.find(
+        (item) =>
+          item.id === impact.questionId ||
+          item.catalogQuestionId === impact.questionId,
+      );
+      const answer = guidedDiscovery?.history.find(
+        (item) => item.id === impact.answerId,
+      );
+      const capability = CDI_CAPABILITIES.find(
+        (item) => item.key === impact.capabilityKey,
+      );
+      const beforeCapability = objectValue(impact.before.capability);
+      const afterCapability = objectValue(impact.after.capability);
+      const beforeReview = objectValue(impact.before.review);
+      const afterReview = objectValue(impact.after.review);
+      const metricRows: Array<{
+        metric: AnswerScoreDelta["metric"];
+        before: number;
+        after: number;
+      }> = [
+        {
+          metric: "maturity",
+          before: numberValue(beforeCapability.maturity),
+          after: numberValue(afterCapability.maturity),
+        },
+        {
+          metric: "technologyFit",
+          before: numberValue(impact.before.propensity),
+          after: numberValue(impact.after.propensity),
+        },
+        {
+          metric: "confidence",
+          before: numberValue(beforeReview.confidence),
+          after: numberValue(afterReview.confidence),
+        },
+      ];
+      const scoreDeltas = metricRows
+        .map((metric) => ({
+          ...metric,
+          delta: metric.after - metric.before,
+        }))
+        .filter((metric) => metric.delta !== 0);
+      const source = impact.source;
+      const stakeholder = stakeholders.find(
+        (person) => person.id === String(source.stakeholderId || ""),
+      );
+      const technologyNames = impact.technologyIds.map((technologyId) => ({
+        id: technologyId,
+        name:
+          technologyAssessment?.technologies.find(
+            (technology) => technology.id === technologyId,
+          )?.name || technologyId,
+      }));
+      const formula = objectValue(impact.ruleTrace.formula);
+      const appliedRules = Object.entries(formula).map(
+        ([key, value]) => `${key}: ${String(value)}%`,
+      );
+      const describeChanges = (items: Array<Record<string, unknown>>) =>
+        items.map(
+          (item) =>
+            `${String(item.technologyName || item.technologyId || "Technology")}: ${String(item.before ?? "—")} → ${String(item.after ?? "—")}`,
+        );
+      const penaltyTrace = objectValue(impact.ruleTrace.penalties);
+      const penaltyChanges = impact.delta.penaltyChanges?.length
+        ? impact.delta.penaltyChanges
+        : listValue(penaltyTrace.changes).map(objectValue);
+      return {
+        answerId: impact.answerId,
+        question: question?.prompt || impact.questionId,
+        response: impact.response,
+        answeredAt: answer?.answeredAt || impact.createdAt,
+        capabilityKey: impact.capabilityKey,
+        capabilityLabel: capability
+          ? localizeCdi(capability.label, locale)
+          : impact.capabilityKey,
+        dimension: impact.dimension,
+        journey: impact.journeyIds.join(" · ") || undefined,
+        evidence: governanceEvidence.filter((item) =>
+          data.cdiEvidence.some(
+            (record) =>
+              record.id === item.id &&
+              (record.answerId === impact.answerId ||
+                record.questionId === impact.questionId),
+          ),
+        ),
+        scoreDeltas,
+        gates: describeChanges(impact.gateChanges),
+        penalties: describeChanges(penaltyChanges),
+        technologies: technologyNames,
+        recommendation: describeChanges(impact.recommendationChanges).join(
+          " · ",
+        ),
+        appliedRules,
+        stakeholderId: stakeholder?.id,
+        stakeholderName: stakeholder?.name,
+        source: [source.sourceType, source.sourceId]
+          .filter(Boolean)
+          .map(String)
+          .join(" · "),
+        confidence: Number(source.confidence || 0),
+        revisions: guidedDiscovery?.history.filter(
+          (item) => item.questionId === answer?.questionId,
+        ).length || 1,
+        conflict: data.cdiConflicts.some(
+          (item) =>
+            item.discoveryId === selected?.id &&
+            item.capabilityKey === impact.capabilityKey &&
+            item.status !== "resolved",
+        ),
+      };
+    });
+  const governanceMeetings: GovernanceActivityView[] = meetings.map((item) => ({
+    id: item.id,
+    title: item.title,
+    detail: item.summary || item.notes,
+    occurredAt: item.scheduledAt || item.createdAt,
+    type: "meeting",
+    status: item.meetingStatus,
+  }));
+  const governanceDocuments: GovernanceActivityView[] = documents.map((item) => ({
+    id: item.id,
+    title: item.name,
+    detail: item.summary,
+    occurredAt: item.createdAt,
+    type: "document",
+    status: item.status,
+  }));
+  const governanceAuditEvents: GovernanceActivityView[] = accountEvents.map(
+    (item) => ({
+      id: item.id,
+      title: item.title,
+      detail: item.content,
+      occurredAt: item.occurredAt,
+      type: "audit",
+      status: item.evidenceStatus,
+    }),
+  );
 
   const notify = (message: string) => {
     setNotice(message);
@@ -1489,6 +1640,7 @@ export default function Home({
         after: number;
         delta: number;
       }>;
+      answerImpact?: AnswerImpactRecord | null;
       checkpointAvailable?: boolean;
     };
     if (response.ok && payload.guidedDiscovery) {
@@ -1507,15 +1659,70 @@ export default function Home({
     return response.ok ? payload : null;
   };
   const openAccount = useCallback(
-    (accountId: string, nextMode: typeof accountMode = "overview") => {
+    (
+      accountId: string,
+      nextMode: CurrentAccountMode = "discovery",
+      capabilityKey: string | null = null,
+    ) => {
       setSelectedId(accountId);
-      setActive("portfolio");
+      setActive("accounts");
       setPortfolioMode("account");
       setAccountMode(nextMode);
+      setEntryCapabilityKey(capabilityKey);
+      writeLocation({
+        view: "accounts",
+        accountId,
+        tab: nextMode,
+        capability: capabilityKey,
+      });
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [],
+    [writeLocation],
   );
+  const startCapabilityForAccount = async (
+    accountId: string,
+    capabilityKey: string,
+  ) => {
+    openAccount(accountId, "discovery", capabilityKey);
+    if (!privateMode) return;
+    setSaving(true);
+    try {
+      const response = await apiFetch(
+        `/api/accounts/${accountId}/guided-discovery/sessions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "direct",
+            selectedPillars: [capabilityKey],
+            pillarKey: capabilityKey,
+            responseLocale: locale,
+          }),
+        },
+      );
+      const payload = (await response.json()) as {
+        guidedDiscovery?: GuidedDiscovery;
+        error?: string;
+      };
+      if (!response.ok || !payload.guidedDiscovery) {
+        notify(payload.error || copy.notifications.discoveryError);
+        return;
+      }
+      setData((current) => ({
+        ...current,
+        guidedDiscoveries: [
+          ...current.guidedDiscoveries.filter(
+            (item) => item.discoveryId !== accountId,
+          ),
+          payload.guidedDiscovery!,
+        ],
+      }));
+    } catch {
+      notify(copy.notifications.discoveryError);
+    } finally {
+      setSaving(false);
+    }
+  };
   const openEvidence = useCallback(
     (accountId: string, sourceReference: string) => {
       const normalized = sourceReference.trim().toLocaleLowerCase(locale);
@@ -1553,9 +1760,14 @@ export default function Home({
             ? `document-${accountDocument.id}`
             : "account-evidence-timeline";
       setSelectedId(accountId);
-      setActive("portfolio");
+      setActive("accounts");
       setPortfolioMode("account");
-      setAccountMode("activity");
+      setAccountMode("governance");
+      writeLocation({
+        view: "accounts",
+        accountId,
+        tab: "governance",
+      });
       window.setTimeout(() => {
         const target = document.getElementById(targetId);
         target?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1567,7 +1779,7 @@ export default function Home({
           );
       }, 120);
     },
-    [data.accountEvents, data.documents, data.meetings, locale],
+    [data.accountEvents, data.documents, data.meetings, locale, writeLocation],
   );
   const ask = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -1635,38 +1847,6 @@ export default function Home({
       },
       copy.notifications.actionDecision,
     );
-  };
-  const saveMeeting = async (payload: Record<string, unknown>) => {
-    if (!selected) return;
-    const result = await mutate(
-      { action: "meeting", id: selected.id, ...payload },
-      copy.notifications.meetingSaved,
-    );
-    const changeSet = result?.changeSet as CommercialChangeSet | undefined;
-    if (changeSet) setLatestConversationReview(changeSet);
-  };
-  const reviewChangeSet = async (
-    changeSet: CommercialChangeSet,
-    status: "approved" | "rejected",
-  ) => {
-    const result = await mutate(
-      {
-        action: "change_set_status",
-        id: changeSet.discoveryId,
-        changeSetId: changeSet.id,
-        status,
-      },
-      locale === "pt-BR"
-        ? status === "approved"
-          ? "Mudanças propostas aprovadas."
-          : "Mudanças propostas rejeitadas; a fonte original foi preservada."
-        : status === "approved"
-          ? "Proposed changes approved."
-          : "Proposed changes rejected; the original source was preserved.",
-    );
-    if (!result) throw new Error(copy.notifications.genericError);
-    if (result.changeSet)
-      setLatestConversationReview(result.changeSet as CommercialChangeSet);
   };
   const previewCrmHandoff = async (hypothesisId?: string) => {
     if (!selected) return;
@@ -1806,19 +1986,24 @@ export default function Home({
     return result;
   }, {});
 
-  const commands = useMemo(() => {
+  const commands = (() => {
     const base = [
       {
         label: copy.command.goHome,
         hint: copy.command.navigation,
-        run: () => setActive("home"),
+        run: () => {
+          setActive("home");
+          setPortfolioMode("accounts");
+          writeLocation({ view: "home" });
+        },
       },
       {
-        label: copy.command.openRadar,
+        label: locale === "pt-BR" ? "Abrir contas" : "Open accounts",
         hint: copy.command.navigation,
         run: () => {
-          setActive("portfolio");
-          setPortfolioMode("radar");
+          setActive("accounts");
+          setPortfolioMode("accounts");
+          writeLocation({ view: "accounts" });
         },
       },
       {
@@ -1831,10 +2016,15 @@ export default function Home({
         hint: copy.command.strategy,
         run: () => {
           if (selected) {
-            setActive("portfolio");
+            setActive("accounts");
             setPortfolioMode("account");
-            setAccountMode("strategy");
-            setGuidedOpen(true);
+            setAccountMode("discovery");
+            setEntryCapabilityKey(null);
+            writeLocation({
+              view: "accounts",
+              accountId: selected.id,
+              tab: "discovery",
+            });
           }
         },
       },
@@ -1875,7 +2065,7 @@ export default function Home({
         .toLocaleLowerCase(locale)
         .includes(commandQuery.toLocaleLowerCase(locale)),
     );
-  }, [commandQuery, copy, data.discoveries, locale, selected, openAccount]);
+  })();
 
   if (loading)
     return (
@@ -1906,6 +2096,9 @@ export default function Home({
             onClick={(event) => {
               event.preventDefault();
               setActive("home");
+              setPortfolioMode("accounts");
+              setEntryCapabilityKey(null);
+              writeLocation({ view: "home" });
             }}
           >
             CDI
@@ -1976,7 +2169,8 @@ export default function Home({
                 onClick={(event) => {
                   event.preventDefault();
                   setActive(item.id);
-                  if (item.id === "portfolio") setPortfolioMode("accounts");
+                  if (item.id === "accounts") setPortfolioMode("accounts");
+                  writeLocation({ view: item.id });
                   setMobileNav(false);
                 }}
               >
@@ -2024,7 +2218,9 @@ export default function Home({
             </span>
             <strong>
               {active === "home"
-                ? copy.shell.operationalBriefing
+                ? locale === "pt-BR"
+                  ? "Descoberta por capability"
+                  : "Capability discovery"
                 : dictionary.navigation[
                     navItems.find((item) => item.id === active)?.key || "home"
                   ]}
@@ -2032,14 +2228,19 @@ export default function Home({
           </div>
           <div>
             {selected &&
-              active === "portfolio" &&
+              active === "accounts" &&
               portfolioMode === "account" && (
               <label className="v5-account-switch">
                 <span>{copy.shell.activeAccount}</span>
                 <select
                   value={selected.id}
                   onChange={(event) =>
-                    openAccount(event.target.value, accountMode)
+                    openAccount(
+                      event.target.value,
+                      accountModeItems.some((item) => item.id === accountMode)
+                        ? (accountMode as CurrentAccountMode)
+                        : "discovery",
+                    )
                   }
                 >
                   {data.discoveries.map((account) => (
@@ -2053,15 +2254,30 @@ export default function Home({
             <Button
               kind="secondary"
               renderIcon={Add}
-              onClick={() =>
-                privateMode
-                  ? selected
-                    ? setModal("information")
-                    : setModal("new-account")
-                  : window.location.assign(
-                      "/signin-with-chatgpt?return_to=%2Fworkspace",
-                    )
-              }
+              onClick={() => {
+                if (!privateMode) {
+                  window.location.assign(
+                    "/signin-with-chatgpt?return_to=%2Fworkspace",
+                  );
+                  return;
+                }
+                if (!selected) {
+                  setModal("new-account");
+                  return;
+                }
+                if (active === "accounts" && portfolioMode === "account") {
+                  setModal("information");
+                  return;
+                }
+                setActive("accounts");
+                setPortfolioMode("accounts");
+                writeLocation({ view: "accounts" });
+                notify(
+                  locale === "pt-BR"
+                    ? "Escolha a conta antes de adicionar informação."
+                    : "Choose an account before adding information.",
+                );
+              }}
             >
               {copy.shell.addInformation}
             </Button>
@@ -2069,334 +2285,186 @@ export default function Home({
         </div>
 
         {active === "home" && (
-          <HomeView
-            data={data}
-            briefing={briefing}
-            briefMeta={briefMeta}
-            privateMode={privateMode}
-            actions={portfolioActions}
-            accountHealthRows={accountHealthRows}
-            onOpen={openAccount}
-            onOpenGuided={(accountId) => {
-              openAccount(accountId, "strategy");
-              setGuidedOpen(true);
-            }}
-            onDecision={actionStatus}
-            onRefresh={async () => {
-              if (!privateMode) return;
-              setSaving(true);
-              const response = await apiFetch("/api/briefing", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ force: true, responseLocale: locale }),
-              });
-              const payload = (await response.json()) as BriefingResponse;
-              if (response.ok && payload.briefing) {
-                setBriefing(payload.briefing);
-                setBriefMeta({
-                  provider: payload.provider || "fallback",
-                  model: payload.model,
-                  cached: false,
-                });
-                notify(copy.home.refreshed);
-              } else notify(copy.notifications.genericError);
-              setSaving(false);
-            }}
-            saving={saving}
+          <KyndrylV4Home
+            accounts={v4Accounts}
+            locale={locale}
+            onOpenAccount={(accountId) => openAccount(accountId, "discovery")}
+            onStartDiscovery={(accountId, capabilityKey) =>
+              void startCapabilityForAccount(accountId, capabilityKey)
+            }
           />
         )}
 
-        {active === "portfolio" && portfolioMode === "accounts" && (
-          <section className="v5-page">
-            <PageHeading
-              eyebrow={locale === "pt-BR" ? "Carteira" : "Portfolio"}
-              title={
-                locale === "pt-BR"
-                  ? "Contas e descoberta"
-                  : "Accounts and discovery"
-              }
-              description={
-                locale === "pt-BR"
-                  ? "Comece por uma conta, revise as capacidades relevantes e acompanhe a trilha de evidências até o heatmap e as recomendações."
-                  : "Start with an account, review the relevant capabilities, and follow the evidence trail to heatmaps and recommendations."
-              }
-              action={
-                privateMode ? (
-                  <Button
-                    renderIcon={Add}
-                    onClick={() => setModal("new-account")}
-                  >
-                    {locale === "pt-BR" ? "Criar conta" : "Create account"}
-                  </Button>
-                ) : undefined
-              }
-            />
-            <nav
-              className="v5-portfolio-tabs"
-              aria-label={
-                locale === "pt-BR"
-                  ? "Visualizações do portfólio"
-                  : "Portfolio views"
-              }
-            >
-              <button className="active">
-                {locale === "pt-BR" ? "Contas" : "Accounts"}
-              </button>
-              <button onClick={() => setPortfolioMode("radar")}>
-                {locale === "pt-BR"
-                  ? "Radar do portfólio"
-                  : "Portfolio radar"}
-              </button>
-            </nav>
-            <div className="v5-operational-table" role="table">
-              <div className="v5-operational-table-head" role="row">
-                <span role="columnheader">
-                  {locale === "pt-BR" ? "Conta" : "Account"}
-                </span>
-                <span role="columnheader">
-                  {locale === "pt-BR" ? "Pilares revisados" : "Pillars reviewed"}
-                </span>
-                <span role="columnheader">
-                  {locale === "pt-BR" ? "Cobertura" : "Coverage"}
-                </span>
-                <span role="columnheader">
-                  {locale === "pt-BR"
-                    ? "Principal oportunidade"
-                    : "Leading opportunity"}
-                </span>
-                <span role="columnheader">
-                  {locale === "pt-BR" ? "Próximo passo" : "Next step"}
-                </span>
-                <span role="columnheader">
-                  {locale === "pt-BR" ? "Ação" : "Action"}
-                </span>
-              </div>
-              {data.discoveries.map((account) => {
-                const guided = data.guidedDiscoveries.find(
-                  (item) => item.discoveryId === account.id,
-                );
-                const leading =
-                  guided?.technologyAssessment?.technologies.find(
-                  (technology) =>
-                      technology.propensity > 0 &&
-                      technology.confidence > 0 &&
-                      technology.action !== "DO_NOT_RECOMMEND" &&
-                      technology.action !== "GATE_FAILED",
-                  );
-                return (
-                  <div
-                    className="v5-operational-table-row"
-                    role="row"
-                    key={account.id}
-                  >
-                    <button
-                      role="cell"
-                      onClick={() => openAccount(account.id)}
-                    >
-                      <strong>{account.customerName}</strong>
-                      <small>
-                        {account.industry} ·{" "}
-                        {localizeSystemValue(locale, account.priority)}
-                      </small>
-                    </button>
-                    <div role="cell">
-                      <strong>
-                        {guided?.overallReview.reviewedPillars || 0}/
-                        {guided?.overallReview.totalPillars || 8}
-                      </strong>
-                      <ProgressBar
-                        label={account.customerName}
-                        hideLabel
-                        value={guided?.overallReview.percent || 0}
-                      />
-                    </div>
-                    <span role="cell">
-                      {guided?.overallReview.coveragePercent || 0}%
-                    </span>
-                    <span role="cell">
-                      {leading?.name ||
-                        (locale === "pt-BR"
-                          ? "Aguardando evidências"
-                          : "Awaiting evidence")}
-                    </span>
-                    <span role="cell">
-                      {guided?.recommendedNextPillar?.label ||
-                        account.nextEngagement}
-                    </span>
-                    <Button
-                      role="cell"
-                      size="sm"
-                      kind="tertiary"
-                      renderIcon={ArrowRight}
-                      onClick={() => {
-                        openAccount(account.id, "strategy");
-                        setGuidedOpen(true);
-                      }}
-                    >
-                      {guided?.activePillar
-                        ? locale === "pt-BR"
-                          ? "Continuar"
-                          : "Continue"
-                        : locale === "pt-BR"
-                          ? "Abrir"
-                          : "Open"}
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+        {active === "accounts" && portfolioMode === "accounts" && (
+          <KyndrylV4Accounts
+            accounts={v4Accounts}
+            locale={locale}
+            onOpenAccount={(accountId) => openAccount(accountId, "discovery")}
+            onCreateAccount={privateMode ? () => setModal("new-account") : undefined}
+          />
         )}
 
-        {active === "portfolio" &&
+
+        {active === "accounts" &&
           portfolioMode === "account" &&
           selected && (
-          <section className="v5-page">
-            <nav className="v5-breadcrumb" aria-label="Breadcrumb">
-              <button onClick={() => setPortfolioMode("accounts")}>
-                {locale === "pt-BR" ? "Portfólio" : "Portfolio"}
-              </button>
-              <span>/</span>
-              <strong>{selected.customerName}</strong>
-            </nav>
-            <header className="v5-account-hero">
-              <div>
-                <span>
-                  {selected.industry} · {selected.companySize}
-                </span>
-                <h1>{selected.customerName}</h1>
-                <p>{memory?.executiveSummary || selected.challengeSummary}</p>
-                <div className="v5-hero-tags">
-                  <Tag
-                    type={
-                      selected.dataClassification === "confidential"
-                        ? "red"
-                        : "cyan"
-                    }
-                  >
-                    {selected.dataClassification === "confidential"
-                      ? copy.account.confidentialBlocked
-                      : copy.account.testEnvironment}
-                  </Tag>
-                  <Tag type="gray">
-                    {visibleProviderLabel(memory?.aiStatus, copy)}
-                  </Tag>
-                  <Tag
-                    type={
-                      selected.priority === "Alta"
-                        ? "red"
-                        : selected.priority === "Média"
-                          ? "purple"
-                          : "green"
-                    }
-                  >
-                    {localizeSystemValue(locale, selected.priority)}{" "}
-                    {copy.priority.suffix}
-                  </Tag>
-                </div>
-              </div>
-              <div className="v5-maturity">
-                <strong>{selected.progress}%</strong>
-                <span>{copy.account.maturity}</span>
-                <ProgressBar
-                  label={copy.account.maturity}
-                  hideLabel
-                  value={selected.progress}
-                />
-              </div>
-            </header>
-            <nav
-              className="v5-account-tabs"
-              aria-label={copy.modes.accountWorkspace}
-            >
-              {accountModeItems.map((item) => (
+            <section className="v5-page v4-account-page">
+              <nav className="v5-breadcrumb" aria-label="Breadcrumb">
                 <button
-                  key={item.id}
-                  className={accountMode === item.id ? "active" : ""}
-                  onClick={() => setAccountMode(item.id)}
+                  onClick={() => {
+                    setPortfolioMode("accounts");
+                    setEntryCapabilityKey(null);
+                    writeLocation({ view: "accounts" });
+                  }}
                 >
-                  {copy.modes[item.key]}
+                  {locale === "pt-BR" ? "Contas" : "Accounts"}
                 </button>
-              ))}
-            </nav>
-            {accountMode === "overview" && (
-              <AccountOverview
-                account={selected}
-                memory={memory}
-                actions={actions}
-                hypotheses={hypotheses}
-                stakeholders={stakeholders}
-                events={accountEvents}
-                guidedDiscovery={guidedDiscovery}
-                privateMode={privateMode}
-                onMode={setAccountMode}
-                onGuided={() => setGuidedOpen(true)}
-                onDecision={actionStatus}
-                onEditAction={(action) => {
-                  setEditingAction(action);
-                  setModal("action");
-                }}
-              />
-            )}
-            {accountMode === "activity" && (
-              <AccountActivity
-                account={selected}
-                memory={memory}
-                events={accountEvents}
-                meetings={meetings}
-                documents={documents}
-                privateMode={privateMode}
-                saving={saving}
-                onMeeting={saveMeeting}
-                conversationReview={conversationReview}
-                conversationImpact={conversationImpact}
-                logicalPipeline={logicalPipeline}
-                impactMetric={commercialProof?.impact || null}
-                onReview={(status) => {
-                  if (conversationReview)
-                    return reviewChangeSet(conversationReview, status);
-                }}
-                onEvidence={(sourceId) => openEvidence(selected.id, sourceId)}
-                onUpload={(file) =>
-                  uploadDocument(
-                    file,
-                    selected.id,
-                    mode,
-                    locale,
-                    copy.notifications,
-                    notify,
-                    load,
-                    setSaving,
-                  )
-                }
-              />
-            )}
-            {accountMode === "relationships" && (
-              <div className="v5-relationship-layout">
-                <section className="v5-section-head">
-                  <div>
-                    <span>{copy.account.relationshipEyebrow}</span>
-                    <h2>{copy.account.relationshipTitle}</h2>
-                    <p>{copy.account.relationshipDescription}</p>
+                <span>/</span>
+                <strong>{selected.customerName}</strong>
+              </nav>
+              <header className="v5-account-hero v4-account-hero">
+                <div>
+                  <span>
+                    {selected.industry} · {selected.companySize} · {selected.owner}
+                  </span>
+                  <h1>{selected.customerName}</h1>
+                  <p>{memory?.executiveSummary || selected.challengeSummary}</p>
+                  <div className="v5-hero-tags">
+                    <Tag
+                      type={
+                        selected.dataClassification === "confidential"
+                          ? "red"
+                          : "cyan"
+                      }
+                    >
+                      {selected.dataClassification === "confidential"
+                        ? copy.account.confidentialBlocked
+                        : copy.account.testEnvironment}
+                    </Tag>
+                    <Tag type="gray">
+                      {selected.priority === "Alta"
+                        ? copy.priority.high
+                        : selected.priority === "Média"
+                          ? copy.priority.medium
+                          : copy.priority.low}
+                    </Tag>
                   </div>
-                  <Button
-                    size="sm"
-                    renderIcon={Add}
-                    disabled={!privateMode}
+                </div>
+                <div className="v5-maturity">
+                  <strong>{selected.progress}%</strong>
+                  <span>{copy.account.maturity}</span>
+                  <ProgressBar
+                    label={copy.account.maturity}
+                    hideLabel
+                    value={selected.progress}
+                  />
+                </div>
+              </header>
+              <nav
+                className="v5-account-tabs v4-account-tabs"
+                aria-label={copy.modes.accountWorkspace}
+              >
+                {accountModeItems.map((item) => (
+                  <button
+                    key={item.id}
+                    className={accountMode === item.id ? "active" : ""}
+                    aria-current={accountMode === item.id ? "page" : undefined}
                     onClick={() => {
-                      setEditingStakeholder(null);
-                      setModal("stakeholder");
+                      setAccountMode(item.id);
+                      if (item.id !== "discovery") setEntryCapabilityKey(null);
+                      writeLocation({
+                        view: "accounts",
+                        accountId: selected.id,
+                        tab: item.id,
+                        capability:
+                          item.id === "discovery" ? entryCapabilityKey : null,
+                      });
                     }}
                   >
-                    {copy.account.addPerson}
-                  </Button>
-                </section>
-                <RelationshipGraph
+                    {copy.modes[item.key]}
+                  </button>
+                ))}
+              </nav>
+
+              {accountMode === "discovery" && (
+                <GuidedDiscoveryWorkspace
+                  open
+                  variant="embedded"
+                  initialPillarKey={entryCapabilityKey}
+                  accountName={selected.customerName}
+                  discovery={
+                    guidedDiscovery as unknown as GuidedDiscoveryView | null
+                  }
+                  stakeholders={stakeholders.map((person) => ({
+                    id: person.id,
+                    name: person.name,
+                    role: person.role,
+                  }))}
+                  saving={saving}
+                  onClose={() => setEntryCapabilityKey(null)}
+                  onStart={async (guidedMode, pillars) => {
+                    const capabilityKey =
+                      guidedMode === "direct" ? pillars[0] || null : null;
+                    setEntryCapabilityKey(capabilityKey);
+                    writeLocation({
+                      view: "accounts",
+                      accountId: selected.id,
+                      tab: "discovery",
+                      capability: capabilityKey,
+                    });
+                    return guidedMutation(
+                      "/sessions",
+                      "POST",
+                      {
+                        mode: guidedMode,
+                        selectedPillars: pillars,
+                        pillarKey: capabilityKey,
+                      },
+                      copy.notifications.discoveryStarted,
+                    );
+                  }}
+                  onAnswer={async (payload) => {
+                    const result = await guidedMutation(
+                      "/answers",
+                      "POST",
+                      payload,
+                      String(payload.status) === "draft"
+                        ? copy.notifications.draftSaved
+                        : String(payload.status) === "unknown"
+                          ? copy.notifications.gapSaved
+                          : copy.notifications.answerSaved,
+                    );
+                    return result
+                      ? {
+                          ...result,
+                          answerImpact: result.answerImpact,
+                        }
+                      : result;
+                  }}
+                  onPatch={async (payload) =>
+                    guidedMutation(
+                      "",
+                      "PATCH",
+                      payload,
+                      String(payload.operation) === "checkpoint"
+                        ? copy.notifications.checkpoint
+                        : copy.notifications.sessionUpdated,
+                    )
+                  }
+                />
+              )}
+
+              {accountMode === "relationships" && (
+                <KyndrylV4RelationshipsPanel
                   stakeholders={stakeholders.map((person) => ({
                     ...person,
                     isSponsor: person.id === sponsor?.id,
                     evidence: accountEvents
-                      .filter((event) => event.sourceId === person.id)
+                      .filter(
+                        (event) =>
+                          event.sourceId === person.id ||
+                          event.content.includes(person.name),
+                      )
                       .map((event) => ({
                         id: event.id,
                         title: event.title,
@@ -2411,6 +2479,23 @@ export default function Home({
                     ),
                   }))}
                   relationships={hierarchyRelationships}
+                  capabilities={relationshipCapabilities}
+                  capabilityAssignments={selectedCapabilityAssignments.map(
+                    (assignment) => ({
+                      id: assignment.id,
+                      stakeholderId: assignment.stakeholderId,
+                      capabilityKey: assignment.capabilityKey,
+                      role: assignment.role,
+                      status: assignment.status,
+                      evidence: assignment.evidence.map((evidence, index) => ({
+                        id: `${assignment.id}:evidence:${index}`,
+                        title: evidence.title,
+                        excerpt: evidence.excerpt,
+                        sourceType: evidence.sourceType,
+                        updatedAt: evidence.occurredAt,
+                      })),
+                    }),
+                  )}
                   savedPositions={savedPositions}
                   sponsorId={sponsor?.id}
                   readOnly={!privateMode}
@@ -2454,8 +2539,7 @@ export default function Home({
                   }}
                   onRequestEdit={(person) => {
                     setEditingStakeholder(
-                      stakeholders.find((item) => item.id === person.id) ||
-                        null,
+                      stakeholders.find((item) => item.id === person.id) || null,
                     );
                     setModal("stakeholder");
                   }}
@@ -2463,213 +2547,141 @@ export default function Home({
                     setEditingStakeholder(null);
                     setModal("stakeholder");
                   }}
+                  onRequestAssignment={(stakeholderId, capabilityKey) => {
+                    const person = stakeholders.find(
+                      (item) => item.id === stakeholderId,
+                    );
+                    if (!person) {
+                      if (capabilityKey) {
+                        setPendingCapabilityAssignmentKey(capabilityKey);
+                        setModal("capability-assignment");
+                      } else {
+                        notify(
+                          locale === "pt-BR"
+                            ? "Selecione uma pessoa para atribuir a capability."
+                            : "Select a person to assign the capability.",
+                        );
+                      }
+                      return;
+                    }
+                    setPendingCapabilityAssignmentKey(capabilityKey || null);
+                    setEditingStakeholder(person);
+                    setModal("stakeholder");
+                  }}
+                  onConfirmAssignment={async (assignment) => {
+                    const person = stakeholders.find(
+                      (item) => item.id === assignment.stakeholderId,
+                    );
+                    if (!person) return;
+                    const currentAssignments = selectedCapabilityAssignments
+                      .filter((item) => item.stakeholderId === person.id)
+                      .map((item) => ({
+                        capabilityKey: item.capabilityKey,
+                        role: item.role,
+                        status:
+                          item.id === assignment.id ? "confirmed" : item.status,
+                        confidence: item.confidence,
+                        sourceType: item.sourceType,
+                        sourceId: item.sourceId,
+                        evidence: item.evidence,
+                      }));
+                    await mutate(
+                      {
+                        action: "stakeholder_upsert",
+                        id: selected.id,
+                        stakeholderId: person.id,
+                        name: person.name,
+                        role: person.role,
+                        area: person.area,
+                        reportsToId: person.reportsToId,
+                        influence: person.influence,
+                        stance: person.stance,
+                        priorities: person.priorities,
+                        notes: person.notes,
+                        capabilityAssignments: currentAssignments,
+                      },
+                      copy.notifications.stakeholderSaved,
+                    );
+                  }}
                 />
-                <CustomerContextMap
-                  locale={locale}
-                  accountMap={
-                    selected.accountMap
+              )}
+
+              {accountMode === "strategy" && (
+                <KyndrylV4StrategyPanel
+                  technologies={opportunityTechnologies}
+                  stakeholderCoverage={stakeholderCoverage}
+                  snapshots={opportunitySnapshots}
+                  hypotheses={hypotheses.map((item) => ({
+                    id: item.id,
+                    title: item.title,
+                    status: item.stage,
+                    confidence: item.confidence,
+                    evidenceCount: item.evidence.length,
+                    gaps: item.gaps,
+                    nextStep: item.nextStep,
+                  }))}
+                  accountPlan={
+                    plan
                       ? {
-                          ...selected.accountMap,
-                          nodes: selected.accountMap.nodes.map((node) => {
-                            const evidence = accountEvents
-                              .filter((event) => {
-                                const label = node.label.toLowerCase();
-                                return (
-                                  event.title.toLowerCase().includes(label) ||
-                                  event.content.toLowerCase().includes(label) ||
-                                  label.includes(event.title.toLowerCase())
-                                );
-                              })
-                              .map((event) => ({
-                                id: event.id,
-                                sourceId: event.sourceId || event.id,
-                                sourceType: event.sourceType,
-                                title: event.title,
-                                excerpt: event.content,
-                                confidence: event.confidence,
-                                occurredAt: event.occurredAt,
-                              }));
-                            return {
-                              ...node,
-                              evidence,
-                              sourceCount: evidence.length,
-                            };
-                          }),
+                          priorities: plan.priorities,
+                          days30: plan.plan30,
+                          days60: plan.plan60,
+                          days90: plan.plan90,
+                          updatedAt: plan.updatedAt,
                         }
                       : null
                   }
-                  stakeholders={stakeholders.map((person) => ({
-                    ...person,
-                    isSponsor: person.id === sponsor?.id,
-                    evidence: accountEvents
-                      .filter(
-                        (event) =>
-                          event.sourceId === person.id ||
-                          event.content.includes(person.name),
-                      )
-                      .map((event) => ({
-                        id: event.id,
-                        sourceId: event.sourceId || event.id,
-                        sourceType: event.sourceType,
-                        title: event.title,
-                        excerpt: event.content,
-                        confidence: event.confidence,
-                        occurredAt: event.occurredAt,
-                      })),
-                  }))}
-                  onEvidenceActivate={(evidence) =>
-                    openEvidence(
-                      selected.id,
-                      evidence.sourceId || evidence.id || evidence.title,
-                    )
+                  intelligenceStatus={
+                    isWatsonxProvider(aiStatus?.provider)
+                      ? "watsonx"
+                      : "deterministic"
+                  }
+                  readOnly={!privateMode}
+                  onEditAccountPlan={
+                    privateMode ? () => setModal("plan") : undefined
+                  }
+                  onReviewTechnology={(technologyId) => {
+                    const technologyName =
+                      opportunityTechnologies.find(
+                        (technology) => technology.id === technologyId,
+                      )?.name || technologyId;
+                    setAccountMode("governance");
+                    setEntryCapabilityKey(null);
+                    writeLocation({
+                      view: "accounts",
+                      accountId: selected.id,
+                      tab: "governance",
+                    });
+                    notify(
+                      locale === "pt-BR"
+                        ? `Governança aberta para revisar ${technologyName}. Use o filtro de tecnologia para isolar o impacto.`
+                        : `Governance opened for ${technologyName}. Use the technology filter to isolate its impact.`,
+                    );
+                  }}
+                  onReviewHypothesis={(hypothesisId) =>
+                    void previewCrmHandoff(hypothesisId)
                   }
                 />
-              </div>
-            )}
-            {accountMode === "strategy" && (
-              <>
-                <GuidedDiscoverySummary
-                  discovery={guidedDiscovery}
-                  onOpen={() => setGuidedOpen(true)}
-                />
-                <AccountStrategy
-                  key={selected.id}
-                  account={selected}
-                  capabilityRows={capabilityHealthRows}
-                  hypotheses={hypotheses}
-                  actions={actions}
-                  plan={plan}
-                  signals={signals}
-                  privateMode={privateMode}
-                  saving={saving}
-                  onDecision={actionStatus}
-                  onSavePlan={(payload) =>
-                    mutate(
-                      { action: "plan_save", id: selected.id, ...payload },
-                      copy.notifications.planSaved,
-                    )
-                  }
-                  onSuggest={() =>
-                    mutate(
-                      { action: "plan_suggest", id: selected.id },
-                      copy.notifications.suggestionCreated,
-                    )
-                  }
-                  onApply={() =>
-                    mutate(
-                      { action: "plan_apply", id: selected.id },
-                      copy.notifications.suggestionApplied,
-                    )
-                  }
-                  onResearch={() => setModal("research")}
-                  onEvidence={(source) => openEvidence(selected.id, source)}
-                  onHandoff={(hypothesisId) => previewCrmHandoff(hypothesisId)}
-                />
-              </>
-            )}
-          </section>
-        )}
-
-        {active === "portfolio" && portfolioMode === "radar" && (
-          <section className="v5-page">
-            <nav
-              className="v5-portfolio-tabs"
-              aria-label={
-                locale === "pt-BR"
-                  ? "Visualizações do portfólio"
-                  : "Portfolio views"
-              }
-            >
-              <button onClick={() => setPortfolioMode("accounts")}>
-                {locale === "pt-BR" ? "Contas" : "Accounts"}
-              </button>
-              <button className="active">
-                {locale === "pt-BR"
-                  ? "Radar do portfólio"
-                  : "Portfolio radar"}
-              </button>
-            </nav>
-            <PageHeading
-              eyebrow={copy.radar.eyebrow}
-              title={copy.radar.title}
-              description={copy.radar.description}
-            />
-            <div className="v5-filterbar">
-              <span>{copy.radar.filterRisk}</span>
-              {(["all", "Alta", "Média", "Baixa"] as const).map((filter) => (
-                <button
-                  key={filter}
-                  className={radarFilter === filter ? "active" : ""}
-                  onClick={() => setRadarFilter(filter)}
-                >
-                  {filter === "all"
-                    ? copy.radar.all
-                    : localizeSystemValue(locale, filter)}
-                </button>
-              ))}
-            </div>
-            <PortfolioFitHeatmap
-              rows={portfolioFitRows.filter((row) =>
-                filteredAccounts.some(
-                  (account) => account.id === row.accountId,
-                ),
               )}
-              locale={locale}
-              onAccountActivate={(row) => openAccount(row.accountId)}
-              onCellActivate={(row) => openAccount(row.accountId, "strategy")}
-              onEvidenceActivate={(source, row) =>
-                openEvidence(row.accountId, source)
-              }
-            />
-            <div className="v5-chart-grid">
-              <section className="v5-card v5-span-2">
-                <PortfolioBubbleChart accounts={filteredAccounts} />
-              </section>
-              <section className="v5-card">
-                <CardHeader
-                  eyebrow={copy.radar.priority}
-                  title={copy.radar.exploreAccounts}
+
+              {accountMode === "governance" && (
+                <KyndrylV4GovernancePanel
+                  ledger={governanceLedger}
+                  evidence={governanceEvidence}
+                  meetings={governanceMeetings}
+                  documents={governanceDocuments}
+                  auditEvents={governanceAuditEvents}
+                  onSelectAnswer={(answerId) => {
+                    const target = document.getElementById(
+                      `answer-impact-${answerId}`,
+                    );
+                    target?.scrollIntoView({ behavior: "smooth" });
+                  }}
                 />
-                <div className="v5-account-rank">
-                  {[...filteredAccounts]
-                    .sort(
-                      (a, b) =>
-                        (b.scores[0]?.alignment || 0) -
-                        (a.scores[0]?.alignment || 0),
-                    )
-                    .map((account) => (
-                      <button
-                        key={account.id}
-                        onClick={() => openAccount(account.id)}
-                      >
-                        <span>
-                          <strong>{account.customerName}</strong>
-                          <small>
-                            {account.scores[0]?.short ||
-                              copy.radar.noLeadingTheme}
-                          </small>
-                        </span>
-                        <em>{account.scores[0]?.alignment || 0}%</em>
-                        <ArrowRight />
-                      </button>
-                    ))}
-                </div>
-              </section>
-              <section className="v5-card">
-                <StakeholderCoverageChart
-                  accounts={filteredAccounts}
-                  stakeholders={data.stakeholders}
-                />
-              </section>
-              <section className="v5-card v5-span-2">
-                <HypothesisConfidenceChart
-                  accounts={filteredAccounts}
-                  snapshots={data.snapshots}
-                />
-              </section>
-            </div>
-          </section>
-        )}
+              )}
+            </section>
+          )}
+
 
         {active === "settings" && (
           <SettingsView
@@ -2772,49 +2784,6 @@ export default function Home({
         </div>
       )}
 
-      <GuidedDiscoveryWorkspace
-        open={guidedOpen}
-        accountName={selected?.customerName || dictionary.common.account}
-        discovery={guidedDiscovery as unknown as GuidedDiscoveryView | null}
-        stakeholders={stakeholders.map((person) => ({
-          id: person.id,
-          name: person.name,
-          role: person.role,
-        }))}
-        saving={saving}
-        onClose={() => setGuidedOpen(false)}
-        onStart={(guidedMode, pillars) =>
-          guidedMutation(
-            "/sessions",
-            "POST",
-            { mode: guidedMode, selectedPillars: pillars },
-            copy.notifications.discoveryStarted,
-          )
-        }
-        onAnswer={async (payload) =>
-          guidedMutation(
-            "/answers",
-            "POST",
-            payload,
-            String(payload.status) === "draft"
-              ? copy.notifications.draftSaved
-              : String(payload.status) === "unknown"
-                ? copy.notifications.gapSaved
-                : copy.notifications.answerSaved,
-          )
-        }
-        onPatch={async (payload) =>
-          guidedMutation(
-            "",
-            "PATCH",
-            payload,
-            String(payload.operation) === "checkpoint"
-              ? copy.notifications.checkpoint
-              : copy.notifications.sessionUpdated,
-          )
-        }
-      />
-
       <NewAccountModal
         open={modal === "new-account"}
         saving={saving}
@@ -2882,6 +2851,10 @@ export default function Home({
         account={selected}
         stakeholder={editingStakeholder}
         people={stakeholders}
+        capabilities={relationshipCapabilities}
+        assignments={selectedCapabilityAssignments.filter(
+          (item) => item.stakeholderId === editingStakeholder?.id,
+        )}
         saving={saving}
         onClose={() => setModal(null)}
         onSave={async (payload) => {
@@ -2898,1355 +2871,86 @@ export default function Home({
           if (result) setModal(null);
         }}
       />
-      <ActionModal
-        open={modal === "action"}
-        action={editingAction}
+      <CapabilityAssignmentModal
+        open={modal === "capability-assignment"}
+        account={selected}
+        capability={relationshipCapabilities.find(
+          (item) => item.key === pendingCapabilityAssignmentKey,
+        )}
+        people={stakeholders}
+        saving={saving}
+        onClose={() => {
+          setModal(null);
+          setPendingCapabilityAssignmentKey(null);
+        }}
+        onSave={async ({ stakeholderId, role }) => {
+          if (!selected || !pendingCapabilityAssignmentKey) return;
+          const person = stakeholders.find((item) => item.id === stakeholderId);
+          if (!person) return;
+          const capabilityAssignments = data.stakeholderCapabilityAssignments
+            .filter(
+              (item) =>
+                item.discoveryId === selected.id &&
+                item.stakeholderId === stakeholderId &&
+                item.status !== "dismissed" &&
+                item.capabilityKey !== pendingCapabilityAssignmentKey,
+            )
+            .map((item) => ({
+              capabilityKey: item.capabilityKey,
+              role: item.role,
+              status: item.status,
+              confidence: item.confidence,
+              sourceType: item.sourceType,
+              sourceId: item.sourceId,
+              evidence: item.evidence,
+            }));
+          capabilityAssignments.push({
+            capabilityKey: pendingCapabilityAssignmentKey,
+            role,
+            status: "confirmed",
+            confidence: 100,
+            sourceType: "manual",
+            sourceId: null,
+            evidence: [],
+          });
+          const result = await mutate(
+            {
+              action: "stakeholder_upsert",
+              id: selected.id,
+              stakeholderId: person.id,
+              name: person.name,
+              role: person.role,
+              area: person.area,
+              reportsToId: person.reportsToId,
+              influence: person.influence,
+              stance: person.stance,
+              priorities: person.priorities,
+              notes: person.notes,
+              capabilityAssignments,
+            },
+            copy.notifications.stakeholderSaved,
+          );
+          if (result) {
+            setModal(null);
+            setPendingCapabilityAssignmentKey(null);
+          }
+        }}
+      />
+      <AccountPlanModal
+        open={modal === "plan"}
+        account={selected}
+        plan={plan}
         saving={saving}
         onClose={() => setModal(null)}
         onSave={async (payload) => {
-          if (!editingAction) return;
-          await actionStatus(editingAction, String(payload.status), payload);
-          setModal(null);
-        }}
-      />
-      <ResearchModal
-        open={modal === "research"}
-        account={selected}
-        saving={saving}
-        onClose={() => setModal(null)}
-        onResearch={async (payload) => {
           if (!selected) return;
-          setSaving(true);
-          const response = await apiFetch(
-            `/api/accounts/${selected.id}/research`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ...payload, responseLocale: locale }),
-            },
+          const result = await mutate(
+            { action: "plan_save", id: selected.id, ...payload },
+            copy.notifications.planSaved,
           );
-          const result = (await response.json()) as { error?: string };
-          if (response.ok) {
-            await load();
-            notify(copy.notifications.researchDone);
-            setModal(null);
-          } else notify(result.error || copy.notifications.researchUnavailable);
-          setSaving(false);
+          if (result) setModal(null);
         }}
       />
-    </div>
-  );
-}
-
-function HomeView({
-  data,
-  briefing,
-  briefMeta,
-  privateMode,
-  actions,
-  accountHealthRows,
-  onOpen,
-  onOpenGuided,
-  onDecision,
-  onRefresh,
-  saving,
-}: {
-  data: ApiData;
-  briefing: Briefing | null;
-  briefMeta: {
-    provider: string;
-    model?: string | null;
-    cached: boolean;
-  } | null;
-  privateMode: boolean;
-  actions: Action[];
-  accountHealthRows: AccountHealthRow[];
-  onOpen: (
-    id: string,
-    mode?: "overview" | "activity" | "relationships" | "strategy",
-  ) => void;
-  onOpenGuided: (id: string) => void;
-  onDecision: (
-    action: Action,
-    status: string,
-    extras?: Record<string, unknown>,
-  ) => void;
-  onRefresh: () => void;
-  saving: boolean;
-}) {
-  const { locale, copy, formatDate } = usePageCopy();
-  const changes =
-    briefing?.changes ||
-    data.accountEvents
-      .slice(0, 6)
-      .map(
-        (event) =>
-          `${data.discoveries.find((account) => account.id === event.discoveryId)?.customerName}: ${event.title}`,
-      );
-  const meetings = data.meetings.filter(
-    (meeting) => meeting.meetingStatus === "scheduled",
-  );
-  const stale = data.accountEvents.filter(
-    (event) =>
-      event.evidenceStatus === "stale" ||
-      pageLoadedAt - new Date(event.occurredAt).getTime() > 90 * 86400000,
-  );
-  const recommendedAccount =
-    data.discoveries.find(
-      (account) => account.id === actions[0]?.discoveryId,
-    ) ||
-    [...data.discoveries].sort((a, b) => a.progress - b.progress)[0] ||
-    null;
-  const recommendedDiscovery = recommendedAccount
-    ? data.guidedDiscoveries.find(
-        (item) => item.discoveryId === recommendedAccount.id,
-      )
-    : null;
-  return (
-    <section className="v5-page">
-      <PageHeading
-        eyebrow={copy.home.eyebrow}
-        title={briefing?.headline || copy.home.title}
-        description={briefing?.summary || copy.home.description}
-        action={
-          <div className="v5-heading-actions">
-            <Tag
-              type={
-                isWatsonxProvider(briefMeta?.provider)
-                  ? "blue"
-                  : isDeterministicProvider(briefMeta?.provider)
-                    ? "gray"
-                    : "purple"
-              }
-            >
-              {visibleProviderLabel(briefMeta?.provider, copy)}
-              {briefMeta?.cached ? ` · ${copy.settings.cache}` : ""}
-            </Tag>
-            {privateMode && (
-              <Button
-                kind="ghost"
-                size="sm"
-                renderIcon={Renew}
-                disabled={saving}
-                onClick={onRefresh}
-              >
-                {copy.home.refresh}
-              </Button>
-            )}
-          </div>
-        }
-      />
-      {recommendedAccount && (
-        <section className="v5-home-start">
-          <div>
-            <span>
-              {locale === "pt-BR"
-                ? "Comece por aqui"
-                : "Start here"}
-            </span>
-            <h2>
-              {recommendedDiscovery?.activePillar
-                ? locale === "pt-BR"
-                  ? "Continuar descoberta"
-                  : "Continue discovery"
-                : locale === "pt-BR"
-                  ? "Iniciar próxima descoberta"
-                  : "Start the next discovery"}
-            </h2>
-            <p>
-              <strong>{recommendedAccount.customerName}</strong> ·{" "}
-              {recommendedDiscovery?.recommendedNextPillar?.label ||
-                recommendedAccount.nextEngagement}
-            </p>
-            <small>
-              {recommendedDiscovery?.recommendedNextPillar?.rationale ||
-                (locale === "pt-BR"
-                  ? "Esta conta tem a maior lacuna de informação acionável da carteira."
-                  : "This account has the portfolio's highest actionable information gap.")}
-            </small>
-          </div>
-          <div className="v5-home-start-progress">
-            <strong>{recommendedDiscovery?.overallReview.percent || 0}%</strong>
-            <span>
-              {recommendedDiscovery?.overallReview.reviewedPillars || 0}/
-              {recommendedDiscovery?.overallReview.totalPillars || 14}{" "}
-              {locale === "pt-BR"
-                ? "capacidades revisadas"
-                : "capabilities reviewed"}
-            </span>
-            <ProgressBar
-              label={recommendedAccount.customerName}
-              hideLabel
-              value={recommendedDiscovery?.overallReview.percent || 0}
-            />
-          </div>
-          <Button
-            renderIcon={ArrowRight}
-            onClick={() => onOpenGuided(recommendedAccount.id)}
-          >
-            {locale === "pt-BR" ? "Continuar" : "Continue"}
-          </Button>
-        </section>
-      )}
-      <AccountHealthHeatmap
-        rows={accountHealthRows.slice(0, 5)}
-        locale={locale}
-        onAccountActivate={(row) => onOpen(row.accountId)}
-        onCellActivate={(row, cell) =>
-          cell.destination === "guided-discovery"
-            ? onOpenGuided(row.accountId)
-            : onOpen(row.accountId, cell.destination)
-        }
-      />
-      <section className="v5-attention-list">
-        <header>
-          <span>
-            {locale === "pt-BR"
-              ? "Contas que precisam de atenção"
-              : "Accounts needing attention"}
-          </span>
-        </header>
-        {actions.slice(0, 3).map((action, index) => (
-          <article key={action.id}>
-            <span className="v5-attention-rank">0{index + 1}</span>
-            <div>
-              <small>
-              {
-                data.discoveries.find(
-                  (account) => account.id === action.discoveryId,
-                )?.customerName
-              }{" "}
-              · {copy.home.nextBestAction}
-              </small>
-              <strong>{action.title}</strong>
-              <p>{action.whyNow || action.rationale}</p>
-            </div>
-            <Tag type={statusTone(action.status)}>
-              {action.priorityScore} {copy.home.priority}
-            </Tag>
-            <footer>
-              <Button
-                size="sm"
-                kind="ghost"
-                onClick={() => onOpen(action.discoveryId)}
-              >
-                {copy.home.viewEvidence}
-              </Button>
-              {privateMode && action.status === "proposal" && (
-                <Button
-                  size="sm"
-                  onClick={() => onDecision(action, "accepted")}
-                >
-                  {copy.home.accept}
-                </Button>
-              )}
-            </footer>
-          </article>
-        ))}
-        {!actions.length && (
-          <article className="empty">
-            <Checkmark size={32} />
-            <div>
-              <strong>{copy.home.noCritical}</strong>
-              <p>{copy.home.noCriticalHelp}</p>
-            </div>
-          </article>
-        )}
-      </section>
-      <div className="v5-home-grid">
-        <section className="v5-card v5-span-2">
-          <CardHeader
-            eyebrow={copy.home.changesEyebrow}
-            title={copy.home.changesTitle}
-            side={
-              <span className="v5-live">
-                <i /> {copy.home.progressive}
-              </span>
-            }
-          />
-          <div className="v5-change-feed">
-            {changes.slice(0, 8).map((change, index) => (
-              <article key={`${change}-${index}`}>
-                <i />
-                <span>
-                  <strong>{change}</strong>
-                  <small>
-                    {index < 3
-                      ? copy.home.recentEvidence
-                      : copy.home.inBriefing}
-                  </small>
-                </span>
-              </article>
-            ))}
-          </div>
-        </section>
-        <section className="v5-card">
-          <CardHeader
-            eyebrow={copy.home.meetingsEyebrow}
-            title={copy.home.meetingsTitle}
-          />
-          <div className="v5-mini-list">
-            {meetings.slice(0, 5).map((meeting) => (
-              <button
-                key={meeting.id}
-                onClick={() => onOpen(meeting.discoveryId, "activity")}
-              >
-                <Calendar />
-                <span>
-                  <strong>{meeting.title}</strong>
-                  <small>
-                    {
-                      data.discoveries.find(
-                        (account) => account.id === meeting.discoveryId,
-                      )?.customerName
-                    }{" "}
-                    · {formatDate(meeting.scheduledAt)}
-                  </small>
-                </span>
-              </button>
-            ))}
-            {!meetings.length && <Empty text={copy.home.noMeetings} />}
-          </div>
-        </section>
-        <section className="v5-card">
-          <CardHeader
-            eyebrow={copy.home.memoryQuality}
-            title={copy.home.staleEvidence}
-          />
-          <div className="v5-mini-list">
-            {stale.slice(0, 5).map((event) => (
-              <button
-                key={event.id}
-                onClick={() => onOpen(event.discoveryId, "activity")}
-              >
-                <Asleep />
-                <span>
-                  <strong>{event.title}</strong>
-                  <small>
-                    {
-                      data.discoveries.find(
-                        (account) => account.id === event.discoveryId,
-                      )?.customerName
-                    }{" "}
-                    · {formatDate(event.occurredAt)}
-                  </small>
-                </span>
-              </button>
-            ))}
-            {!stale.length && <Empty text={copy.home.noStale} />}
-          </div>
-        </section>
-      </div>
-    </section>
-  );
-}
-
-function AccountOverview({
-  account,
-  memory,
-  actions,
-  hypotheses,
-  stakeholders,
-  events,
-  guidedDiscovery,
-  privateMode,
-  onMode,
-  onGuided,
-  onDecision,
-  onEditAction,
-}: {
-  account: Discovery;
-  memory?: Memory;
-  actions: Action[];
-  hypotheses: Hypothesis[];
-  stakeholders: Stakeholder[];
-  events: AccountEvent[];
-  guidedDiscovery: GuidedDiscovery | null;
-  privateMode: boolean;
-  onMode: (
-    mode: "overview" | "activity" | "relationships" | "strategy",
-  ) => void;
-  onGuided: () => void;
-  onDecision: (
-    action: Action,
-    status: string,
-    extras?: Record<string, unknown>,
-  ) => void;
-  onEditAction: (action: Action) => void;
-}) {
-  const { locale, copy, text, statusLabels } = usePageCopy();
-  const action = actions[0];
-  const conversation = action?.conversation;
-  return (
-    <div className="v5-account-grid">
-      <GuidedDiscoverySummary
-        discovery={guidedDiscovery}
-        onOpen={onGuided}
-        compact
-      />
-      <section className="v5-card v5-span-2">
-        <CardHeader
-          eyebrow={copy.overview.executiveMemory}
-          title={copy.overview.whatMatters}
-          side={
-            <Tag type="gray">
-              {text(copy.overview.version, { version: memory?.version || 1 })}
-            </Tag>
-          }
-        />
-        <h2 className="v5-executive-summary">
-          {memory?.executiveSummary || account.challengeSummary}
-        </h2>
-        <div className="v5-change-chips">
-          {memory?.changes
-            .slice(0, 4)
-            .map((item, index) => <span key={`${index}-${item}`}>{item}</span>)}
-        </div>
-      </section>
-      <section className="v5-card v5-nba">
-        <CardHeader
-          eyebrow={copy.home.nextBestAction}
-          title={action?.title || account.nextEngagement}
-          side={action && <strong>{action.priorityScore}</strong>}
-        />
-        <p>{action?.rationale || copy.overview.deepenContext}</p>
-        {action && (
-          <>
-            <dl>
-              <div>
-                <dt>{copy.overview.whyNow}</dt>
-                <dd>{action.whyNow}</dd>
-              </div>
-              <div>
-                <dt>{copy.overview.expectedOutcome}</dt>
-                <dd>{action.expectedOutcome}</dd>
-              </div>
-              <div>
-                <dt>{copy.overview.stakeholder}</dt>
-                <dd>{conversation?.stakeholder || copy.overview.identify}</dd>
-              </div>
-            </dl>
-            <div className="v5-action-buttons">
-              {privateMode && (
-                <>
-                  <Button
-                    size="sm"
-                    onClick={() => onDecision(action, "accepted")}
-                  >
-                    {copy.home.accept}
-                  </Button>
-                  <Button
-                    size="sm"
-                    kind="tertiary"
-                    onClick={() => onEditAction(action)}
-                  >
-                    {copy.overview.editSnooze}
-                  </Button>
-                </>
-              )}
-              <button onClick={() => onMode("strategy")}>
-                {copy.overview.viewStrategy} <ArrowRight />
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.overview.trustedMemory}
-          title={copy.overview.knownAssumedMissing}
-        />
-        <div className="v5-memory-summary">
-          <MemoryMini
-            title={copy.overview.known}
-            count={memory?.known.length || 0}
-            tone="known"
-            items={memory?.known || []}
-          />
-          <MemoryMini
-            title={copy.overview.assumed}
-            count={memory?.assumptions.length || 0}
-            tone="assumption"
-            items={memory?.assumptions || []}
-          />
-          <MemoryMini
-            title={copy.overview.missing}
-            count={memory?.gaps.length || 0}
-            tone="gap"
-            items={memory?.gaps || []}
-          />
-          <MemoryMini
-            title={copy.overview.stale}
-            count={
-              events.filter((item) => item.evidenceStatus === "stale").length
-            }
-            tone="stale"
-            items={events
-              .filter((item) => item.evidenceStatus === "stale")
-              .map((item) => item.title)}
-          />
-        </div>
-        <button className="v5-text-action" onClick={() => onMode("activity")}>
-          {copy.overview.exploreSources} <ArrowRight />
-        </button>
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.overview.nextConversation}
-          title={conversation?.stakeholder || copy.overview.stakeholderUnknown}
-        />
-        <div className="v5-conversation-detail">
-          <Tag type="cyan">
-            {conversation?.theme ||
-              hypotheses[0]?.capabilityKey ||
-              copy.overview.discovery}
-          </Tag>
-          <p>{conversation?.opener || copy.overview.validateProblem}</p>
-          <ol>
-            {conversation?.questions?.map((item, index) => (
-              <li key={`${index}-${item}`}>{item}</li>
-            ))}
-          </ol>
-          <div>
-            <strong>{copy.overview.possibleObjection}</strong>
-            <span>
-              {conversation?.objection || copy.overview.objectionUnknown}
-            </span>
-          </div>
-          <div>
-            <strong>{copy.overview.successCriterion}</strong>
-            <span>
-              {conversation?.successCriterion || copy.overview.successUnknown}
-            </span>
-          </div>
-        </div>
-      </section>
-      <section className="v5-card v5-span-2">
-        <CardHeader
-          eyebrow={copy.overview.hypotheses}
-          title={copy.overview.gainingStrength}
-          side={
-            <button
-              className="v5-text-action"
-              onClick={() => onMode("strategy")}
-            >
-              {copy.overview.openStrategy}
-            </button>
-          }
-        />
-        <div className="v5-hypothesis-grid">
-          {hypotheses.slice(0, 3).map((hypothesis) => (
-            <article key={hypothesis.id}>
-              <header>
-                <Tag type={statusTone(hypothesis.stage)}>
-                  {statusLabels[hypothesis.stage] ||
-                    localizeSystemValue(locale, hypothesis.stage)}
-                </Tag>
-                <strong>{hypothesis.confidence}%</strong>
-              </header>
-              <h3>{hypothesis.title}</h3>
-              <p>{hypothesis.problem}</p>
-              <small>{hypothesis.gaps[0] || hypothesis.nextStep}</small>
-            </article>
-          ))}
-          {!hypotheses.length && <Empty text={copy.overview.noHypotheses} />}
-        </div>
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.overview.politicalMap}
-          title={copy.overview.keyStakeholders}
-          side={
-            <button
-              className="v5-text-action"
-              onClick={() => onMode("relationships")}
-            >
-              {copy.overview.explore}
-            </button>
-          }
-        />
-        <div className="v5-people-list">
-          {stakeholders.slice(0, 5).map((person) => (
-            <button key={person.id} onClick={() => onMode("relationships")}>
-              <span>
-                {person.name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .slice(0, 2)}
-              </span>
-              <div>
-                <strong>{person.name}</strong>
-                <small>
-                  {person.role} ·{" "}
-                  {localizeSystemValue(locale, person.influence)}
-                </small>
-              </div>
-              <Tag
-                type={
-                  person.stance === "Aliado"
-                    ? "green"
-                    : person.stance === "Resistente"
-                      ? "red"
-                      : "gray"
-                }
-              >
-                {localizeSystemValue(locale, person.stance)}
-              </Tag>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function AccountActivity({
-  account,
-  memory,
-  events,
-  meetings,
-  documents,
-  privateMode,
-  saving,
-  onMeeting,
-  onUpload,
-  conversationReview,
-  conversationImpact,
-  logicalPipeline,
-  impactMetric,
-  onReview,
-  onEvidence,
-}: {
-  account: Discovery;
-  memory?: Memory;
-  events: AccountEvent[];
-  meetings: Meeting[];
-  documents: AccountDocument[];
-  privateMode: boolean;
-  saving: boolean;
-  onMeeting: (payload: Record<string, unknown>) => void | Promise<void>;
-  onUpload: (file: File) => void;
-  conversationReview: CommercialChangeSet | null;
-  conversationImpact: ReturnType<typeof conversationImpactFromChangeSet>;
-  logicalPipeline: LogicalAgentRun[];
-  impactMetric: AccountImpactMetric | null;
-  onReview: (status: "approved" | "rejected") => void | Promise<void>;
-  onEvidence: (sourceId: string) => void;
-}) {
-  const { locale, copy, text, formatDate } = usePageCopy();
-  return (
-    <div className="v5-activity-grid">
-      <section className="v5-card v5-span-2">
-        <CardHeader
-          eyebrow={copy.activity.accountMemory}
-          title={copy.activity.memoryTitle}
-          side={
-            <Tag type="gray">
-              {visibleProviderLabel(memory?.aiStatus, copy)}
-            </Tag>
-          }
-        />
-        <div className="v5-memory-board">
-          <MemoryColumn
-            title={copy.overview.known}
-            tone="known"
-            items={memory?.known || []}
-          />
-          <MemoryColumn
-            title={copy.overview.assumed}
-            tone="assumption"
-            items={memory?.assumptions || []}
-          />
-          <MemoryColumn
-            title={copy.overview.missing}
-            tone="gap"
-            items={memory?.gaps || []}
-          />
-          <MemoryColumn
-            title={copy.overview.stale}
-            tone="stale"
-            items={events
-              .filter((item) => item.evidenceStatus === "stale")
-              .map((item) => item.title)}
-          />
-        </div>
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.activity.meetings}
-          title={text(copy.activity.recordAt, {
-            account: account.customerName,
-          })}
-        />
-        <div className="v5-meeting-list">
-          {meetings.slice(0, 3).map((meeting) => (
-            <article id={`meeting-${meeting.id}`} key={meeting.id}>
-              <Calendar />
-              <span>
-                <strong>{meeting.title}</strong>
-                <small>
-                  {meeting.meetingStatus
-                    ? localizeSystemValue(locale, meeting.meetingStatus)
-                    : copy.activity.concluded}{" "}
-                  · {formatDate(meeting.scheduledAt || meeting.createdAt)}
-                </small>
-                {(meeting.summary || meeting.notes) && (
-                  <TranslatableText
-                    key={`${meeting.id}-${locale}`}
-                    accountId={account.id}
-                    sourceType="meeting"
-                    sourceId={meeting.id}
-                    text={meeting.summary || meeting.notes}
-                    privateMode={privateMode}
-                  />
-                )}
-              </span>
-            </article>
-          ))}
-        </div>
-        <MeetingForm
-          onSave={onMeeting}
-          saving={saving}
-          readonly={!privateMode}
-        />
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.activity.documents}
-          title={copy.activity.retrievableSources}
-          side={
-            privateMode ? (
-              <label className="v5-upload">
-                {copy.activity.add}
-                <input
-                  type="file"
-                  accept=".pdf,.docx,.txt,.md"
-                  onChange={(event) =>
-                    event.target.files?.[0] && onUpload(event.target.files[0])
-                  }
-                />
-              </label>
-            ) : undefined
-          }
-        />
-        <div className="v5-document-list">
-          {documents.map((document) => (
-            <article id={`document-${document.id}`} key={document.id}>
-              <Document />
-              <span>
-                <strong>{document.name}</strong>
-                <small>
-                  {localizeSystemValue(locale, document.status)} ·{" "}
-                  {(document.sizeBytes / 1024).toFixed(0)} KB
-                </small>
-                <p>{document.summary}</p>
-              </span>
-            </article>
-          ))}
-          {!documents.length && (
-            <Empty
-              text={
-                privateMode
-                  ? copy.activity.documentTypes
-                  : copy.activity.privateDocuments
-              }
-            />
-          )}
-        </div>
-      </section>
-      {conversationReview && (
-        <ConversationImpactPanel
-          key={`${conversationReview.id}-${conversationReview.status}`}
-          className="v5-span-2"
-          locale={locale}
-          reviewId={conversationReview.id}
-          accountName={account.customerName}
-          sourceLabel={
-            meetings.find(
-              (meeting) => meeting.id === conversationReview.sourceId,
-            )?.title || conversationReview.sourceType
-          }
-          analyzedAt={conversationReview.createdAt}
-          scoreDeltas={conversationImpact.scoreDeltas}
-          addedFindings={conversationImpact.addedFindings}
-          changes={conversationImpact.changes}
-          readOnly={
-            !privateMode || conversationReview.status !== "pending_review"
-          }
-          busy={saving}
-          onApprove={() => onReview("approved")}
-          onReject={() => onReview("rejected")}
-        />
-      )}
-      <AnalysisPipelinePanel
-        className="v5-span-2"
-        locale={locale}
-        runs={logicalPipeline}
-        generatedAt={
-          logicalPipeline[0] ? conversationReview?.createdAt : undefined
-        }
-        fallbackReason={
-          locale === "pt-BR"
-            ? "Nenhuma credencial de modelo está configurada; os módulos executaram regras transparentes."
-            : "No model credential is configured; the modules ran transparent rules."
-        }
-        onSourceSelect={(source) => onEvidence(source.id)}
-      />
-      {impactMetric && (
-        <ImpactMetricsPanel
-          className="v5-span-2"
-          locale={locale}
-          metrics={impactDataForPanel(impactMetric)}
-        />
-      )}
-      <section className="v5-card v5-span-2" id="account-evidence-timeline">
-        <CardHeader
-          eyebrow={copy.activity.timeline}
-          title={copy.activity.timelineTitle}
-        />
-        <div className="v5-timeline">
-          {events.map((event) => (
-            <article id={`source-${event.sourceId || event.id}`} key={event.id}>
-              <i className={event.evidenceStatus} />
-              <div>
-                <span>
-                  {localizeSystemValue(locale, event.sourceType)} ·{" "}
-                  {event.confidence}% {copy.copilot.trust}
-                </span>
-                <h3>{event.title}</h3>
-                <TranslatableText
-                  key={`${event.id}-${locale}`}
-                  accountId={account.id}
-                  sourceType="account_event"
-                  sourceId={event.id}
-                  text={event.content}
-                  privateMode={privateMode}
-                />
-                <small>{formatDate(event.occurredAt)}</small>
-              </div>
-              <Tag
-                type={
-                  event.evidenceStatus === "confirmed"
-                    ? "green"
-                    : event.evidenceStatus === "assumption"
-                      ? "purple"
-                      : event.evidenceStatus === "stale"
-                        ? "warm-gray"
-                        : "red"
-                }
-              >
-                {localizeSystemValue(locale, event.evidenceStatus)}
-              </Tag>
-            </article>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function detectedContentLocale(value: string): Locale | null {
-  if (
-    /[ãõçáéíóúâêôà]/i.test(value) ||
-    /\b(não|reunião|conta|dados|evidência|risco|prazo|próximo)\b/i.test(value)
-  )
-    return "pt-BR";
-  if (
-    /\b(the|and|account|meeting|evidence|risk|next|customer|cloud)\b/i.test(
-      value,
-    )
-  )
-    return "en-US";
-  return null;
-}
-
-function localizeCitationSystemText(value: string, locale: Locale) {
-  if (locale === "pt-BR") return value;
-  return value
-    .replace(/^Documento\b/, "Document")
-    .replace(/ · pág\. /g, " · p. ")
-    .replace(/(^| )Prioridades:/g, "$1Priorities:")
-    .replace(/(^| )Área:/g, "$1Area:")
-    .replace(/(^| )Influência:/g, "$1Influence:")
-    .replace(/(^| )Postura:/g, "$1Stance:")
-    .replace(/(^| )Próximo passo:/g, "$1Next step:")
-    .replace(/(^| )Lacunas:/g, "$1Gaps:");
-}
-
-function TranslatableText({
-  accountId,
-  sourceType,
-  sourceId,
-  text: originalText,
-  privateMode,
-}: {
-  accountId: string;
-  sourceType: "account_event" | "meeting";
-  sourceId: string;
-  text: string;
-  privateMode: boolean;
-}) {
-  const { locale, copy, text } = usePageCopy();
-  const sourceLocale = detectedContentLocale(originalText);
-  const [translatedText, setTranslatedText] = useState("");
-  const [provider, setProvider] = useState("");
-  const [expanded, setExpanded] = useState(false);
-  const [loadingTranslation, setLoadingTranslation] = useState(false);
-  const [translationError, setTranslationError] = useState("");
-
-  const translate = async () => {
-    if (translatedText) {
-      setExpanded((current) => !current);
-      return;
-    }
-    setLoadingTranslation(true);
-    setTranslationError("");
-    const response = await fetch(`/api/accounts/${accountId}/translations`, {
-      method: "POST",
-      headers: localeRequestHeaders(locale, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({
-        sourceRef: { type: sourceType, id: sourceId },
-        targetLocale: locale,
-        responseLocale: locale,
-      }),
-    });
-    const payload = (await response.json().catch(() => ({}))) as {
-      translatedText?: string;
-      provider?: string;
-      error?: string;
-    };
-    if (response.ok && payload.translatedText) {
-      setTranslatedText(payload.translatedText);
-      setProvider(visibleProviderLabel(payload.provider || "AI", copy));
-      setExpanded(true);
-    } else setTranslationError(payload.error || copy.translation.unavailable);
-    setLoadingTranslation(false);
-  };
-
-  const originalLabel =
-    sourceLocale === "pt-BR"
-      ? copy.translation.originalPortuguese
-      : sourceLocale === "en-US"
-        ? copy.translation.originalEnglish
-        : copy.translation.originalUnknown;
-  const canTranslate = privateMode && sourceLocale !== locale;
-  return (
-    <div className="v5-translatable">
-      <p>{originalText}</p>
-      <div className="v5-translation-controls">
-        <span>{originalLabel}</span>
-        {canTranslate && (
-          <button
-            type="button"
-            disabled={loadingTranslation}
-            onClick={() => void translate()}
-          >
-            {loadingTranslation
-              ? copy.translation.loading
-              : expanded
-                ? copy.translation.hide
-                : copy.translation.view}
-          </button>
-        )}
-      </div>
-      {expanded && translatedText && (
-        <blockquote>
-          <small>{text(copy.translation.translatedBy, { provider })}</small>
-          {translatedText}
-        </blockquote>
-      )}
-      {translationError && (
-        <small role="status" className="v5-translation-error">
-          {translationError}
-        </small>
-      )}
-    </div>
-  );
-}
-
-function AccountStrategy({
-  account,
-  capabilityRows,
-  hypotheses,
-  actions,
-  plan,
-  signals,
-  privateMode,
-  saving,
-  onDecision,
-  onSavePlan,
-  onSuggest,
-  onApply,
-  onResearch,
-  onEvidence,
-  onHandoff,
-}: {
-  account: Discovery;
-  capabilityRows: CapabilityHealthRow[];
-  hypotheses: Hypothesis[];
-  actions: Action[];
-  plan?: Plan;
-  signals: ExternalSignal[];
-  privateMode: boolean;
-  saving: boolean;
-  onDecision: (
-    action: Action,
-    status: string,
-    extras?: Record<string, unknown>,
-  ) => void;
-  onSavePlan: (payload: Record<string, unknown>) => void;
-  onSuggest: () => void;
-  onApply: () => void;
-  onResearch: () => void;
-  onEvidence: (source: string) => void;
-  onHandoff: (hypothesisId?: string) => void | Promise<void>;
-}) {
-  const { locale, copy, statusLabels, playbooks } = usePageCopy();
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    plan
-      ? Object.fromEntries(
-          [
-            "priorities",
-            "initiatives",
-            "objectives",
-            "risks",
-            "ecosystem",
-            "relationship",
-            "plan30",
-            "plan60",
-            "plan90",
-          ].map((key) => [
-            key,
-            ((plan as unknown as Record<string, string[]>)[key] || []).join(
-              "\n",
-            ),
-          ]),
-        )
-      : {},
-  );
-  const changeSignalStatus = (
-    signalId: string,
-    status: "approved" | "discarded",
-  ) =>
-    void fetch("/api/accounts", {
-      method: "POST",
-      headers: localeRequestHeaders(locale, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({
-        action: "external_signal_status",
-        id: account.id,
-        signalId,
-        status,
-        scope: "private",
-        responseLocale: locale,
-      }),
-    }).then(() => window.location.reload());
-  const planFields = [
-    ["priorities", copy.strategy.priorities],
-    ["initiatives", copy.strategy.initiatives],
-    ["objectives", copy.strategy.objectives],
-    ["risks", copy.strategy.risks],
-    ["ecosystem", copy.strategy.ecosystem],
-    ["relationship", copy.strategy.relationshipPlan],
-  ];
-  const horizons = [
-    ["plan30", copy.strategy.days30],
-    ["plan60", copy.strategy.days60],
-    ["plan90", copy.strategy.days90],
-  ];
-  return (
-    <div className="v5-strategy-layout">
-      <div className="v5-span-3">
-        <CapabilityHealthHeatmap
-          rows={capabilityRows}
-          locale={locale}
-          onCellActivate={() =>
-            document
-              .querySelector(".v5-playbooks")
-              ?.scrollIntoView({ behavior: "smooth", block: "center" })
-          }
-          onEvidenceActivate={(source) => onEvidence(source)}
-        />
-      </div>
-      <section className="v5-card v5-span-2">
-        <CardHeader
-          eyebrow={copy.strategy.ibmThemes}
-          title={copy.strategy.capabilityTitle}
-          side={<Tag type="cyan">{copy.strategy.carbonPattern}</Tag>}
-        />
-        <div className="v5-playbooks">
-          {account.scores.slice(0, 3).map((score) => {
-            const book = playbooks.find(
-              (item) =>
-                item.key === score.short || item.canonicalKey === score.short,
-            );
-            return (
-              <article key={score.short}>
-                <header>
-                  <Tag
-                    type={
-                      score.alignment >= 70
-                        ? "red"
-                        : score.alignment >= 40
-                          ? "purple"
-                          : "gray"
-                    }
-                  >
-                    {score.alignment}% {copy.strategy.alignment}
-                  </Tag>
-                  <strong>{score.short}</strong>
-                </header>
-                <p>{book?.product || score.name}</p>
-                <small>{copy.strategy.recommendedQuestion}</small>
-                <blockquote>{book?.question || score.action}</blockquote>
-                <footer>
-                  {book?.workshop || copy.playbooks.defaultWorkshop}
-                </footer>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.strategy.hypotheses}
-          title={copy.strategy.preCrmMaturity}
-        />
-        <div className="v5-hypothesis-stack">
-          {hypotheses.map((hypothesis) => (
-            <article key={hypothesis.id}>
-              <header>
-                <Tag type={statusTone(hypothesis.stage)}>
-                  {statusLabels[hypothesis.stage] ||
-                    localizeSystemValue(locale, hypothesis.stage)}
-                </Tag>
-                <strong>{hypothesis.confidence}%</strong>
-              </header>
-              <h3>{hypothesis.capabilityKey}</h3>
-              <p>{hypothesis.problem}</p>
-              <div>
-                <small>{copy.strategy.pendingCriteria}</small>
-                {hypothesis.gaps.map((gap, index) => (
-                  <span key={`${index}-${gap}`}>○ {gap}</span>
-                ))}
-              </div>
-              <footer>{hypothesis.nextStep}</footer>
-            </article>
-          ))}
-        </div>
-      </section>
-      <section className="v5-card">
-        <CardHeader
-          eyebrow={copy.strategy.publicResearch}
-          title={copy.strategy.proposedSignals}
-          side={
-            privateMode && account.dataClassification === "test" ? (
-              <Button
-                size="sm"
-                kind="tertiary"
-                renderIcon={Search}
-                onClick={onResearch}
-              >
-                {copy.strategy.research}
-              </Button>
-            ) : undefined
-          }
-        />
-        {account.dataClassification === "confidential" && (
-          <InlineNotification
-            kind="warning"
-            lowContrast
-            title={copy.strategy.geminiBlocked}
-            subtitle={copy.strategy.confidentialFallback}
-            hideCloseButton
-          />
-        )}
-        {signals.map((signal) => (
-          <article className="v5-signal" key={signal.id}>
-            <Tag
-              type={
-                signal.status === "approved"
-                  ? "green"
-                  : signal.status === "discarded"
-                    ? "gray"
-                    : "purple"
-              }
-            >
-              {localizeSystemValue(locale, signal.status)}
-            </Tag>
-            <h3>{signal.title}</h3>
-            <p>{signal.summary}</p>
-            <a href={signal.sourceUrl} target="_blank" rel="noreferrer">
-              {signal.publisher || copy.strategy.openSource} <Launch />
-            </a>
-            {privateMode && signal.status === "proposed" && (
-              <div>
-                <button
-                  onClick={() => changeSignalStatus(signal.id, "approved")}
-                >
-                  {copy.strategy.approve}
-                </button>
-                <button
-                  onClick={() => changeSignalStatus(signal.id, "discarded")}
-                >
-                  {copy.strategy.discard}
-                </button>
-              </div>
-            )}
-          </article>
-        ))}
-        {!signals.length && <Empty text={copy.strategy.noSignals} />}
-      </section>
-      <section className="v5-card v5-span-3">
-        <CardHeader
-          eyebrow={copy.strategy.accountPlan}
-          title={copy.strategy.humanPlan}
-          side={
-            <div className="v5-inline-actions">
-              <Button
-                size="sm"
-                kind="tertiary"
-                disabled={!privateMode || saving}
-                onClick={onSuggest}
-              >
-                {copy.strategy.generateSuggestion}
-              </Button>
-              <Button
-                size="sm"
-                disabled={!privateMode || saving}
-                onClick={() => onSavePlan(draft)}
-              >
-                {copy.strategy.savePlan}
-              </Button>
-            </div>
-          }
-        />
-        <div className="v5-plan-grid">
-          {planFields.map(([key, label]) => (
-            <label key={key}>
-              <span>{label}</span>
-              <textarea
-                value={draft[key] || ""}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    [key]: event.target.value,
-                  }))
-                }
-                rows={4}
-                disabled={!privateMode}
-              />
-            </label>
-          ))}
-        </div>
-        <div className="v5-horizons">
-          {horizons.map(([key, label]) => (
-            <label key={key}>
-              <strong>{label}</strong>
-              <textarea
-                value={draft[key] || ""}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    [key]: event.target.value,
-                  }))
-                }
-                rows={6}
-                disabled={!privateMode}
-              />
-            </label>
-          ))}
-        </div>
-        {plan?.suggestion && Object.keys(plan.suggestion).length > 0 && (
-          <div className="v5-plan-suggestion">
-            <header>
-              <span>
-                <WatsonHealthTextAnnotationToggle /> {copy.strategy.aiProposal}
-              </span>
-              <Tag type="purple">{copy.strategy.compareBeforeApply}</Tag>
-            </header>
-            <div>
-              {Object.entries(plan.suggestion)
-                .slice(0, 5)
-                .map(([key, items]) => (
-                  <article key={key}>
-                    <strong>{key}</strong>
-                    {items.map((item, index) => (
-                      <p key={`${index}-${item}`}>+ {item}</p>
-                    ))}
-                  </article>
-                ))}
-            </div>
-            <Button size="sm" disabled={!privateMode} onClick={onApply}>
-              {copy.strategy.approveApply}
-            </Button>
-          </div>
-        )}
-      </section>
-      <section className="v5-card v5-span-3">
-        <CardHeader
-          eyebrow={copy.strategy.decisions}
-          title={copy.strategy.actionsHandoff}
-          side={
-            <Button
-              size="sm"
-              kind="tertiary"
-              disabled={saving}
-              onClick={() =>
-                onHandoff(
-                  hypotheses.find(
-                    (hypothesis) => hypothesis.stage === "qualified",
-                  )?.id || hypotheses[0]?.id,
-                )
-              }
-            >
-              {copy.strategy.copyCrm}
-            </Button>
-          }
-        />
-        <div className="v5-action-table">
-          {actions.map((action) => (
-            <article key={action.id}>
-              <span>
-                <Tag type={statusTone(action.status)}>
-                  {statusLabels[action.status] ||
-                    localizeSystemValue(locale, action.status)}
-                </Tag>
-                <strong>{action.title}</strong>
-                <small>{action.nextStep}</small>
-              </span>
-              <em>{action.priorityScore}</em>
-              {privateMode && action.status === "proposal" && (
-                <Button
-                  size="sm"
-                  onClick={() => onDecision(action, "accepted")}
-                >
-                  {copy.home.accept}
-                </Button>
-              )}
-              {action.type === "crm_handoff" && (
-                <Button
-                  size="sm"
-                  kind="tertiary"
-                  disabled={saving}
-                  onClick={() =>
-                    onHandoff(
-                      hypotheses.find(
-                        (hypothesis) => hypothesis.stage === "qualified",
-                      )?.id || hypotheses[0]?.id,
-                    )
-                  }
-                >
-                  {copy.strategy.copyCrm}
-                </Button>
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
@@ -5228,6 +3932,8 @@ function StakeholderModal({
   account,
   stakeholder,
   people,
+  capabilities,
+  assignments,
   saving,
   onClose,
   onSave,
@@ -5236,11 +3942,13 @@ function StakeholderModal({
   account?: Discovery;
   stakeholder: Stakeholder | null;
   people: Stakeholder[];
+  capabilities: Array<{ key: string; label: string; description?: string }>;
+  assignments: StakeholderCapabilityAssignmentRecord[];
   saving: boolean;
   onClose: () => void;
   onSave: (payload: Record<string, unknown>) => void;
 }) {
-  const { dictionary, copy, text } = usePageCopy();
+  const { locale, dictionary, copy, text } = usePageCopy();
   return (
     <ComposedModal open={open} onClose={onClose} size="md">
       <ModalHeader
@@ -5257,9 +3965,39 @@ function StakeholderModal({
           className="v5-form two"
           onSubmit={(event) => {
             event.preventDefault();
-            onSave(
-              Object.fromEntries(new FormData(event.currentTarget).entries()),
+            const formData = new FormData(event.currentTarget);
+            const base = Object.fromEntries(
+              [...formData.entries()].filter(
+                ([key]) =>
+                  !key.startsWith("capability:") &&
+                  !key.startsWith("capabilityRole:"),
+              ),
             );
+            onSave({
+              ...base,
+              capabilityAssignments: capabilities
+                .filter((capability) =>
+                  formData.has(`capability:${capability.key}`),
+                )
+                .map((capability) => {
+                  const existing = assignments.find(
+                    (item) => item.capabilityKey === capability.key,
+                  );
+                  return {
+                    capabilityKey: capability.key,
+                    role: String(
+                      formData.get(`capabilityRole:${capability.key}`) ||
+                        existing?.role ||
+                        "influencer",
+                    ),
+                    status: "confirmed",
+                    confidence: existing?.confidence || 100,
+                    sourceType: existing?.sourceType || "manual",
+                    sourceId: existing?.sourceId || null,
+                    evidence: existing?.evidence || [],
+                  };
+                }),
+            });
           }}
         >
           <TextInput
@@ -5333,6 +4071,69 @@ function StakeholderModal({
             rows={5}
             defaultValue={stakeholder?.notes}
           />
+          <fieldset className="v4-capability-assignments">
+            <legend>
+              {copy.modes.relationships} · {copy.modes.discovery}
+            </legend>
+            <p>
+              {locale === "pt-BR"
+                ? "Selecione as capabilities pelas quais esta pessoa é responsável e defina seu papel."
+                : "Select the capabilities this person is responsible for and define their role."}
+            </p>
+            <div>
+              {capabilities.map((capability) => {
+                const assignment = assignments.find(
+                  (item) => item.capabilityKey === capability.key,
+                );
+                return (
+                  <div className="v4-capability-assignment-row" key={capability.key}>
+                    <Checkbox
+                      id={`stakeholder-capability-${capability.key}`}
+                      name={`capability:${capability.key}`}
+                      labelText={capability.label}
+                      defaultChecked={Boolean(assignment)}
+                    />
+                    <Select
+                      id={`stakeholder-capability-role-${capability.key}`}
+                      name={`capabilityRole:${capability.key}`}
+                      labelText={
+                        locale === "pt-BR" ? "Papel" : "Role"
+                      }
+                      hideLabel
+                      size="sm"
+                      defaultValue={assignment?.role || "influencer"}
+                    >
+                      <SelectItem value="owner" text="Owner" />
+                      <SelectItem
+                        value="decision_maker"
+                        text={
+                          locale === "pt-BR"
+                            ? "Decisor"
+                            : "Decision maker"
+                        }
+                      />
+                      <SelectItem
+                        value="influencer"
+                        text={
+                          locale === "pt-BR"
+                            ? "Influenciador"
+                            : "Influencer"
+                        }
+                      />
+                      <SelectItem
+                        value="technical_contact"
+                        text={
+                          locale === "pt-BR"
+                            ? "Contato técnico"
+                            : "Technical contact"
+                        }
+                      />
+                    </Select>
+                  </div>
+                );
+              })}
+            </div>
+          </fieldset>
         </form>
       </ModalBody>
       <ModalFooter>
@@ -5347,269 +4148,209 @@ function StakeholderModal({
   );
 }
 
-function ActionModal({
+function CapabilityAssignmentModal({
   open,
-  action,
+  account,
+  capability,
+  people,
   saving,
   onClose,
   onSave,
 }: {
   open: boolean;
-  action: Action | null;
+  account?: Discovery;
+  capability?: { key: string; label: string; description?: string };
+  people: Stakeholder[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (payload: {
+    stakeholderId: string;
+    role: "owner" | "decision_maker" | "influencer" | "technical_contact";
+  }) => void;
+}) {
+  const { locale, copy, dictionary } = usePageCopy();
+  return (
+    <ComposedModal open={open} onClose={onClose} size="sm">
+      <ModalHeader
+        title={locale === "pt-BR" ? "Atribuir capability" : "Assign capability"}
+        label={`${account?.customerName || dictionary.common.account} · ${capability?.label || ""}`}
+      />
+      <ModalBody>
+        <form
+          id="capability-assignment-form"
+          className="v5-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            onSave({
+              stakeholderId: String(formData.get("stakeholderId") || ""),
+              role: String(formData.get("role") || "owner") as
+                | "owner"
+                | "decision_maker"
+                | "influencer"
+                | "technical_contact",
+            });
+          }}
+        >
+          {capability?.description && <p>{capability.description}</p>}
+          {people.length ? (
+            <>
+              <Select
+                id="capability-assignment-person"
+                name="stakeholderId"
+                labelText={locale === "pt-BR" ? "Pessoa" : "Person"}
+                defaultValue={people[0]?.id}
+              >
+                {people.map((person) => (
+                  <SelectItem
+                    key={person.id}
+                    value={person.id}
+                    text={`${person.name} · ${person.role}`}
+                  />
+                ))}
+              </Select>
+              <Select
+                id="capability-assignment-role"
+                name="role"
+                labelText={locale === "pt-BR" ? "Responsabilidade" : "Responsibility"}
+                defaultValue="owner"
+              >
+                <SelectItem value="owner" text="Owner" />
+                <SelectItem
+                  value="decision_maker"
+                  text={locale === "pt-BR" ? "Decisor" : "Decision maker"}
+                />
+                <SelectItem
+                  value="influencer"
+                  text={locale === "pt-BR" ? "Influenciador" : "Influencer"}
+                />
+                <SelectItem
+                  value="technical_contact"
+                  text={locale === "pt-BR" ? "Contato técnico" : "Technical contact"}
+                />
+              </Select>
+            </>
+          ) : (
+            <InlineNotification
+              kind="info"
+              lowContrast
+              hideCloseButton
+              title={locale === "pt-BR" ? "Adicione uma pessoa primeiro" : "Add a person first"}
+              subtitle={
+                locale === "pt-BR"
+                  ? "O organograma precisa de pelo menos uma pessoa antes de atribuir responsabilidades."
+                  : "The relationship map needs at least one person before responsibilities can be assigned."
+              }
+            />
+          )}
+        </form>
+      </ModalBody>
+      <ModalFooter>
+        <Button kind="secondary" onClick={onClose}>
+          {copy.modal.cancel}
+        </Button>
+        <Button
+          type="submit"
+          form="capability-assignment-form"
+          disabled={saving || !people.length || !capability}
+        >
+          {saving
+            ? locale === "pt-BR"
+              ? "Salvando…"
+              : "Saving…"
+            : locale === "pt-BR"
+              ? "Atribuir"
+              : "Assign"}
+        </Button>
+      </ModalFooter>
+    </ComposedModal>
+  );
+}
+
+function AccountPlanModal({
+  open,
+  account,
+  plan,
+  saving,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  account?: Discovery;
+  plan?: Plan;
   saving: boolean;
   onClose: () => void;
   onSave: (payload: Record<string, unknown>) => void;
 }) {
-  const { copy } = usePageCopy();
+  const { locale, copy, dictionary } = usePageCopy();
+  const fields = [
+    ["priorities", copy.strategy.priorities],
+    ["objectives", copy.strategy.objectives],
+    ["initiatives", copy.strategy.initiatives],
+    ["risks", copy.strategy.risks],
+    ["relationship", copy.strategy.relationshipPlan],
+    ["ecosystem", copy.strategy.ecosystem],
+    ["plan30", copy.strategy.days30],
+    ["plan60", copy.strategy.days60],
+    ["plan90", copy.strategy.days90],
+  ] as const;
   return (
-    <ComposedModal open={open} onClose={onClose} size="sm">
+    <ComposedModal open={open} onClose={onClose} size="lg">
       <ModalHeader
-        title={copy.modal.editDecision}
-        label={action?.title || copy.home.nextBestAction}
+        title={copy.strategy.humanPlan}
+        label={account?.customerName || dictionary.common.account}
       />
-      <ModalBody>
-        <form
-          id="action-form"
-          className="v5-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSave({
-              ...Object.fromEntries(
-                new FormData(event.currentTarget).entries(),
-              ),
-              edited: true,
-            });
-          }}
-        >
-          <TextInput
-            id="action-title"
-            name="title"
-            labelText={copy.modal.action}
-            defaultValue={action?.title}
-          />
-          <TextArea
-            id="action-next-step"
-            name="nextStep"
-            labelText={copy.modal.nextStep}
-            defaultValue={action?.nextStep}
-            rows={4}
-          />
-          <Select
-            id="action-status"
-            name="status"
-            labelText={copy.modal.decision}
-            defaultValue={action?.status || "proposal"}
-          >
-            <SelectItem value="accepted" text={copy.modal.accept} />
-            <SelectItem value="in_progress" text={copy.status.inProgress} />
-            <SelectItem value="snoozed" text={copy.modal.snooze} />
-            <SelectItem value="completed" text={copy.modal.complete} />
-            <SelectItem value="discarded" text={copy.modal.discard} />
-          </Select>
-          <TextInput
-            id="action-date"
-            name="snoozedUntil"
-            type="date"
-            labelText={copy.modal.snoozeUntil}
-          />
-          <TextArea
-            id="action-reason"
-            name="reason"
-            labelText={copy.modal.reasonFeedback}
-            rows={3}
-            helperText={copy.modal.reasonHelp}
-          />
-        </form>
-      </ModalBody>
-      <ModalFooter>
-        <Button kind="secondary" onClick={onClose}>
-          {copy.modal.cancel}
-        </Button>
-        <Button type="submit" form="action-form" disabled={saving}>
-          {copy.modal.registerDecision}
-        </Button>
-      </ModalFooter>
-    </ComposedModal>
-  );
-}
-
-function ResearchModal({
-  open,
-  account,
-  saving,
-  onClose,
-  onResearch,
-}: {
-  open: boolean;
-  account?: Discovery;
-  saving: boolean;
-  onClose: () => void;
-  onResearch: (payload: Record<string, unknown>) => void;
-}) {
-  const { copy } = usePageCopy();
-  return (
-    <ComposedModal open={open} onClose={onClose} size="sm">
-      <ModalHeader
-        title={copy.modal.researchSignals}
-        label={copy.modal.researchLabel}
-      />
-      <ModalBody>
+      <ModalBody hasScrollingContent>
         <InlineNotification
-          kind="warning"
+          kind="info"
           lowContrast
-          title={copy.modal.confirmCompany}
-          subtitle={copy.modal.confirmCompanyHelp}
           hideCloseButton
+          title={
+            locale === "pt-BR"
+              ? "O conteúdo humano sempre prevalece"
+              : "Human-authored content always takes precedence"
+          }
+          subtitle={
+            locale === "pt-BR"
+              ? "Uma linha por item. Nenhuma recomendação será aplicada sem sua confirmação."
+              : "Use one line per item. No recommendation is applied without your confirmation."
+          }
         />
-        <form
-          id="research-form"
-          className="v5-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onResearch({
-              ...Object.fromEntries(
-                new FormData(event.currentTarget).entries(),
-              ),
-              confirmed: true,
-            });
-          }}
-        >
-          <TextInput
-            id="research-name"
-            name="companyName"
-            labelText={copy.modal.exactName}
-            defaultValue={account?.customerName}
-            required
-          />
-          <TextInput
-            id="research-domain"
-            name="domain"
-            labelText={copy.modal.officialDomain}
-            defaultValue={account?.companyDomain || ""}
-            required
-            placeholder={copy.settings.domainPlaceholder}
-          />
-          <TextArea
-            id="research-question"
-            name="question"
-            labelText={copy.modal.researchFocus}
-            rows={4}
-            defaultValue={copy.modal.researchDefault}
-          />
+        <form id="v4-account-plan-form" className="v5-form two">
+          {fields.map(([key, label]) => (
+            <TextArea
+              key={key}
+              id={`v4-plan-${key}`}
+              name={key}
+              labelText={label}
+              rows={4}
+              defaultValue={
+                ((plan as unknown as Record<string, string[]> | undefined)?.[
+                  key
+                ] || []).join("\n")
+              }
+            />
+          ))}
         </form>
       </ModalBody>
       <ModalFooter>
         <Button kind="secondary" onClick={onClose}>
           {copy.modal.cancel}
         </Button>
-        <Button type="submit" form="research-form" disabled={saving}>
-          {saving ? copy.modal.researching : copy.modal.confirmResearch}
+        <Button
+          disabled={saving}
+          onClick={() => {
+            const form = document.getElementById(
+              "v4-account-plan-form",
+            ) as HTMLFormElement | null;
+            if (!form) return;
+            onSave(Object.fromEntries(new FormData(form).entries()));
+          }}
+        >
+          {saving ? copy.modal.applying : copy.strategy.savePlan}
         </Button>
       </ModalFooter>
     </ComposedModal>
-  );
-}
-
-function GuidedDiscoverySummary({
-  discovery,
-  onOpen,
-  compact = false,
-}: {
-  discovery: GuidedDiscovery | null;
-  onOpen: () => void;
-  compact?: boolean;
-}) {
-  const { copy, text } = usePageCopy();
-  const metrics = discovery?.metrics || {
-    addressed: 0,
-    total: 6,
-    progressPercent: 0,
-    confirmedWithEvidence: 0,
-    coveragePercent: 0,
-    gaps: 0,
-    stale: 0,
-    contradictions: 0,
-  };
-  const overallReview = discovery?.overallReview || {
-    reviewedPillars: 0,
-    totalPillars: 8,
-    percent: 0,
-    coveragePercent: 0,
-    confidencePercent: 0,
-  };
-  const relevant =
-    discovery?.pillars
-      .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, 2) || [];
-  const topTechnologies =
-    discovery?.technologyAssessment?.technologies
-      .filter(
-        (technology) =>
-          technology.propensity > 0 &&
-          technology.confidence > 0 &&
-          technology.action !== "DO_NOT_RECOMMEND" &&
-          technology.action !== "GATE_FAILED",
-      )
-      .slice(0, 2) || [];
-  const active =
-    discovery?.session && !discovery.session.id.startsWith("virtual-");
-  return (
-    <section
-      id="guided-discovery-summary"
-      className={`v5-guided-summary ${compact ? "compact" : ""}`}
-    >
-      <div className="v5-guided-copy">
-        <span>
-          {text(copy.guidedSummary.eyebrow, {
-            version: discovery?.catalogVersion || "2026.3-kyndryl",
-          })}
-        </span>
-        <h2>
-          {active ? copy.guidedSummary.continue : copy.guidedSummary.title}
-        </h2>
-        <p>{copy.guidedSummary.description}</p>
-        <div>
-          {relevant.map((pillar) => (
-            <Tag key={pillar.key} type="cyan">
-              {pillar.label} · {pillar.relevance}%
-            </Tag>
-          ))}
-          {topTechnologies.map((technology) => (
-            <Tag key={technology.id} type="blue">
-              {technology.name} · {technology.propensity}%
-            </Tag>
-          ))}
-        </div>
-      </div>
-      <div className="v5-guided-stats">
-        <div>
-          <strong>
-            {overallReview.reviewedPillars}/{overallReview.totalPillars}
-          </strong>
-          <span>{copy.guidedSummary.progress}</span>
-        </div>
-        <div>
-          <strong>{overallReview.coveragePercent}%</strong>
-          <span>{copy.guidedSummary.coverage}</span>
-        </div>
-        <div>
-          <strong>{metrics.gaps}</strong>
-          <span>{copy.guidedSummary.gaps}</span>
-        </div>
-        <ProgressBar
-          label={copy.guidedSummary.progressLabel}
-          hideLabel
-          value={overallReview.percent}
-        />
-      </div>
-      <Button renderIcon={ArrowRight} onClick={onOpen}>
-        {active
-          ? copy.guidedSummary.resume
-          : discovery?.readonly
-            ? copy.guidedSummary.exploreExample
-            : copy.guidedSummary.start}
-      </Button>
-    </section>
   );
 }
 
@@ -5679,52 +4420,6 @@ function List({ title, items }: { title: string; items: string[] }) {
     </div>
   );
 }
-function MemoryColumn({
-  title,
-  tone,
-  items,
-}: {
-  title: string;
-  tone: string;
-  items: string[];
-}) {
-  const { copy } = usePageCopy();
-  return (
-    <section className={tone}>
-      <header>
-        <i />
-        {title}
-        <em>{items.length}</em>
-      </header>
-      {items.map((item, index) => (
-        <p key={`${index}-${item}`}>{item}</p>
-      ))}
-      {!items.length && <small>{copy.activity.noCategoryItems}</small>}
-    </section>
-  );
-}
-function MemoryMini({
-  title,
-  count,
-  tone,
-  items,
-}: {
-  title: string;
-  count: number;
-  tone: string;
-  items: string[];
-}) {
-  const { copy } = usePageCopy();
-  return (
-    <article className={tone}>
-      <header>
-        <span>{title}</span>
-        <strong>{count}</strong>
-      </header>
-      <p>{items[0] || copy.activity.noCategoryItems}</p>
-    </article>
-  );
-}
 function ProviderRow({
   name,
   detail,
@@ -5753,133 +4448,4 @@ function ProviderRow({
       </Tag>
     </article>
   );
-}
-function MeetingForm({
-  onSave,
-  saving,
-  readonly,
-}: {
-  onSave: (payload: Record<string, unknown>) => void;
-  saving: boolean;
-  readonly: boolean;
-}) {
-  const { copy } = usePageCopy();
-  return (
-    <form
-      className="v5-form compact"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const form = new FormData(event.currentTarget);
-        onSave({
-          title: form.get("title"),
-          notes: form.get("notes"),
-          attendees: form.get("attendees"),
-        });
-      }}
-    >
-      <TextInput
-        id="meeting-title"
-        name="title"
-        labelText={copy.activity.title}
-        defaultValue={copy.activity.defaultMeeting}
-        disabled={readonly}
-      />
-      <TextInput
-        id="meeting-attendees"
-        name="attendees"
-        labelText={copy.activity.attendees}
-        placeholder={copy.activity.attendeesPlaceholder}
-        disabled={readonly}
-      />
-      <TextArea
-        id="meeting-notes"
-        name="notes"
-        labelText={copy.activity.freeNotes}
-        required
-        rows={7}
-        placeholder={copy.activity.notesPlaceholder}
-        disabled={readonly}
-      />
-      <Button type="submit" disabled={saving || readonly}>
-        {saving ? copy.activity.analyzing : copy.activity.saveAnalyze}
-      </Button>
-    </form>
-  );
-}
-
-async function uploadDocument(
-  file: File,
-  accountId: string,
-  mode: string,
-  locale: Locale,
-  messages: AppMessages["notifications"],
-  notify: (value: string) => void,
-  reload: () => Promise<void>,
-  setSaving: (value: boolean) => void,
-) {
-  if (file.size > 15 * 1024 * 1024) {
-    notify(messages.fileTooLarge);
-    return;
-  }
-  setSaving(true);
-  try {
-    const extracted = await extractText(file, messages.unsupportedFile);
-    const form = new FormData();
-    form.append("file", file);
-    form.append("extractedText", extracted.text);
-    form.append("pagesJson", JSON.stringify(extracted.pages));
-    form.append("scope", mode);
-    form.append("responseLocale", locale);
-    const response = await fetch(`/api/accounts/${accountId}/documents`, {
-      method: "POST",
-      headers: localeRequestHeaders(locale),
-      body: form,
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) throw new Error(payload.error || messages.uploadFailed);
-    await reload();
-    notify(extracted.text ? messages.documentAdded : messages.manualSummary);
-  } catch (error) {
-    notify(error instanceof Error ? error.message : messages.documentError);
-  } finally {
-    setSaving(false);
-  }
-}
-async function extractText(
-  file: File,
-  unsupportedMessage: string,
-): Promise<{ text: string; pages: Array<{ page: number; text: string }> }> {
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension === "txt" || extension === "md" || extension === "markdown") {
-    const text = await file.text();
-    return { text, pages: [{ page: 1, text }] };
-  }
-  if (extension === "docx") {
-    const mammoth = await import("mammoth/mammoth.browser");
-    const result = await mammoth.extractRawText({
-      arrayBuffer: await file.arrayBuffer(),
-    });
-    return { text: result.value, pages: [{ page: 1, text: result.value }] };
-  }
-  if (extension === "pdf") {
-    const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    const pdf = await pdfjs.getDocument({
-      data: new Uint8Array(await file.arrayBuffer()),
-    }).promise;
-    const pages: Array<{ page: number; text: string }> = [];
-    for (let index = 1; index <= pdf.numPages; index += 1) {
-      const page = await pdf.getPage(index);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((item) => ("str" in item ? item.str : ""))
-        .join(" ");
-      pages.push({ page: index, text });
-    }
-    return { text: pages.map((page) => page.text).join("\n\n"), pages };
-  }
-  throw new Error(unsupportedMessage);
 }

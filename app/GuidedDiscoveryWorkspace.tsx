@@ -153,6 +153,37 @@ export type GuidedDiscoveryView = {
 };
 
 type StakeholderOption = { id: string; name: string; role: string };
+export type AnswerImpact = {
+  evidence?: string[];
+  dimensions?: string[];
+  gates?: string[];
+  penalties?: string[];
+  technologies?: string[];
+  recommendations?: string[];
+};
+export type PersistedAnswerImpact = {
+  id?: string;
+  discoveryId?: string;
+  answerId?: string;
+  questionId?: string;
+  catalogVersion?: string;
+  capabilityKey?: string;
+  response?: string;
+  evidenceId?: string | null;
+  dimension?: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  delta?: unknown;
+  journeyIds?: string[];
+  gateChanges?: Array<Record<string, unknown>>;
+  penaltyChanges?: Array<Record<string, unknown>>;
+  penalties?: string[];
+  technologyIds?: string[];
+  recommendationChanges?: Array<Record<string, unknown>>;
+  ruleTrace?: Record<string, unknown>;
+  source?: Record<string, unknown>;
+  createdAt?: string;
+};
 type MutationResult = {
   guidedDiscovery?: GuidedDiscoveryView;
   scoreDeltas?: Array<{
@@ -161,10 +192,119 @@ type MutationResult = {
     after: number;
     delta: number;
   }>;
+  answerImpact?: AnswerImpact | PersistedAnswerImpact | null;
 } | null | void;
+
+function normalizedAnswerImpact(
+  input: AnswerImpact | PersistedAnswerImpact | null | undefined,
+  locale: Locale,
+): AnswerImpact | null {
+  if (!input) return null;
+  if (
+    "evidence" in input ||
+    "dimensions" in input ||
+    "gates" in input ||
+    "technologies" in input ||
+    "recommendations" in input
+  )
+    return input as AnswerImpact;
+  const describe = (
+    items: Array<Record<string, unknown>> = [],
+    fallback: string,
+  ) =>
+    items.map((item) => {
+      const subject = String(
+        item.label ||
+          item.name ||
+          item.technologyName ||
+          item.technologyId ||
+          item.gateName ||
+          item.gate ||
+          item.penaltyName ||
+          item.penalty ||
+          item.rule ||
+          fallback,
+      );
+      const hasChange = "before" in item || "after" in item;
+      return hasChange
+        ? `${subject}: ${String(item.before ?? "—")} → ${String(item.after ?? "—")}`
+        : subject;
+    });
+  const persisted = input as PersistedAnswerImpact;
+  const persistedDelta =
+    persisted.delta &&
+    typeof persisted.delta === "object" &&
+    !Array.isArray(persisted.delta)
+      ? (persisted.delta as Record<string, unknown>)
+      : null;
+  const penaltyDelta =
+    persistedDelta?.penalties &&
+    typeof persistedDelta.penalties === "object" &&
+    !Array.isArray(persistedDelta.penalties)
+      ? (persistedDelta.penalties as Record<string, unknown>)
+      : null;
+  const rulePenaltyTrace =
+    persisted.ruleTrace?.penalties &&
+    typeof persisted.ruleTrace.penalties === "object" &&
+    !Array.isArray(persisted.ruleTrace.penalties)
+      ? (persisted.ruleTrace.penalties as Record<string, unknown>)
+      : null;
+  const penaltyTotals = penaltyDelta || rulePenaltyTrace;
+  const totalPenaltyChange =
+    penaltyTotals &&
+    ("before" in penaltyTotals || "after" in penaltyTotals) &&
+    String(penaltyTotals.before ?? "") !== String(penaltyTotals.after ?? "")
+      ? `${locale === "pt-BR" ? "Total de penalidades" : "Total penalties"}: ${String(penaltyTotals.before ?? "—")} → ${String(penaltyTotals.after ?? "—")}`
+      : null;
+  const nestedPenaltyChanges = [
+    ...(Array.isArray(persistedDelta?.penaltyChanges)
+      ? (persistedDelta.penaltyChanges as Array<Record<string, unknown>>)
+      : []),
+    ...(Array.isArray(rulePenaltyTrace?.changes)
+      ? (rulePenaltyTrace.changes as Array<Record<string, unknown>>)
+      : []),
+  ];
+  const penalties = Array.from(
+    new Set([
+      ...(persisted.penalties || []),
+      ...(totalPenaltyChange ? [totalPenaltyChange] : []),
+      ...describe(
+        [...(persisted.penaltyChanges || []), ...nestedPenaltyChanges],
+        locale === "pt-BR" ? "Penalidade" : "Penalty",
+      ),
+    ]),
+  );
+  return {
+    evidence: persisted.evidenceId ? [persisted.evidenceId] : [],
+    dimensions: persisted.dimension ? [persisted.dimension] : [],
+    gates: describe(
+      persisted.gateChanges,
+      locale === "pt-BR" ? "Gate" : "Gate",
+    ),
+    penalties,
+    technologies: persisted.technologyIds || [],
+    recommendations: describe(
+      persisted.recommendationChanges,
+      locale === "pt-BR" ? "Recomendação" : "Recommendation",
+    ),
+  };
+}
+
+export function hasGuidedDiscoveryAnswerInput(
+  structured: Record<string, unknown>,
+  context: string,
+) {
+  const value = structured.value;
+  const hasStructuredValue = Array.isArray(value)
+    ? value.length > 0
+    : value !== undefined && value !== null && String(value).trim().length > 0;
+  return hasStructuredValue || context.trim().length > 0;
+}
 
 type Props = {
   open: boolean;
+  variant?: "modal" | "embedded";
+  initialPillarKey?: string | null;
   accountName: string;
   discovery: GuidedDiscoveryView | null;
   stakeholders: StakeholderOption[];
@@ -247,6 +387,8 @@ function localizeDiscovery(
 
 export default function GuidedDiscoveryWorkspace({
   open,
+  variant = "modal",
+  initialPillarKey = null,
   accountName,
   discovery,
   stakeholders,
@@ -275,6 +417,7 @@ export default function GuidedDiscoveryWorkspace({
   const [scoreDeltas, setScoreDeltas] = useState<
     Array<{ label: string; before: number; after: number; delta: number }>
   >([]);
+  const [answerImpact, setAnswerImpact] = useState<AnswerImpact | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [showPillarHub, setShowPillarHub] = useState(true);
@@ -308,7 +451,7 @@ export default function GuidedDiscoveryWorkspace({
   }, [onClose]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || variant !== "modal") return;
     const previousActive =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -356,31 +499,41 @@ export default function GuidedDiscoveryWorkspace({
       document.body.style.overflow = previousOverflow;
       previousActive?.focus();
     };
-  }, [d.guided.closeLabel, open]);
+  }, [d.guided.closeLabel, open, variant]);
 
   useEffect(() => {
     if (!open) return;
     const timer = window.setTimeout(() => {
-      setShowPillarHub(true);
+      setShowPillarHub(!initialPillarKey);
       setShowResults(false);
       setShowHistory(false);
       setOpeningPillar("");
       setReferenceTime(Date.now());
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [open]);
+  }, [initialPillarKey, open]);
 
   useEffect(() => {
     if (!open) return;
     const timer = window.setTimeout(
       () =>
         setActiveQuestionId(
-          view?.nextQuestion?.id || view?.currentQuestion?.id || "",
+          view?.questions.find(
+            (question) =>
+              question.pillar === initialPillarKey &&
+              question.status !== "answered",
+          )?.id ||
+            view?.questions.find(
+              (question) => question.pillar === initialPillarKey,
+            )?.id ||
+            view?.nextQuestion?.id ||
+            view?.currentQuestion?.id ||
+            "",
         ),
       0,
     );
     return () => window.clearTimeout(timer);
-  }, [open, view?.currentQuestion?.id, view?.nextQuestion?.id]);
+  }, [initialPillarKey, open, view?.currentQuestion?.id, view?.nextQuestion?.id, view?.questions]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -423,8 +576,10 @@ export default function GuidedDiscoveryWorkspace({
     Array.isArray(structured.value)
       ? structured.value.map(String).includes(String(value))
       : String(structured.value ?? "") === String(value);
+  const canConfirmAnswer = hasGuidedDiscoveryAnswerInput(structured, context);
   const save = async (status: "draft" | "confirmed" | "unknown") => {
     if (!currentQuestion || !sessionId || virtualSession) return;
+    if (status === "confirmed" && !canConfirmAnswer) return;
     const result = await onAnswer({
       sessionId,
       questionId: currentQuestion.id,
@@ -441,6 +596,7 @@ export default function GuidedDiscoveryWorkspace({
     });
     if (!result) return;
     if (result.scoreDeltas) setScoreDeltas(result.scoreDeltas);
+    setAnswerImpact(normalizedAnswerImpact(result.answerImpact, locale));
     const updatedView = localizeDiscovery(
       result.guidedDiscovery || null,
       locale,
@@ -563,13 +719,15 @@ export default function GuidedDiscoveryWorkspace({
   return (
     <div
       ref={dialogRef}
-      className={styles.backdrop}
-      role="dialog"
-      aria-modal="true"
+      className={variant === "embedded" ? styles.embedded : styles.backdrop}
+      role={variant === "modal" ? "dialog" : undefined}
+      aria-modal={variant === "modal" ? true : undefined}
       aria-label={`${d.guided.title}: ${accountName}`}
       tabIndex={-1}
     >
-      <section className={styles.workspace}>
+      <section
+        className={`${styles.workspace} ${variant === "embedded" ? styles.embeddedWorkspace : ""}`}
+      >
         <header className={styles.header}>
           <div>
             <span>{d.guided.accountStrategy}</span>
@@ -621,9 +779,11 @@ export default function GuidedDiscoveryWorkspace({
                 locale === "pt-BR" ? "Revisão geral" : "Overall review"
               }
             />
-            <button onClick={onClose} aria-label={d.guided.closeLabel}>
-              <Close size={24} />
-            </button>
+            {variant === "modal" && (
+              <button onClick={onClose} aria-label={d.guided.closeLabel}>
+                <Close size={24} />
+              </button>
+            )}
           </div>
         </header>
 
@@ -942,6 +1102,17 @@ export default function GuidedDiscoveryWorkspace({
                     </label>
                     </div>
                   </details>
+                  {!readOnly && !canConfirmAnswer && (
+                    <p
+                      id="guided-confirm-requirement"
+                      className={styles.validationHint}
+                      role="status"
+                    >
+                      {locale === "pt-BR"
+                        ? "Selecione uma resposta ou adicione contexto antes de confirmar. Você também pode marcar ‘Não sei ainda’."
+                        : "Select an answer or add context before confirming. You can also choose ‘I don't know yet’."}
+                    </p>
+                  )}
                   <div className={styles.actions}>
                     {!readOnly && (
                       <>
@@ -974,7 +1145,12 @@ export default function GuidedDiscoveryWorkspace({
                         </Button>
                         <Button
                           renderIcon={ArrowRight}
-                          disabled={saving}
+                          disabled={saving || !canConfirmAnswer}
+                          aria-describedby={
+                            !canConfirmAnswer
+                              ? "guided-confirm-requirement"
+                              : undefined
+                          }
                           onClick={() => save("confirmed")}
                         >
                           {d.guided.confirmContinue}
@@ -1053,6 +1229,35 @@ export default function GuidedDiscoveryWorkspace({
                   </div>
                 </section>
               )}
+              {answerImpact &&
+                Object.values(answerImpact).some(
+                  (items) => Array.isArray(items) && items.length > 0,
+                ) && (
+                  <section className={styles.answerTrace}>
+                    <span>
+                      {locale === "pt-BR"
+                        ? "Rastreabilidade da resposta"
+                        : "Answer traceability"}
+                    </span>
+                    {(
+                      [
+                        ["evidence", locale === "pt-BR" ? "Evidência" : "Evidence"],
+                        ["dimensions", locale === "pt-BR" ? "Dimensões" : "Dimensions"],
+                        ["gates", "Gates"],
+                        ["penalties", locale === "pt-BR" ? "Penalidades" : "Penalties"],
+                        ["technologies", locale === "pt-BR" ? "Tecnologias" : "Technologies"],
+                        ["recommendations", locale === "pt-BR" ? "Recomendações" : "Recommendations"],
+                      ] as const
+                    ).map(([key, label]) =>
+                      answerImpact[key]?.length ? (
+                        <div key={key}>
+                          <strong>{label}</strong>
+                          <p>{answerImpact[key]!.join(" · ")}</p>
+                        </div>
+                      ) : null,
+                    )}
+                  </section>
+                )}
               {view.proposedFollowUp && (
                 <section className={styles.aiProposal}>
                   <span>

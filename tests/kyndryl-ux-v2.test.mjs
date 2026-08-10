@@ -5,7 +5,7 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
 
-test("integrates Home, Portfolio, Radar and account workspace into one navigation", async () => {
+test("integrates Home, Accounts and Settings into one account-centric navigation", async () => {
   const [page, i18n, messages] = await Promise.all([
     read("app/page.tsx"),
     read("lib/i18n.ts"),
@@ -14,16 +14,18 @@ test("integrates Home, Portfolio, Radar and account workspace into one navigatio
 
   const navBlock = page.match(/const navItems = \[[\s\S]*?\] as const;/)?.[0] || "";
   assert.match(navBlock, /id: "home"/);
-  assert.match(navBlock, /id: "portfolio"/);
+  assert.match(navBlock, /id: "accounts"/);
   assert.match(navBlock, /id: "settings"/);
-  assert.doesNotMatch(navBlock, /id: "accounts"/);
+  assert.doesNotMatch(navBlock, /id: "portfolio"/);
   assert.doesNotMatch(navBlock, /id: "radar"/);
-  assert.match(page, /portfolioMode/);
+  assert.match(page, /KyndrylV4Home/);
+  assert.match(page, /KyndrylV4Accounts/);
   assert.match(page, /v5-breadcrumb/);
-  assert.match(page, /v5-operational-table/);
-  assert.match(i18n, /portfolio: "Portfolio"/);
-  assert.match(messages, /strategy: "Discovery"/);
-  assert.match(messages, /activity: "Evidence & activity"/);
+  assert.match(page, /variant="embedded"/);
+  assert.match(i18n, /accounts: "Accounts"/);
+  assert.match(messages, /discovery: "Discovery"/);
+  assert.match(messages, /strategy: "Strategy"/);
+  assert.match(messages, /governance: "Governance"/);
 });
 
 test("keeps multipillar review state additive and separate from current-pillar progress", async () => {
@@ -64,14 +66,15 @@ test("keeps the active discovery open when the next question changes", async () 
   const workspace = await read("app/GuidedDiscoveryWorkspace.tsx");
   const openReset =
     workspace.match(
-      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\(\(\) => \{[\s\S]*?setShowPillarHub\(true\);[\s\S]*?\}, 0\);[\s\S]*?\}, \[open\]\);/,
+      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\(\(\) => \{[\s\S]*?setShowPillarHub\(!initialPillarKey\);[\s\S]*?\}, 0\);[\s\S]*?\}, \[initialPillarKey, open\]\);/,
     )?.[0] || "";
+  const questionAdvanceStart = workspace.indexOf("setActiveQuestionId(");
   const questionAdvance =
-    workspace.match(
-      /useEffect\(\(\) => \{\s*if \(!open\) return;\s*const timer = window\.setTimeout\(\s*\(\) =>\s*setActiveQuestionId\([\s\S]*?view\?\.nextQuestion\?\.id\]\);/,
-    )?.[0] || "";
+    questionAdvanceStart >= 0
+      ? workspace.slice(questionAdvanceStart, questionAdvanceStart + 900)
+      : "";
 
-  assert.match(openReset, /setShowPillarHub\(true\)/);
+  assert.match(openReset, /setShowPillarHub\(!initialPillarKey\)/);
   assert.match(questionAdvance, /setActiveQuestionId/);
   assert.doesNotMatch(questionAdvance, /setShowPillarHub/);
   assert.match(workspace, /result\.guidedDiscovery/);
