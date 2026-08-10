@@ -77,7 +77,19 @@ import {
   scoreKyndrylAssessment,
   type KyndrylAssessment,
 } from "../../../lib/kyndryl-discovery";
-import { scoreCapabilityDrivenAssessment } from "../../../lib/cdi/engine";
+import {
+  normalizeCdiResponse,
+  scoreCapabilityDrivenAssessment,
+  type CapabilityDrivenAssessment,
+} from "../../../lib/cdi/engine";
+import {
+  CDI_CAPABILITIES,
+  CDI_CAPABILITY_CATALOG_VERSION,
+  CDI_CAPABILITY_KEYS,
+  cdiQuestion,
+  localizeCdi,
+  type CdiCapabilityKey,
+} from "../../../lib/cdi/capability-driven";
 import { cdiFeatureFlags } from "../../../lib/cdi/feature-flags";
 
 export const dynamic = "force-dynamic";
@@ -165,6 +177,41 @@ type Stakeholder = {
   source: "manual" | "suggested";
   createdAt: string;
   updatedAt: string;
+};
+type StakeholderCapabilityAssignment = {
+  id: string;
+  discoveryId: string;
+  stakeholderId: string;
+  capabilityKey: CdiCapabilityKey;
+  role: "owner" | "decision_maker" | "influencer" | "technical_contact";
+  status: "confirmed" | "suggested" | "dismissed";
+  confidence: number;
+  sourceType: string;
+  sourceId: string | null;
+  evidence: EvidenceRef[];
+  createdAt: string;
+  updatedAt: string;
+};
+type CdiAnswerImpact = {
+  id: string;
+  discoveryId: string;
+  answerId: string;
+  questionId: string;
+  catalogVersion: string;
+  capabilityKey: CdiCapabilityKey;
+  dimension: string;
+  response: string;
+  evidenceId: string | null;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  delta: Record<string, unknown>;
+  journeyIds: string[];
+  technologyIds: string[];
+  gateChanges: Array<Record<string, unknown>>;
+  recommendationChanges: Array<Record<string, unknown>>;
+  ruleTrace: Record<string, unknown>;
+  source: Record<string, unknown>;
+  createdAt: string;
 };
 type AccountAction = {
   id: string;
@@ -1271,6 +1318,24 @@ async function ensureSchema(db: D1Database) {
       "CREATE TABLE IF NOT EXISTS guided_discovery_pillar_status (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, owner_email TEXT NOT NULL, pillar_key TEXT NOT NULL, catalog_version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'not_started' CHECK(status IN ('not_started','in_progress','reviewed_sufficient','reviewed_gaps','not_relevant')), current_session_id TEXT REFERENCES guided_discovery_sessions(id) ON DELETE SET NULL, progress_percent INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100), coverage_percent INTEGER NOT NULL DEFAULT 0 CHECK(coverage_percent BETWEEN 0 AND 100), confidence_percent INTEGER NOT NULL DEFAULT 0 CHECK(confidence_percent BETWEEN 0 AND 100), answered_count INTEGER NOT NULL DEFAULT 0 CHECK(answered_count >= 0), required_count INTEGER NOT NULL DEFAULT 6 CHECK(required_count >= 0), not_relevant_reason TEXT, reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
+      "CREATE TABLE IF NOT EXISTS cdi_capability_snapshots (id TEXT PRIMARY KEY NOT NULL, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, catalog_version TEXT NOT NULL, capability_key TEXT NOT NULL, maturity_json TEXT NOT NULL DEFAULT '{}', confidence INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'not_started', evidence_fingerprint TEXT NOT NULL DEFAULT '', computed_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS cdi_evidence (id TEXT PRIMARY KEY NOT NULL, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, answer_id TEXT, question_id TEXT NOT NULL, capability_key TEXT NOT NULL, dimension TEXT NOT NULL, response TEXT NOT NULL, polarity TEXT, strength INTEGER NOT NULL DEFAULT 0, source_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS cdi_conflicts (id TEXT PRIMARY KEY NOT NULL, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, capability_key TEXT NOT NULL, dimension TEXT NOT NULL, evidence_ids_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'open', resolution_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS cdi_technology_reviews (id TEXT PRIMARY KEY NOT NULL, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, technology_id TEXT NOT NULL, catalog_version TEXT NOT NULL, fit_score INTEGER NOT NULL DEFAULT 0, confidence INTEGER NOT NULL DEFAULT 0, decision_band TEXT NOT NULL, gate_status TEXT NOT NULL, components_json TEXT NOT NULL DEFAULT '{}', trace_json TEXT NOT NULL DEFAULT '[]', human_decision TEXT, reviewed_at TEXT, computed_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS stakeholder_capability_assignments (id TEXT PRIMARY KEY NOT NULL, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, stakeholder_id TEXT NOT NULL REFERENCES stakeholders(id) ON DELETE CASCADE, capability_key TEXT NOT NULL, assignment_role TEXT NOT NULL CHECK(assignment_role IN ('owner','decision_maker','influencer','technical_contact')), status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','suggested','dismissed')), confidence INTEGER NOT NULL DEFAULT 100 CHECK(confidence BETWEEN 0 AND 100), source_type TEXT NOT NULL DEFAULT 'manual', source_id TEXT, evidence_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    ),
+    db.prepare(
+      "CREATE TABLE IF NOT EXISTS cdi_answer_impacts (id TEXT PRIMARY KEY NOT NULL, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, answer_id TEXT NOT NULL REFERENCES guided_discovery_answers(id) ON DELETE CASCADE, question_id TEXT NOT NULL, catalog_version TEXT NOT NULL, capability_key TEXT NOT NULL, dimension TEXT NOT NULL, response TEXT NOT NULL, evidence_id TEXT, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', delta_json TEXT NOT NULL DEFAULT '{}', journey_ids_json TEXT NOT NULL DEFAULT '[]', technology_ids_json TEXT NOT NULL DEFAULT '[]', gate_changes_json TEXT NOT NULL DEFAULT '[]', recommendation_changes_json TEXT NOT NULL DEFAULT '[]', rule_trace_json TEXT NOT NULL DEFAULT '{}', source_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)",
+    ),
+    db.prepare(
       "CREATE TABLE IF NOT EXISTS account_change_sets (id TEXT PRIMARY KEY, discovery_id TEXT NOT NULL REFERENCES discoveries(id) ON DELETE CASCADE, source_type TEXT NOT NULL, source_id TEXT NOT NULL, trigger_type TEXT NOT NULL, before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}', delta_json TEXT NOT NULL DEFAULT '{}', suggestions_json TEXT NOT NULL DEFAULT '{}', provider TEXT NOT NULL DEFAULT 'deterministic-rules', engine_kind TEXT NOT NULL DEFAULT 'deterministic' CHECK(engine_kind IN ('deterministic','model')), status TEXT NOT NULL DEFAULT 'pending_review' CHECK(status IN ('pending_review','approved','rejected')), reviewed_by TEXT, reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
     ),
     db.prepare(
@@ -1377,6 +1442,39 @@ async function ensureSchema(db: D1Database) {
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS guided_discovery_pillar_status_owner_status_idx ON guided_discovery_pillar_status(owner_email, status)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS cdi_capability_snapshots_account_idx ON cdi_capability_snapshots(discovery_id, capability_key, computed_at)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS cdi_evidence_account_capability_idx ON cdi_evidence(discovery_id, capability_key)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS cdi_evidence_answer_idx ON cdi_evidence(discovery_id, answer_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS cdi_conflicts_account_status_idx ON cdi_conflicts(discovery_id, status)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS cdi_technology_reviews_account_idx ON cdi_technology_reviews(discovery_id, technology_id, catalog_version)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS stakeholder_capability_assignments_unique_idx ON stakeholder_capability_assignments(discovery_id, stakeholder_id, capability_key, assignment_role)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS stakeholder_capability_assignments_account_capability_idx ON stakeholder_capability_assignments(discovery_id, capability_key, status)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS stakeholder_capability_assignments_stakeholder_idx ON stakeholder_capability_assignments(stakeholder_id, status)",
+    ),
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS cdi_answer_impacts_answer_idx ON cdi_answer_impacts(discovery_id, answer_id)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS cdi_answer_impacts_account_time_idx ON cdi_answer_impacts(discovery_id, created_at)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS cdi_answer_impacts_capability_idx ON cdi_answer_impacts(discovery_id, capability_key, created_at)",
     ),
     db.prepare(
       "CREATE INDEX IF NOT EXISTS account_change_sets_account_time_idx ON account_change_sets(discovery_id, created_at)",
@@ -2371,6 +2469,55 @@ function mapGuidedPillarStatus(
   };
 }
 
+function mapStakeholderCapabilityAssignment(
+  row: Record<string, unknown>,
+): StakeholderCapabilityAssignment {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    stakeholderId: String(row.stakeholder_id),
+    capabilityKey: String(row.capability_key) as CdiCapabilityKey,
+    role: String(row.assignment_role) as StakeholderCapabilityAssignment["role"],
+    status: String(row.status) as StakeholderCapabilityAssignment["status"],
+    confidence: Number(row.confidence || 0),
+    sourceType: String(row.source_type || "manual"),
+    sourceId: row.source_id ? String(row.source_id) : null,
+    evidence: json<EvidenceRef[]>(row.evidence_json, []),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function mapCdiAnswerImpact(row: Record<string, unknown>): CdiAnswerImpact {
+  return {
+    id: String(row.id),
+    discoveryId: String(row.discovery_id),
+    answerId: String(row.answer_id),
+    questionId: String(row.question_id),
+    catalogVersion: String(row.catalog_version),
+    capabilityKey: String(row.capability_key) as CdiCapabilityKey,
+    dimension: String(row.dimension),
+    response: String(row.response),
+    evidenceId: row.evidence_id ? String(row.evidence_id) : null,
+    before: json<Record<string, unknown>>(row.before_json, {}),
+    after: json<Record<string, unknown>>(row.after_json, {}),
+    delta: json<Record<string, unknown>>(row.delta_json, {}),
+    journeyIds: json<string[]>(row.journey_ids_json, []),
+    technologyIds: json<string[]>(row.technology_ids_json, []),
+    gateChanges: json<Array<Record<string, unknown>>>(
+      row.gate_changes_json,
+      [],
+    ),
+    recommendationChanges: json<Array<Record<string, unknown>>>(
+      row.recommendation_changes_json,
+      [],
+    ),
+    ruleTrace: json<Record<string, unknown>>(row.rule_trace_json, {}),
+    source: json<Record<string, unknown>>(row.source_json, {}),
+    createdAt: String(row.created_at),
+  };
+}
+
 const scoreHintsForGuidedDiscovery = (row: Record<string, unknown>) => {
   const keyByShort = Object.fromEntries(
     GUIDED_DISCOVERY_PILLARS.flatMap((pillarKey) => [
@@ -2626,7 +2773,11 @@ function guidedSnapshot(input: {
     GuidedDiscoveryPillarStatus
   >();
   for (const item of (input.pillarStatuses || [])
-    .filter((candidate) => candidate.discoveryId === discoveryId)
+    .filter(
+      (candidate) =>
+        candidate.discoveryId === discoveryId &&
+        candidate.catalogVersion === GUIDED_DISCOVERY_CATALOG_VERSION,
+    )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
     if (!storedStatusByPillar.has(item.pillarKey))
       storedStatusByPillar.set(item.pillarKey, item);
@@ -4044,6 +4195,481 @@ async function guidedSnapshotForAccount(
   });
 }
 
+type CapabilityAssessmentAnswer = Parameters<
+  typeof scoreCapabilityDrivenAssessment
+>[0]["answers"][number];
+
+function capabilityAssessmentAnswer(
+  answer: GuidedDiscoveryAnswerRow,
+  questions: Map<string, GuidedDiscoveryQuestionRow>,
+): CapabilityAssessmentAnswer | null {
+  const question = questions.get(answer.questionId);
+  const catalogQuestionId = question?.catalogQuestionId || answer.questionId;
+  if (!cdiQuestion(catalogQuestionId)) return null;
+  return {
+    questionId: catalogQuestionId,
+    status: answer.status,
+    structured: answer.structured,
+    answerText: answer.answerText,
+    confidence: answer.confidence,
+  };
+}
+
+function capabilityImpactState(
+  assessment: CapabilityDrivenAssessment,
+  capabilityKey: CdiCapabilityKey,
+) {
+  const capability = assessment.capabilities.find(
+    (item) => String(item.id) === capabilityKey,
+  );
+  const pillar = assessment.pillars.find(
+    (item) => String(item.key) === capabilityKey,
+  );
+  const review = assessment.capabilityReviews.find(
+    (item) => item.key === capabilityKey,
+  );
+  const technologies = assessment.technologies
+    .filter((item) => item.capabilities.includes(capabilityKey))
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      fitScore: item.propensity,
+      confidence: item.confidence,
+      decisionBand: item.action,
+      gateStatus: item.gateStatus,
+      components: {
+        penalties: Number(item.components.penalties || 0),
+      },
+    }));
+  return {
+    capability: capability
+      ? {
+          maturity: capability.maturity,
+          heatmapStatus: capability.heatmapStatus,
+        }
+      : null,
+    review: review
+      ? {
+          status: review.status,
+          confidence: review.confidence,
+          coreAnswered: review.coreAnswered,
+          coreTotal: review.coreTotal,
+          deepAnswered: review.deepAnswered,
+          deepTotal: review.deepTotal,
+          conflict: review.conflict,
+        }
+      : null,
+    propensity: pillar?.propensity || 0,
+    leadingTechnology: pillar?.leadingTechnology || null,
+    technologies,
+  };
+}
+
+function changedTechnologyFields(
+  before: CapabilityDrivenAssessment,
+  after: CapabilityDrivenAssessment,
+  capabilityKey: CdiCapabilityKey,
+  field: "gateStatus" | "action",
+) {
+  const beforeById = new Map(
+    before.technologies
+      .filter((item) => item.capabilities.includes(capabilityKey))
+      .map((item) => [item.id, item]),
+  );
+  const afterById = new Map(
+    after.technologies
+      .filter((item) => item.capabilities.includes(capabilityKey))
+      .map((item) => [item.id, item]),
+  );
+  return Array.from(new Set([...beforeById.keys(), ...afterById.keys()]))
+    .flatMap((technologyId) => {
+      const previous = beforeById.get(technologyId)?.[field] || null;
+      const next = afterById.get(technologyId)?.[field] || null;
+      return previous === next
+        ? []
+        : [
+            {
+              technologyId,
+              technologyName:
+                afterById.get(technologyId)?.name ||
+                beforeById.get(technologyId)?.name ||
+                technologyId,
+              before: previous,
+              after: next,
+            },
+          ];
+    });
+}
+
+function changedTechnologyPenalties(
+  before: CapabilityDrivenAssessment,
+  after: CapabilityDrivenAssessment,
+  capabilityKey: CdiCapabilityKey,
+) {
+  const beforeById = new Map(
+    before.technologies
+      .filter((item) => item.capabilities.includes(capabilityKey))
+      .map((item) => [item.id, item]),
+  );
+  const afterById = new Map(
+    after.technologies
+      .filter((item) => item.capabilities.includes(capabilityKey))
+      .map((item) => [item.id, item]),
+  );
+  return Array.from(new Set([...beforeById.keys(), ...afterById.keys()]))
+    .flatMap((technologyId) => {
+      const previous = Number(
+        beforeById.get(technologyId)?.components.penalties || 0,
+      );
+      const next = Number(
+        afterById.get(technologyId)?.components.penalties || 0,
+      );
+      return previous === next
+        ? []
+        : [
+            {
+              technologyId,
+              technologyName:
+                afterById.get(technologyId)?.name ||
+                beforeById.get(technologyId)?.name ||
+                technologyId,
+              before: previous,
+              after: next,
+              delta: next - previous,
+              triggered: previous === 0 && next > 0,
+              cleared: previous > 0 && next === 0,
+            },
+          ];
+    });
+}
+
+async function materializeCdiAnswerImpact(
+  db: D1Database,
+  input: {
+    discoveryId: string;
+    answerId: string;
+    questionRow: Record<string, unknown>;
+    previousRow?: Record<string, unknown> | null;
+    locale: ResponseLocale;
+    now: string;
+  },
+): Promise<CdiAnswerImpact | null> {
+  const catalogQuestionId = String(
+    input.questionRow.catalog_question_id || input.questionRow.id,
+  );
+  const catalogQuestion = cdiQuestion(catalogQuestionId);
+  if (!catalogQuestion) return null;
+  const [questionRows, answerRows] = await Promise.all([
+    db
+      .prepare(
+        "SELECT * FROM guided_discovery_questions WHERE discovery_id = ?",
+      )
+      .bind(input.discoveryId)
+      .all<Record<string, unknown>>(),
+    db
+      .prepare(
+        "SELECT * FROM guided_discovery_answers WHERE discovery_id = ? AND is_current = 1 AND status <> 'draft' ORDER BY updated_at ASC",
+      )
+      .bind(input.discoveryId)
+      .all<Record<string, unknown>>(),
+  ]);
+  const questions = new Map(
+    questionRows.results
+      .map(mapGuidedQuestion)
+      .map((question) => [question.id, question]),
+  );
+  const latestAnswersByCatalogQuestion = (
+    answers: GuidedDiscoveryAnswerRow[],
+  ) => {
+    const byQuestion = new Map<string, GuidedDiscoveryAnswerRow>();
+    for (const answer of answers) {
+      const question = questions.get(answer.questionId);
+      const catalogQuestionId = question?.catalogQuestionId || answer.questionId;
+      if (cdiQuestion(catalogQuestionId))
+        byQuestion.set(catalogQuestionId, answer);
+    }
+    return Array.from(byQuestion.values());
+  };
+  const allCurrentAnswers = answerRows.results.map(mapGuidedAnswer);
+  const currentAnswers = latestAnswersByCatalogQuestion(allCurrentAnswers);
+  const afterAnswers = currentAnswers.flatMap((answer) => {
+    const mapped = capabilityAssessmentAnswer(answer, questions);
+    return mapped ? [mapped] : [];
+  });
+  const previousAnswer = input.previousRow
+    ? mapGuidedAnswer(input.previousRow)
+    : null;
+  const beforeCandidates = allCurrentAnswers.filter(
+    (answer) => answer.id !== input.answerId,
+  );
+  if (previousAnswer && previousAnswer.status !== "draft")
+    beforeCandidates.push({ ...previousAnswer, isCurrent: true });
+  const beforeRows = latestAnswersByCatalogQuestion(beforeCandidates);
+  const beforeAnswers = beforeRows.flatMap((answer) => {
+    const mapped = capabilityAssessmentAnswer(answer, questions);
+    return mapped ? [mapped] : [];
+  });
+  const beforeAssessment = scoreCapabilityDrivenAssessment({
+    answers: beforeAnswers,
+    locale: input.locale,
+  });
+  const afterAssessment = scoreCapabilityDrivenAssessment({
+    answers: afterAnswers,
+    locale: input.locale,
+  });
+  const savedAnswer = allCurrentAnswers.find(
+    (answer) => answer.id === input.answerId,
+  );
+  if (!savedAnswer) return null;
+  const response = normalizeCdiResponse({
+    questionId: catalogQuestionId,
+    status: savedAnswer.status,
+    structured: savedAnswer.structured,
+    answerText: savedAnswer.answerText,
+    confidence: savedAnswer.confidence,
+  });
+  const answerTrace = afterAssessment.trace.find(
+    (item) => item.questionId === catalogQuestionId,
+  );
+  const evidence = answerTrace?.evidenceId
+    ? afterAssessment.evidence.find(
+        (item) => item.id === answerTrace.evidenceId,
+      ) || null
+    : null;
+  const capabilityKey = catalogQuestion.capabilityKey;
+  const before = capabilityImpactState(beforeAssessment, capabilityKey);
+  const after = capabilityImpactState(afterAssessment, capabilityKey);
+  const gateChanges = changedTechnologyFields(
+    beforeAssessment,
+    afterAssessment,
+    capabilityKey,
+    "gateStatus",
+  );
+  const recommendationChanges = changedTechnologyFields(
+    beforeAssessment,
+    afterAssessment,
+    capabilityKey,
+    "action",
+  );
+  const penaltyChanges = changedTechnologyPenalties(
+    beforeAssessment,
+    afterAssessment,
+    capabilityKey,
+  );
+  const beforePenaltyTotal = before.technologies.reduce(
+    (total, technology) => total + technology.components.penalties,
+    0,
+  );
+  const afterPenaltyTotal = after.technologies.reduce(
+    (total, technology) => total + technology.components.penalties,
+    0,
+  );
+  const penaltyTotals = {
+    before: beforePenaltyTotal,
+    after: afterPenaltyTotal,
+    delta: afterPenaltyTotal - beforePenaltyTotal,
+  };
+  const delta = {
+    maturity:
+      Number(after.capability?.maturity || 0) -
+      Number(before.capability?.maturity || 0),
+    technologyFit: Number(after.propensity || 0) - Number(before.propensity || 0),
+    confidence:
+      Number(after.review?.confidence || 0) -
+      Number(before.review?.confidence || 0),
+    evidenceCount: evidence ? 1 : 0,
+    conflictChanged:
+      Boolean(before.review?.conflict) !== Boolean(after.review?.conflict),
+    penalties: penaltyTotals,
+    penaltyChanges,
+  };
+  const source = {
+    evidenceStatus: savedAnswer.evidenceStatus,
+    stakeholderId: savedAnswer.stakeholderId,
+    sourceType: savedAnswer.sourceType,
+    sourceId: savedAnswer.sourceId,
+    sourceDate: savedAnswer.sourceDate,
+    confidence: savedAnswer.confidence,
+    supersedesId: savedAnswer.supersedesId,
+  };
+  const impactId = `cdi-impact-${input.answerId}`;
+  const statements = [
+    db
+      .prepare(
+        "INSERT OR IGNORE INTO cdi_answer_impacts (id, discovery_id, answer_id, question_id, catalog_version, capability_key, dimension, response, evidence_id, before_json, after_json, delta_json, journey_ids_json, technology_ids_json, gate_changes_json, recommendation_changes_json, rule_trace_json, source_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        impactId,
+        input.discoveryId,
+        input.answerId,
+        catalogQuestionId,
+        CDI_CAPABILITY_CATALOG_VERSION,
+        capabilityKey,
+        catalogQuestion.dimension,
+        response,
+        answerTrace?.evidenceId || null,
+        JSON.stringify(before),
+        JSON.stringify(after),
+        JSON.stringify(delta),
+        JSON.stringify(answerTrace?.journeyIds || []),
+        JSON.stringify(answerTrace?.technologyIds || []),
+        JSON.stringify(gateChanges),
+        JSON.stringify(recommendationChanges),
+        JSON.stringify({
+          engine: "deterministic",
+          formula: {
+            evidenceFit: 45,
+            capabilityGap: 25,
+            businessImpact: 15,
+            journeyFit: 10,
+            attachPriority: 5,
+          },
+          questionRationale: localizeCdi(
+            catalogQuestion.rationale,
+            input.locale,
+          ),
+          polarity: evidence?.polarity || null,
+          strength: evidence?.strength || 0,
+          penalties: {
+            ...penaltyTotals,
+            changes: penaltyChanges,
+            application: "subtracted_after_weighted_components",
+          },
+          humanValidationRequired: true,
+        }),
+        JSON.stringify(source),
+        input.now,
+      ),
+    db
+      .prepare(
+        "UPDATE cdi_conflicts SET status = 'resolved', resolution_json = ?, updated_at = ? WHERE discovery_id = ? AND status = 'open'",
+      )
+      .bind(
+        JSON.stringify({ reason: "Recomputed after a new answer revision" }),
+        input.now,
+        input.discoveryId,
+      ),
+  ];
+  for (const answer of currentAnswers) {
+    const mappedAnswer = capabilityAssessmentAnswer(answer, questions);
+    if (!mappedAnswer) continue;
+    const trace = afterAssessment.trace.find(
+      (item) => item.questionId === mappedAnswer.questionId,
+    );
+    const mappedEvidence = trace?.evidenceId
+      ? afterAssessment.evidence.find((item) => item.id === trace.evidenceId)
+      : null;
+    const question = cdiQuestion(mappedAnswer.questionId);
+    if (!trace?.evidenceId || !mappedEvidence || !question) continue;
+    statements.push(
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO cdi_evidence (id, discovery_id, answer_id, question_id, capability_key, dimension, response, polarity, strength, source_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          `cdi-evidence-${answer.id}`,
+          input.discoveryId,
+          answer.id,
+          mappedAnswer.questionId,
+          question.capabilityKey,
+          question.dimension,
+          trace.response,
+          mappedEvidence.polarity,
+          mappedEvidence.strength,
+          JSON.stringify({
+            evidenceStatus: answer.evidenceStatus,
+            stakeholderId: answer.stakeholderId,
+            sourceType: answer.sourceType,
+            sourceId: answer.sourceId,
+            sourceDate: answer.sourceDate,
+            confidence: answer.confidence,
+            supersedesId: answer.supersedesId,
+          }),
+          answer.answeredAt || input.now,
+        ),
+    );
+  }
+  for (const capability of afterAssessment.capabilities) {
+    const key = String(capability.id) as CdiCapabilityKey;
+    const review = afterAssessment.capabilityReviews.find(
+      (item) => item.key === key,
+    );
+    const pillar = afterAssessment.pillars.find(
+      (item) => String(item.key) === key,
+    );
+    const evidenceIds = capability.evidence.map((item) => item.id).sort();
+    statements.push(
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO cdi_capability_snapshots (id, discovery_id, catalog_version, capability_key, maturity_json, confidence, status, evidence_fingerprint, computed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          `cdi-snapshot-${input.answerId}-${key}`,
+          input.discoveryId,
+          CDI_CAPABILITY_CATALOG_VERSION,
+          key,
+          JSON.stringify({
+            maturity: capability.maturity,
+            heatmapStatus: capability.heatmapStatus,
+            propensity: pillar?.propensity || 0,
+            leadingTechnology: pillar?.leadingTechnology || null,
+            review: review || null,
+          }),
+          review?.confidence || 0,
+          review?.status || "NOT_STARTED",
+          evidenceIds.join("|"),
+          input.now,
+        ),
+    );
+  }
+  for (const conflict of afterAssessment.conflicts)
+    statements.push(
+      db
+        .prepare(
+          "INSERT INTO cdi_conflicts (id, discovery_id, capability_key, dimension, evidence_ids_json, status, resolution_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'open', '{}', ?, ?) ON CONFLICT(id) DO UPDATE SET evidence_ids_json = excluded.evidence_ids_json, status = 'open', resolution_json = '{}', updated_at = excluded.updated_at",
+        )
+        .bind(
+          `cdi-conflict-${input.discoveryId}-${conflict.capabilityKey}-${conflict.dimension}`,
+          input.discoveryId,
+          conflict.capabilityKey,
+          conflict.dimension,
+          JSON.stringify(conflict.evidenceIds),
+          input.now,
+          input.now,
+        ),
+    );
+  for (const technology of afterAssessment.technologies)
+    statements.push(
+      db
+        .prepare(
+          "INSERT INTO cdi_technology_reviews (id, discovery_id, technology_id, catalog_version, fit_score, confidence, decision_band, gate_status, components_json, trace_json, human_decision, reviewed_at, computed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?) ON CONFLICT(discovery_id, technology_id, catalog_version) DO UPDATE SET fit_score = excluded.fit_score, confidence = excluded.confidence, decision_band = excluded.decision_band, gate_status = excluded.gate_status, components_json = excluded.components_json, trace_json = excluded.trace_json, computed_at = excluded.computed_at",
+        )
+        .bind(
+          `cdi-tech-${input.discoveryId}-${technology.id}-${CDI_CAPABILITY_CATALOG_VERSION}`,
+          input.discoveryId,
+          technology.id,
+          CDI_CAPABILITY_CATALOG_VERSION,
+          technology.propensity,
+          technology.confidence,
+          technology.action,
+          technology.gateStatus,
+          JSON.stringify(technology.components),
+          JSON.stringify(
+            afterAssessment.trace.filter((item) =>
+              item.technologyIds.includes(technology.id),
+            ),
+          ),
+          input.now,
+        ),
+    );
+  await db.batch(statements);
+  const row = await db
+    .prepare("SELECT * FROM cdi_answer_impacts WHERE id = ?")
+    .bind(impactId)
+    .first<Record<string, unknown>>();
+  return row ? mapCdiAnswerImpact(row) : null;
+}
+
 async function insertCatalogQuestion(
   db: D1Database,
   input: {
@@ -4458,6 +5084,18 @@ async function accountPayload(
       impactMetrics: [],
       agentPipelineRuns: [],
       commercialProof: [],
+      stakeholderCapabilityAssignments: [],
+      relationshipCapabilityCoverage: [],
+      answerImpacts: [],
+      cdiEvidence: [],
+      cdiCapabilitySnapshots: [],
+      cdiConflicts: [],
+      cdiTechnologyReviews: [],
+      capabilityPortfolioCoverage: {
+        catalogVersion: CDI_CAPABILITY_CATALOG_VERSION,
+        totalAccounts: 0,
+        capabilities: [],
+      },
     };
   const placeholders = ids.map(() => "?").join(",");
   const queries = [
@@ -4586,6 +5224,36 @@ async function accountPayload(
         `SELECT * FROM commercial_agent_runs WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 280`,
       )
       .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM stakeholder_capability_assignments WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM cdi_answer_impacts WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM cdi_evidence WHERE discovery_id IN (${placeholders}) ORDER BY created_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM cdi_capability_snapshots WHERE discovery_id IN (${placeholders}) ORDER BY computed_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM cdi_conflicts WHERE discovery_id IN (${placeholders}) ORDER BY updated_at DESC`,
+      )
+      .bind(...ids),
+    db
+      .prepare(
+        `SELECT * FROM cdi_technology_reviews WHERE discovery_id IN (${placeholders}) ORDER BY fit_score DESC`,
+      )
+      .bind(...ids),
   ];
   const [
     meetingRows,
@@ -4613,6 +5281,12 @@ async function accountPayload(
     handoffRows,
     impactRows,
     commercialAgentRows,
+    assignmentRows,
+    answerImpactRows,
+    cdiEvidenceRows,
+    cdiCapabilitySnapshotRows,
+    cdiConflictRows,
+    cdiTechnologyReviewRows,
   ] = await Promise.all(
     queries.map((query) => query.all<Record<string, unknown>>()),
   );
@@ -4639,6 +5313,137 @@ async function accountPayload(
   const agentPipelineRuns = commercialAgentRows.results.map(
     mapCommercialAgentRun,
   );
+  const stakeholderCapabilityAssignments =
+    assignmentRows.results.map(mapStakeholderCapabilityAssignment);
+  const answerImpacts = answerImpactRows.results.map(mapCdiAnswerImpact);
+  const guidedDiscoveries = discoveryRows.map((row) =>
+    guidedSnapshot({
+      row,
+      sessions: guidedSessions,
+      questions: guidedQuestions,
+      answers: guidedAnswers,
+      pillarStatuses: guidedPillarStatuses,
+      stakeholders: mappedStakeholders,
+      locale: responseLocale,
+    }),
+  );
+  const assignmentRoles: StakeholderCapabilityAssignment["role"][] = [
+    "owner",
+    "decision_maker",
+    "technical_contact",
+  ];
+  const relationshipCapabilityCoverage = discoveryRows.map((row) => {
+    const discoveryId = String(row.id);
+    const accountAssignments = stakeholderCapabilityAssignments.filter(
+      (item) =>
+        item.discoveryId === discoveryId && item.status === "confirmed",
+    );
+    return {
+      discoveryId,
+      catalogVersion: CDI_CAPABILITY_CATALOG_VERSION,
+      capabilities: CDI_CAPABILITIES.map((capability) => {
+        const assignments = accountAssignments.filter(
+          (item) => item.capabilityKey === capability.key,
+        );
+        const roles = Array.from(new Set(assignments.map((item) => item.role)));
+        return {
+          key: capability.key,
+          label: localizeCdi(capability.label, responseLocale),
+          assignments,
+          stakeholderIds: Array.from(
+            new Set(assignments.map((item) => item.stakeholderId)),
+          ),
+          roles,
+          coveragePercent: Math.round(
+            (roles.length / assignmentRoles.length) * 100,
+          ),
+          gaps: assignmentRoles.filter((role) => !roles.includes(role)),
+        };
+      }),
+    };
+  });
+  const reviewedStatuses = new Set([
+    "reviewed_sufficient",
+    "reviewed_gaps",
+    "not_relevant",
+  ]);
+  const capabilityPortfolioCoverage = {
+    catalogVersion: CDI_CAPABILITY_CATALOG_VERSION,
+    totalAccounts: discoveryRows.length,
+    capabilities: CDI_CAPABILITIES.map((capability) => {
+      const accounts = discoveryRows.map((row) => {
+        const accountId = String(row.id);
+        const currentStatuses = guidedPillarStatuses
+          .filter(
+            (item) =>
+              item.discoveryId === accountId &&
+              item.pillarKey === capability.key &&
+              item.catalogVersion === CDI_CAPABILITY_CATALOG_VERSION,
+          )
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        const current = currentStatuses[0] || null;
+        const hasLegacyReview = guidedPillarStatuses.some(
+          (item) =>
+            item.discoveryId === accountId &&
+            item.pillarKey === capability.key &&
+            item.catalogVersion !== CDI_CAPABILITY_CATALOG_VERSION &&
+            reviewedStatuses.has(item.status),
+        );
+        const state =
+          current && current.status !== "not_started"
+            ? current.status
+            : hasLegacyReview
+              ? "needs_review"
+              : "not_started";
+        const guided = guidedDiscoveries.find(
+          (item) => item.discoveryId === accountId,
+        );
+        const assessment = guided?.pillarAssessments.find(
+          (item) => item.key === capability.key,
+        );
+        const hasCurrentEvidence = Boolean(
+          current && current.status !== "not_started",
+        );
+        return {
+          accountId,
+          accountName: String(row.customer_name),
+          status: state,
+          technologyFit: hasCurrentEvidence
+            ? Number(assessment?.propensity || 0)
+            : null,
+          confidence: hasCurrentEvidence
+            ? Number(current?.confidencePercent || 0)
+            : null,
+          reviewedAt: current?.reviewedAt || null,
+          leadingTechnology: hasCurrentEvidence
+            ? assessment?.leadingTechnology || null
+            : null,
+        };
+      });
+      const count = (status: string) =>
+        accounts.filter((account) => account.status === status).length;
+      const reviewedAccounts = accounts.filter((account) =>
+        reviewedStatuses.has(account.status),
+      ).length;
+      return {
+        key: capability.key,
+        label: localizeCdi(capability.label, responseLocale),
+        description: localizeCdi(capability.description, responseLocale),
+        totalAccounts: discoveryRows.length,
+        reviewedAccounts,
+        coveragePercent: discoveryRows.length
+          ? Math.round((reviewedAccounts / discoveryRows.length) * 100)
+          : 0,
+        inProgress: count("in_progress"),
+        reviewedSufficient: count("reviewed_sufficient"),
+        reviewedWithGaps: count("reviewed_gaps"),
+        notRelevant: count("not_relevant"),
+        notStarted: count("not_started"),
+        needsReview: count("needs_review"),
+        accounts,
+      };
+    }),
+  };
   return {
     discoveries: discoveryRows.map((row) =>
       mapDiscovery(
@@ -4761,17 +5566,63 @@ async function accountPayload(
       newStatus: String(row.new_status || ""),
       createdAt: String(row.created_at),
     })),
-    guidedDiscoveries: discoveryRows.map((row) =>
-      guidedSnapshot({
-        row,
-        sessions: guidedSessions,
-        questions: guidedQuestions,
-        answers: guidedAnswers,
-        pillarStatuses: guidedPillarStatuses,
-        stakeholders: mappedStakeholders,
-        locale: responseLocale,
-      }),
-    ),
+    guidedDiscoveries,
+    stakeholderCapabilityAssignments,
+    relationshipCapabilityCoverage,
+    answerImpacts,
+    cdiEvidence: cdiEvidenceRows.results.map((row) => ({
+      id: String(row.id),
+      discoveryId: String(row.discovery_id),
+      answerId: row.answer_id ? String(row.answer_id) : null,
+      questionId: String(row.question_id),
+      capabilityKey: String(row.capability_key),
+      dimension: String(row.dimension),
+      response: String(row.response),
+      polarity: row.polarity ? String(row.polarity) : null,
+      strength: Number(row.strength || 0),
+      source: json<Record<string, unknown>>(row.source_json, {}),
+      createdAt: String(row.created_at),
+    })),
+    cdiCapabilitySnapshots: cdiCapabilitySnapshotRows.results.map((row) => ({
+      id: String(row.id),
+      discoveryId: String(row.discovery_id),
+      catalogVersion: String(row.catalog_version),
+      capabilityKey: String(row.capability_key),
+      maturity: json<Record<string, unknown>>(row.maturity_json, {}),
+      confidence: Number(row.confidence || 0),
+      status: String(row.status),
+      evidenceFingerprint: String(row.evidence_fingerprint || ""),
+      computedAt: String(row.computed_at),
+    })),
+    cdiConflicts: cdiConflictRows.results.map((row) => ({
+      id: String(row.id),
+      discoveryId: String(row.discovery_id),
+      capabilityKey: String(row.capability_key),
+      dimension: String(row.dimension),
+      evidenceIds: json<string[]>(row.evidence_ids_json, []),
+      status: String(row.status),
+      resolution: json<Record<string, unknown>>(row.resolution_json, {}),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    })),
+    cdiTechnologyReviews: cdiTechnologyReviewRows.results.map((row) => ({
+      id: String(row.id),
+      discoveryId: String(row.discovery_id),
+      technologyId: String(row.technology_id),
+      catalogVersion: String(row.catalog_version),
+      fitScore: Number(row.fit_score || 0),
+      confidence: Number(row.confidence || 0),
+      decisionBand: String(row.decision_band),
+      gateStatus: String(row.gate_status),
+      components: json<Record<string, unknown>>(row.components_json, {}),
+      trace: json<Array<Record<string, unknown>>>(row.trace_json, []),
+      humanDecision: row.human_decision
+        ? String(row.human_decision)
+        : null,
+      reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+      computedAt: String(row.computed_at),
+    })),
+    capabilityPortfolioCoverage,
     changeSets,
     crmHandoffs,
     impactMetrics,
@@ -6018,6 +6869,17 @@ async function handlePOST(request: Request) {
     await db.batch(statements);
 
     const beforeScores = json<Score[]>(row.scores_json, []);
+    const answerImpact =
+      answerStatus === "draft"
+        ? null
+        : await materializeCdiAnswerImpact(db, {
+            discoveryId: id,
+            answerId,
+            questionRow,
+            previousRow: previous,
+            locale,
+            now,
+          });
     if (answerStatus !== "draft") {
       const eventStatus: AccountEvent["evidenceStatus"] =
         answerStatus === "unknown"
@@ -6154,6 +7016,7 @@ async function handlePOST(request: Request) {
               ],
       guidedDiscovery: snapshot,
       checkpointAvailable: Boolean(snapshot.checkpoint?.available),
+      answerImpact,
     });
   }
   if (body.action === "guided_discovery_patch") {
@@ -7684,9 +8547,21 @@ async function handlePOST(request: Request) {
       .bind(id, sourceId, targetId, relationType)
       .first<Record<string, unknown>>();
     const savedId = String(existing?.id || relationshipId);
+    const relationshipIdentity = await db
+      .prepare("SELECT discovery_id FROM account_relationships WHERE id = ?")
+      .bind(savedId)
+      .first<Record<string, unknown>>();
+    if (
+      relationshipIdentity &&
+      String(relationshipIdentity.discovery_id) !== id
+    )
+      return Response.json(
+        { error: "Relação não encontrada nesta conta." },
+        { status: 404 },
+      );
     await db
       .prepare(
-        "INSERT OR REPLACE INTO account_relationships (id, discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type, label, confidence, evidence_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO account_relationships (id, discovery_id, source_stakeholder_id, target_stakeholder_id, relation_type, label, confidence, evidence_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET source_stakeholder_id = excluded.source_stakeholder_id, target_stakeholder_id = excluded.target_stakeholder_id, relation_type = excluded.relation_type, label = excluded.label, confidence = excluded.confidence, evidence_json = excluded.evidence_json, status = excluded.status, updated_at = excluded.updated_at",
       )
       .bind(
         savedId,
@@ -7712,7 +8587,12 @@ async function handlePOST(request: Request) {
     return Response.json({ ok: true, relationshipId: savedId });
   }
   if (body.action === "graph_layout") {
-    const mode = String(body.mode) === "influence" ? "influence" : "hierarchy";
+    const requestedMode = String(body.mode || "hierarchy");
+    const mode = ["hierarchy", "influence", "capability"].includes(
+      requestedMode,
+    )
+      ? requestedMode
+      : "hierarchy";
     const nodes = Array.isArray(body.nodes) ? body.nodes.slice(0, 250) : [];
     const viewport =
       body.viewport && typeof body.viewport === "object" ? body.viewport : {};
@@ -8019,34 +8899,160 @@ async function handlePOST(request: Request) {
         { error: "Uma pessoa não pode reportar a si mesma." },
         { status: 400 },
       );
-    const existing = await db
+    if (reportsToId) {
+      const manager = await db
+        .prepare(
+          "SELECT id FROM stakeholders WHERE id = ? AND discovery_id = ?",
+        )
+        .bind(reportsToId, id)
+        .first();
+      if (!manager)
+        return Response.json(
+          { error: "O gestor selecionado não pertence a esta conta." },
+          { status: 400 },
+        );
+    }
+    const rawAssignments = body.capabilityAssignments;
+    const validRoles = new Set([
+      "owner",
+      "decision_maker",
+      "influencer",
+      "technical_contact",
+    ]);
+    const validStatuses = new Set(["confirmed", "suggested", "dismissed"]);
+    const capabilityAssignments =
+      rawAssignments === undefined
+        ? null
+        : Array.isArray(rawAssignments)
+          ? rawAssignments.flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const assignment = item as Record<string, unknown>;
+              const capabilityKey = String(assignment.capabilityKey || "");
+              const role = String(assignment.role || "");
+              const status = String(assignment.status || "confirmed");
+              if (
+                !CDI_CAPABILITY_KEYS.includes(
+                  capabilityKey as CdiCapabilityKey,
+                ) ||
+                !validRoles.has(role) ||
+                !validStatuses.has(status)
+              )
+                return [];
+              return [
+                {
+                  capabilityKey: capabilityKey as CdiCapabilityKey,
+                  role: role as StakeholderCapabilityAssignment["role"],
+                  status:
+                    status as StakeholderCapabilityAssignment["status"],
+                  confidence: Math.max(
+                    0,
+                    Math.min(100, Number(assignment.confidence ?? 100)),
+                  ),
+                  sourceType: String(
+                    assignment.sourceType ||
+                      (status === "suggested" ? "intelligence" : "manual"),
+                  ),
+                  sourceId: assignment.sourceId
+                    ? String(assignment.sourceId)
+                    : null,
+                  evidence: Array.isArray(assignment.evidence)
+                    ? assignment.evidence.slice(0, 12)
+                    : [],
+                },
+              ];
+            })
+          : [];
+    if (
+      rawAssignments !== undefined &&
+      (!Array.isArray(rawAssignments) ||
+        rawAssignments.length > CDI_CAPABILITY_KEYS.length * 4 ||
+        capabilityAssignments?.length !== rawAssignments.length)
+    )
+      return Response.json(
+        {
+          error:
+            "Revise as capabilities, os papéis e os status atribuídos ao stakeholder.",
+        },
+        { status: 400 },
+      );
+    const dedupedAssignments = capabilityAssignments
+      ? Array.from(
+          new Map(
+            capabilityAssignments.map((assignment) => [
+              `${assignment.capabilityKey}:${assignment.role}`,
+              assignment,
+            ]),
+          ).values(),
+        )
+      : null;
+    const stakeholderIdentity = await db
       .prepare(
-        "SELECT created_at FROM stakeholders WHERE id = ? AND discovery_id = ?",
+        "SELECT discovery_id, created_at FROM stakeholders WHERE id = ?",
       )
-      .bind(stakeholderId, id)
+      .bind(stakeholderId)
       .first<Record<string, unknown>>();
-    await db
-      .prepare(
-        "INSERT OR REPLACE INTO stakeholders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      )
-      .bind(
-        stakeholderId,
-        id,
-        name,
-        role,
-        String(
-          body.area || localizedText(locale, "Not provided", "Não informada"),
+    if (
+      stakeholderIdentity &&
+      String(stakeholderIdentity.discovery_id) !== id
+    )
+      return Response.json(
+        { error: "Stakeholder não encontrado nesta conta." },
+        { status: 404 },
+      );
+    const stakeholderStatements = [
+      db
+        .prepare(
+          "INSERT INTO stakeholders (id, discovery_id, name, role, area, reports_to_id, influence, stance, priorities_json, notes, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, area = excluded.area, reports_to_id = excluded.reports_to_id, influence = excluded.influence, stance = excluded.stance, priorities_json = excluded.priorities_json, notes = excluded.notes, source = 'manual', updated_at = excluded.updated_at",
+        )
+        .bind(
+          stakeholderId,
+          id,
+          name,
+          role,
+          String(
+            body.area ||
+              localizedText(locale, "Not provided", "Não informada"),
+          ),
+          reportsToId,
+          String(body.influence || "Média"),
+          String(body.stance || "Desconhecido"),
+          JSON.stringify(list(body.priorities).slice(0, 8)),
+          String(body.notes || ""),
+          String(stakeholderIdentity?.created_at || now),
+          now,
         ),
-        reportsToId,
-        String(body.influence || "Média"),
-        String(body.stance || "Desconhecido"),
-        JSON.stringify(list(body.priorities).slice(0, 8)),
-        String(body.notes || ""),
-        "manual",
-        String(existing?.created_at || now),
-        now,
-      )
-      .run();
+    ];
+    if (dedupedAssignments) {
+      stakeholderStatements.push(
+        db
+          .prepare(
+            "DELETE FROM stakeholder_capability_assignments WHERE discovery_id = ? AND stakeholder_id = ?",
+          )
+          .bind(id, stakeholderId),
+      );
+      for (const assignment of dedupedAssignments)
+        stakeholderStatements.push(
+          db
+            .prepare(
+              "INSERT INTO stakeholder_capability_assignments (id, discovery_id, stakeholder_id, capability_key, assignment_role, status, confidence, source_type, source_id, evidence_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(
+              `sca-${stakeholderId}-${assignment.capabilityKey}-${assignment.role}`,
+              id,
+              stakeholderId,
+              assignment.capabilityKey,
+              assignment.role,
+              assignment.status,
+              assignment.confidence,
+              assignment.sourceType,
+              assignment.sourceId,
+              JSON.stringify(assignment.evidence),
+              now,
+              now,
+            ),
+        );
+    }
+    await db.batch(stakeholderStatements);
     await addEvent(db, {
       id: `evt-${id}-${stakeholderId}`,
       discoveryId: id,
@@ -8060,7 +9066,19 @@ async function handlePOST(request: Request) {
       occurredAt: now,
     });
     await recomputeAccount(db, id, { responseLocale: locale });
-    return Response.json({ ok: true });
+    const savedAssignments = await db
+      .prepare(
+        "SELECT * FROM stakeholder_capability_assignments WHERE discovery_id = ? AND stakeholder_id = ? ORDER BY capability_key, assignment_role",
+      )
+      .bind(id, stakeholderId)
+      .all<Record<string, unknown>>();
+    return Response.json({
+      ok: true,
+      stakeholderId,
+      capabilityAssignments: savedAssignments.results.map(
+        mapStakeholderCapabilityAssignment,
+      ),
+    });
   }
   if (body.action === "stakeholder_delete") {
     const stakeholderId = String(body.stakeholderId || "");
@@ -8075,6 +9093,11 @@ async function handlePOST(request: Request) {
           "DELETE FROM account_relationships WHERE discovery_id = ? AND (source_stakeholder_id = ? OR target_stakeholder_id = ?)",
         )
         .bind(id, stakeholderId, stakeholderId),
+      db
+        .prepare(
+          "DELETE FROM stakeholder_capability_assignments WHERE discovery_id = ? AND stakeholder_id = ?",
+        )
+        .bind(id, stakeholderId),
       db
         .prepare("DELETE FROM stakeholders WHERE id = ? AND discovery_id = ?")
         .bind(stakeholderId, id),

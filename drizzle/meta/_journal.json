@@ -78,6 +78,13 @@
       "when": 1785920400000,
       "tag": "0010_capability_driven_discovery",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786359600000,
+      "tag": "0011_kyndryl_account_centric",
+      "breakpoints": true
     }
   ]
 }

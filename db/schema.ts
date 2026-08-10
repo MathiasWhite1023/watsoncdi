@@ -868,6 +868,102 @@ export const cdiTechnologyReviews = sqliteTable(
   }),
 );
 
+export const stakeholderCapabilityAssignments = sqliteTable(
+  "stakeholder_capability_assignments",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    stakeholderId: text("stakeholder_id")
+      .notNull()
+      .references(() => stakeholders.id, { onDelete: "cascade" }),
+    capabilityKey: text("capability_key").notNull(),
+    assignmentRole: text("assignment_role").notNull(),
+    status: text("status").notNull().default("confirmed"),
+    confidence: integer("confidence").notNull().default(100),
+    sourceType: text("source_type").notNull().default("manual"),
+    sourceId: text("source_id"),
+    evidenceJson: text("evidence_json").notNull().default("[]"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    assignmentIdx: uniqueIndex(
+      "stakeholder_capability_assignments_unique_idx",
+    ).on(
+      table.discoveryId,
+      table.stakeholderId,
+      table.capabilityKey,
+      table.assignmentRole,
+    ),
+    accountCapabilityIdx: index(
+      "stakeholder_capability_assignments_account_capability_idx",
+    ).on(table.discoveryId, table.capabilityKey, table.status),
+    stakeholderIdx: index(
+      "stakeholder_capability_assignments_stakeholder_idx",
+    ).on(table.stakeholderId, table.status),
+    roleCheck: check(
+      "stakeholder_capability_assignments_role_check",
+      sql`${table.assignmentRole} in ('owner','decision_maker','influencer','technical_contact')`,
+    ),
+    statusCheck: check(
+      "stakeholder_capability_assignments_status_check",
+      sql`${table.status} in ('confirmed','suggested','dismissed')`,
+    ),
+    confidenceCheck: check(
+      "stakeholder_capability_assignments_confidence_check",
+      sql`${table.confidence} between 0 and 100`,
+    ),
+  }),
+);
+
+export const cdiAnswerImpacts = sqliteTable(
+  "cdi_answer_impacts",
+  {
+    id: text("id").primaryKey(),
+    discoveryId: text("discovery_id")
+      .notNull()
+      .references(() => discoveries.id, { onDelete: "cascade" }),
+    answerId: text("answer_id")
+      .notNull()
+      .references(() => guidedDiscoveryAnswers.id, { onDelete: "cascade" }),
+    questionId: text("question_id").notNull(),
+    catalogVersion: text("catalog_version").notNull(),
+    capabilityKey: text("capability_key").notNull(),
+    dimension: text("dimension").notNull(),
+    response: text("response").notNull(),
+    evidenceId: text("evidence_id"),
+    beforeJson: text("before_json").notNull().default("{}"),
+    afterJson: text("after_json").notNull().default("{}"),
+    deltaJson: text("delta_json").notNull().default("{}"),
+    journeyIdsJson: text("journey_ids_json").notNull().default("[]"),
+    technologyIdsJson: text("technology_ids_json").notNull().default("[]"),
+    gateChangesJson: text("gate_changes_json").notNull().default("[]"),
+    recommendationChangesJson: text("recommendation_changes_json")
+      .notNull()
+      .default("[]"),
+    ruleTraceJson: text("rule_trace_json").notNull().default("{}"),
+    sourceJson: text("source_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    answerIdx: uniqueIndex("cdi_answer_impacts_answer_idx").on(
+      table.discoveryId,
+      table.answerId,
+    ),
+    accountTimeIdx: index("cdi_answer_impacts_account_time_idx").on(
+      table.discoveryId,
+      table.createdAt,
+    ),
+    capabilityIdx: index("cdi_answer_impacts_capability_idx").on(
+      table.discoveryId,
+      table.capabilityKey,
+      table.createdAt,
+    ),
+  }),
+);
+
 /**
  * Human-reviewable before/after records created when a meeting or another
  * material source changes the account assessment.  The source remains the
