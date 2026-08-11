@@ -1,5 +1,27 @@
 # Changelog
 
+## Kyndryl CDI V4.1 — solution-led discovery
+
+Status: validated locally; awaiting approval for Kyndryl Sites version `7`
+Branch: `codex/kyndryl-account-centric-v4`
+Rollback: Kyndryl Sites version `6` / commit `94378b6532f1a9a7839f01e8702b6ea47fa17f53`
+Target URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+
+### Changed
+
+- Reordered Home around the portfolio heatmap first and replaced the oversized capability-card grid with a compact, searchable Carbon coverage explorer.
+- Added a default account-by-solution heatmap with Solution Fit, evidence confidence, decision band, gate status, capability filtering, and explicit `Not assessed` cells.
+- Expanded the deterministic catalog across IBM, Red Hat, HashiCorp, and strategic ecosystem solutions while keeping every recommendation tied to specific answer evidence.
+- Tightened recommendation governance: no direct product evidence means no product score; `Recommend now` requires a valid gate, fit of at least 80, confidence of at least 70, and two independent supporting evidence items.
+- Reframed every deep discovery prompt as an answerable binary validation and preserved its original open question as contextual evidence guidance.
+- Made the context editor permanently visible in editable workspaces, added explicit read-only guidance to the public demo, and made failed mutations release the saving state reliably.
+- Expanded final discovery results with all evaluated solutions, Solution Fit percentages, confidence, gates, decision bands, evidence trace, score composition, and next evidence to validate.
+
+### Validation
+
+- TypeScript, ESLint, all 89 automated tests, and the Vinext production build pass.
+- No destructive migration was added; stale materialized solution reviews are reset to `Not assessed` and recalculated from current evidence.
+
 ## Kyndryl CDI V4 — account-centric capability intelligence
 
 Status: published as Kyndryl Sites version `6` on 2026-08-10

@@ -35,6 +35,10 @@ test("materializes deterministic evidence, snapshots, conflicts, reviews and imm
   assert.match(materializer, /INSERT OR IGNORE INTO cdi_capability_snapshots/);
   assert.match(materializer, /INSERT INTO cdi_conflicts/);
   assert.match(materializer, /INSERT INTO cdi_technology_reviews/);
+  assert.match(
+    materializer,
+    /UPDATE cdi_technology_reviews SET fit_score = 0,[\s\S]*decision_band = 'NOT_ASSESSED'[\s\S]*trace_json = '\[\]'/,
+  );
   assert.match(materializer, /humanValidationRequired:\s*true/);
   assert.doesNotMatch(materializer, /UPDATE cdi_answer_impacts/);
   assert.match(api, /checkpointAvailable/);
@@ -91,6 +95,29 @@ test("publishes current-catalog portfolio coverage without artificial not-starte
   assert.match(coverage, /reviewedAccounts \/ discoveryRows\.length/);
   assert.match(coverage, /technologyFit:\s*hasCurrentEvidence[\s\S]*:\s*null/);
   assert.match(coverage, /confidence:\s*hasCurrentEvidence[\s\S]*:\s*null/);
+});
+
+test("grounds the read-only demo heatmap in explicit current-catalog answers", async () => {
+  const api = await read("app/api/discoveries/route.ts");
+  const fixtures =
+    api.match(
+      /const DEMO_CAPABILITY_ANSWERS[\s\S]*?const demoCapabilityAnswers/,
+    )?.[0] || "";
+  const snapshot =
+    api.match(
+      /const syntheticDemoAnswers = demoCapabilityAnswers[\s\S]*?const storedStatusByPillar/,
+    )?.[0] || "";
+
+  assert.match(fixtures, /"aurora-retail"[\s\S]*FINOPS_C01[\s\S]*FINOPS_C05/);
+  assert.match(fixtures, /"banco-horizonte"[\s\S]*TRUSTED_DATA_C01[\s\S]*AI_GOVERNANCE_C03/);
+  assert.match(fixtures, /novalog[\s\S]*AUTOMATION_C01[\s\S]*INTEGRATION_C04/);
+  assert.match(fixtures, /"solaris-energia"[\s\S]*DATA_STREAMING_C01[\s\S]*DATA_STREAMING_C04/);
+  assert.match(api, /String\(row\.visibility \|\| "demo"\) === "private"[\s\S]*\? \[\]/);
+  assert.match(snapshot, /assessmentAnswers = \[[\s\S]*syntheticDemoAnswers/);
+  assert.match(api, /syntheticPillarAnswers\.length >= 5[\s\S]*"reviewed_sufficient"/);
+  assert.match(api, /syntheticPillarAnswers\.length >= 4[\s\S]*"reviewed_gaps"/);
+  assert.match(api, /:\s*"in_progress"/);
+  assert.match(api, /effectiveState[\s\S]*demoDerivedState/);
 });
 
 test("saves stakeholder capability responsibilities atomically and counts only confirmed coverage", async () => {

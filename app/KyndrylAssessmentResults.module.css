@@ -99,6 +99,13 @@
   font-weight: 400;
   margin-top: 0.3rem;
 }
+.sectionHeading p {
+  max-width: 760px;
+  margin-top: 0.4rem;
+  color: #525252;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
 .legend {
   display: flex;
   gap: 0.35rem;
@@ -219,6 +226,18 @@
   height: 100%;
   background: #0f62fe;
 }
+.solutionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  padding: 0 1.25rem 1rem 4rem;
+  color: #525252;
+  font-size: 0.7rem;
+}
+.solutionMeta strong {
+  color: #161616;
+  font-weight: 600;
+}
 .technology details {
   border-top: 1px solid #e0e0e0;
 }
@@ -233,6 +252,44 @@
   line-height: 1.5;
   color: #393939;
   padding: 0 1.25rem 1rem;
+}
+.evidenceTrace {
+  padding: 0 1.25rem 1rem;
+}
+.evidenceTrace > strong {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: #161616;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.evidenceTrace ul {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #e0e0e0;
+  list-style: none;
+}
+.evidenceTrace li {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+.evidenceTrace li > div {
+  display: grid;
+  gap: 0.25rem;
+}
+.evidenceTrace li span {
+  color: #161616;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.evidenceTrace li small {
+  color: #6f6f6f;
+  font-size: 0.68rem;
 }
 .componentGrid {
   display: grid;
@@ -356,6 +413,9 @@
     grid-template-columns: 1fr;
     padding: 0 1rem 1rem;
   }
+  .solutionMeta {
+    padding: 0 1rem 1rem;
+  }
   .technologyHead {
     grid-template-columns: 2rem 1fr;
   }
@@ -364,6 +424,9 @@
   }
   .componentGrid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .evidenceTrace li {
+    grid-template-columns: 1fr;
   }
   .practiceList {
     grid-template-columns: 1fr;

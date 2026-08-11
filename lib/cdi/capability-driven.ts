@@ -37,6 +37,7 @@ export type CdiQuestion = {
   dimension: MaturityDimension;
   title: Localized;
   prompt: Localized;
+  contextPrompt?: Localized;
   rationale: Localized;
   keywords: string[];
   businessImpact: number;
@@ -84,6 +85,12 @@ const topic = (
   impact = 80,
   inverse = false,
 ): Topic => ({ id, dimension, title, core, deep, rationale, keywords, impact, inverse });
+
+const deepValidationPrompt = (item: Topic): Localized =>
+  l(
+    `Is “${item.title.en}” supported by specific, verifiable evidence?`,
+    `Existem evidências específicas e verificáveis que comprovem “${item.title.pt}”?`,
+  );
 
 export const CDI_CAPABILITIES: CdiCapability[] = [
   {
@@ -258,7 +265,8 @@ function buildQuestion(capability: CdiCapability, item: Topic, level: CdiLevel):
     level,
     dimension: item.dimension,
     title: item.title,
-    prompt: level === "core" ? item.core : item.deep,
+    prompt: level === "core" ? item.core : deepValidationPrompt(item),
+    contextPrompt: level === "deep" ? item.deep : undefined,
     rationale: item.rationale,
     keywords: item.keywords,
     businessImpact: item.impact || 80,
@@ -324,6 +332,8 @@ export const CDI_TECHNOLOGIES: CdiTechnologyProfile[] = [
   { id: "api-connect", name: "IBM API Connect", capabilityKeys: ["integration", "z-modernize"], journeyId: "modernize-integrate", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("INTEGRATION", "lifecycle", "no"), e("Z_MODERNIZE", "api", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
   { id: "app-connect", name: "IBM App Connect", capabilityKeys: ["integration", "automation"], journeyId: "modernize-integrate", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [], supportingEvidence: [e("INTEGRATION", "hybrid", "no"), e("AUTOMATION", "integration", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
   { id: "confluent", name: "Confluent", capabilityKeys: ["data-streaming", "integration"], journeyId: "modernize-integrate", attach: "LEAD_ATTACH", requiredEvidence: [e("DATA_STREAMING", "use-case", "yes")], supportingEvidence: [e("DATA_STREAMING", "platform", "no"), e("DATA_STREAMING", "governance", "no")], contradictoryEvidence: [e("DATA_STREAMING", "use-case", "no")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "event-automation", name: "IBM Event Automation", capabilityKeys: ["data-streaming"], journeyId: "modernize-integrate", attach: "LEAD_ATTACH", requiredEvidence: [e("DATA_STREAMING", "use-case", "yes")], supportingEvidence: [e("DATA_STREAMING", "platform", "no"), e("DATA_STREAMING", "governance", "no"), e("DATA_STREAMING", "operations", "no"), e("DATA_STREAMING", "adoption", "no")], contradictoryEvidence: [e("DATA_STREAMING", "use-case", "no")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "ibm-mq", name: "IBM MQ", capabilityKeys: ["integration", "data-streaming", "z-modernize"], journeyId: "modernize-integrate", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [], supportingEvidence: [e("INTEGRATION", "hybrid", "no"), e("DATA_STREAMING", "operations", "no"), e("Z_MODERNIZE", "api", "no")], contradictoryEvidence: [e("INTEGRATION", "hybrid", "yes"), e("DATA_STREAMING", "operations", "yes"), e("Z_MODERNIZE", "api", "yes")], minimumFit: 65, minimumConfidence: 55 },
   { id: "watsonx-data", name: "IBM watsonx.data", capabilityKeys: ["trusted-data", "ai-governance"], journeyId: "govern-data-ai", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("TRUSTED_DATA", "architecture", "no"), e("TRUSTED_DATA", "access", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
   { id: "knowledge-catalog", name: "IBM Knowledge Catalog", capabilityKeys: ["trusted-data", "ai-governance"], journeyId: "govern-data-ai", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("TRUSTED_DATA", "catalog", "no"), e("TRUSTED_DATA", "ownership", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
   { id: "watsonx-governance", name: "IBM watsonx.governance", capabilityKeys: ["ai-governance"], journeyId: "govern-data-ai", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("AI_GOVERNANCE", "risk", "no"), e("AI_GOVERNANCE", "monitoring", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
@@ -334,10 +344,21 @@ export const CDI_TECHNOLOGIES: CdiTechnologyProfile[] = [
   { id: "z-cyber-vault", name: "IBM Z Cyber Vault", capabilityKeys: ["z-security", "security"], journeyId: "protect-resilience", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [e("Z_RUN", "platform", "yes")], supportingEvidence: [e("Z_SECURITY", "recovery", "no")], contradictoryEvidence: [e("Z_RUN", "platform", "no")], minimumFit: 65, minimumConfidence: 55 },
   { id: "business-automation", name: "IBM Business Automation Workflow", capabilityKeys: ["automation"], journeyId: "automate-transform", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("AUTOMATION", "workflow", "no"), e("AUTOMATION", "process", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
   { id: "envizi", name: "IBM Envizi", capabilityKeys: ["sustainability"], journeyId: "optimize-economics", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("SUSTAINABILITY", "measurement", "no"), e("SUSTAINABILITY", "governance", "no")], contradictoryEvidence: [], minimumFit: 65, minimumConfidence: 55 },
+  { id: "webmethods-hybrid-integration", name: "IBM webMethods Hybrid Integration", capabilityKeys: ["integration", "z-modernize"], journeyId: "modernize-integrate", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [], supportingEvidence: [e("INTEGRATION", "hybrid", "no"), e("INTEGRATION", "lifecycle", "no"), e("Z_MODERNIZE", "api", "no")], contradictoryEvidence: [e("INTEGRATION", "hybrid", "yes"), e("INTEGRATION", "lifecycle", "yes"), e("Z_MODERNIZE", "api", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "hashicorp-terraform", name: "HashiCorp Terraform", capabilityKeys: ["hybrid-cloud"], journeyId: "modernize-integrate", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("HYBRID_CLOUD", "automation", "no"), e("HYBRID_CLOUD", "visibility", "no"), e("HYBRID_CLOUD", "strategy", "no")], contradictoryEvidence: [e("HYBRID_CLOUD", "automation", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "red-hat-ansible", name: "Red Hat Ansible Automation Platform", capabilityKeys: ["hybrid-cloud", "it-operations", "automation"], journeyId: "automate-transform", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [], supportingEvidence: [e("HYBRID_CLOUD", "automation", "no"), e("IT_OPERATIONS", "automation", "no"), e("AUTOMATION", "workflow", "no")], contradictoryEvidence: [e("HYBRID_CLOUD", "automation", "yes"), e("IT_OPERATIONS", "automation", "yes"), e("AUTOMATION", "workflow", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "hashicorp-vault", name: "HashiCorp Vault", capabilityKeys: ["security", "z-security", "automation"], journeyId: "protect-resilience", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [], supportingEvidence: [e("SECURITY", "identity", "no"), e("Z_SECURITY", "privileged", "no"), e("AUTOMATION", "governance", "no")], contradictoryEvidence: [e("SECURITY", "identity", "yes"), e("Z_SECURITY", "privileged", "yes"), e("AUTOMATION", "governance", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "cloudability", name: "IBM Cloudability", capabilityKeys: ["finops", "hybrid-cloud"], journeyId: "optimize-economics", attach: "EXPANSION_ATTACH", requiredEvidence: [], supportingEvidence: [e("FINOPS", "allocation", "no"), e("FINOPS", "forecast", "no"), e("HYBRID_CLOUD", "visibility", "no")], contradictoryEvidence: [e("FINOPS", "allocation", "yes"), e("FINOPS", "forecast", "yes"), e("HYBRID_CLOUD", "visibility", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "sevone", name: "IBM SevOne Network Performance Management", capabilityKeys: ["observability", "hybrid-cloud"], journeyId: "operate-optimize", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("OBSERVABILITY", "coverage", "no"), e("OBSERVABILITY", "topology", "no"), e("OBSERVABILITY", "correlation", "no"), e("HYBRID_CLOUD", "visibility", "no")], contradictoryEvidence: [e("OBSERVABILITY", "coverage", "yes"), e("OBSERVABILITY", "topology", "yes"), e("HYBRID_CLOUD", "visibility", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "cloud-pak-aiops", name: "IBM Cloud Pak for AIOps", capabilityKeys: ["observability", "it-operations"], journeyId: "operate-optimize", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("OBSERVABILITY", "correlation", "no"), e("OBSERVABILITY", "response", "no"), e("IT_OPERATIONS", "service-data", "no"), e("IT_OPERATIONS", "automation", "no")], contradictoryEvidence: [e("OBSERVABILITY", "correlation", "yes"), e("IT_OPERATIONS", "automation", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "datastage", name: "IBM DataStage", capabilityKeys: ["trusted-data", "integration"], journeyId: "govern-data-ai", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("TRUSTED_DATA", "quality", "no"), e("TRUSTED_DATA", "architecture", "no"), e("INTEGRATION", "hybrid", "no")], contradictoryEvidence: [e("TRUSTED_DATA", "quality", "yes"), e("TRUSTED_DATA", "architecture", "yes"), e("INTEGRATION", "hybrid", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "planning-analytics", name: "IBM Planning Analytics", capabilityKeys: ["finops"], journeyId: "optimize-economics", attach: "EXPANSION_ATTACH", requiredEvidence: [], supportingEvidence: [e("FINOPS", "forecast", "no"), e("FINOPS", "value", "no")], contradictoryEvidence: [e("FINOPS", "forecast", "yes"), e("FINOPS", "value", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "zsecure", name: "IBM zSecure", capabilityKeys: ["z-security"], journeyId: "protect-resilience", attach: "OPPORTUNITY_ATTACH", requiredEvidence: [e("Z_RUN", "platform", "yes")], supportingEvidence: [e("Z_SECURITY", "vulnerability", "no"), e("Z_SECURITY", "evidence", "no"), e("Z_SECURITY", "privileged", "no")], contradictoryEvidence: [e("Z_RUN", "platform", "no"), e("Z_SECURITY", "vulnerability", "yes"), e("Z_SECURITY", "evidence", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "storage-defender", name: "IBM Storage Defender", capabilityKeys: ["security"], journeyId: "protect-resilience", attach: "EXPANSION_ATTACH", requiredEvidence: [], supportingEvidence: [e("SECURITY", "recovery", "no")], contradictoryEvidence: [e("SECURITY", "recovery", "yes")], minimumFit: 65, minimumConfidence: 55 },
+  { id: "qradar-suite", name: "IBM QRadar Suite", capabilityKeys: ["security"], journeyId: "protect-resilience", attach: "LEAD_ATTACH", requiredEvidence: [], supportingEvidence: [e("SECURITY", "response", "no")], contradictoryEvidence: [e("SECURITY", "response", "yes")], minimumFit: 65, minimumConfidence: 55 },
 ];
 
 export const cdiCapability = (key: string) => CDI_CAPABILITIES.find((item) => item.key === key) || null;
 export const cdiQuestion = (id: string) => CDI_QUESTIONS.find((item) => item.id === id) || null;
 export const coreQuestionsForCapability = (key: CdiCapabilityKey) => CDI_QUESTIONS.filter((item) => item.capabilityKey === key && item.level === "core");
 export const deepQuestionsForCapability = (key: CdiCapabilityKey) => CDI_QUESTIONS.filter((item) => item.capabilityKey === key && item.level === "deep");
-

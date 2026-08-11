@@ -362,25 +362,48 @@
   font-size: .75rem;
   line-height: 1.45;
 }
-.contextDetails {
+.contextEditor {
   margin-top: 1.25rem;
   border-top: 1px solid #c6c6c6;
   border-bottom: 1px solid #c6c6c6;
   background: #fff;
-}
-.contextDetails > summary {
-  cursor: pointer;
   padding: 1rem;
+}
+.contextEditor > header {
+  margin-bottom: 1rem;
+}
+.contextEditor > header h3 {
+  margin: 0;
   font-size: 0.875rem;
   font-weight: 600;
-  list-style-position: inside;
 }
-.contextDetails > :not(summary) {
-  margin-left: 1rem;
-  margin-right: 1rem;
+.contextEditor > header p {
+  max-width: 48rem;
+  margin: 0.35rem 0 0;
+  color: #525252;
+  font-size: 0.75rem;
+  line-height: 1.45;
 }
-.contextDetails .evidenceGrid {
-  margin-bottom: 1rem;
+.evidenceAccordion {
+  margin-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+}
+.evidenceAccordion :global(.cds--accordion__content) {
+  padding-right: 0;
+  padding-left: 0;
+}
+.evidenceAccordion .evidenceGrid {
+  margin: 0;
+}
+.readOnlyContext {
+  margin-top: 1.25rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.readOnlyContext :global(.cds--inline-notification) {
+  flex: 1;
+  max-width: none;
 }
 .insightRail section {
   padding: 1rem 0;
@@ -988,6 +1011,17 @@
   }
   .evidenceGrid > * {
     border-bottom: 1px solid #e0e0e0;
+  }
+  .contextEditor {
+    padding: 0.875rem;
+  }
+  .readOnlyContext {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .readOnlyContext :global(.cds--btn) {
+    width: 100%;
+    max-width: none;
   }
   .actions {
     position: sticky;

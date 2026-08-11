@@ -373,6 +373,36 @@ test("routes discovery through 14 capabilities and keeps coverage separate from 
   assert.equal(metrics.gaps, 1);
 });
 
+test("renders follow-ups as binary validations with open prompts kept as evidence guidance", async () => {
+  const guided = await loadGuidedModule();
+  const openEnglish = /^(which|what|who|where|how|when)\b/i;
+  const openPortuguese = /^(qual|quais|quem|onde|como|quando)\b/i;
+  const followUps = guided.GUIDED_DISCOVERY_CATALOG.filter(
+    (question) => !question.essential,
+  );
+
+  assert.equal(followUps.length, 70);
+  for (const question of followUps) {
+    const english = guided.GUIDED_DISCOVERY_CATALOG_EN_US[question.id];
+    assert.doesNotMatch(question.question, openPortuguese, question.id);
+    assert.doesNotMatch(english.question, openEnglish, question.id);
+    assert.deepEqual(question.input.options, [
+      "Sim",
+      "Não",
+      "Não se aplica",
+      "Não sei",
+    ]);
+    assert.deepEqual(english.input.options, [
+      "Yes",
+      "No",
+      "Not applicable",
+      "Don't know",
+    ]);
+    assert.match(question.hint, /^Use este ponto para orientar a evidência:/);
+    assert.match(english.hint, /^Use this validation point to guide the evidence:/);
+  }
+});
+
 test("uses the transparent 45/30/15/10 information-value ranking", async () => {
   const guided = await loadGuidedModule();
   const questions = guided.questionsForPillar("it-operations").slice(0, 2);

@@ -71,6 +71,20 @@ export type GuidedDiscoveryQuestionDelta = {
 const responseOptionsPt = ["Sim", "Não", "Não se aplica", "Não sei"];
 const responseOptionsEn = ["Yes", "No", "Not applicable", "Don't know"];
 
+const followUpHint = (
+  locale: "en" | "pt",
+  contextPrompt?: { en: string; pt: string },
+) => {
+  const prompt = contextPrompt?.[locale];
+  if (!prompt)
+    return locale === "pt"
+      ? "Registre uma evidência verificável para sustentar a resposta."
+      : "Record verifiable evidence to support the answer.";
+  return locale === "pt"
+    ? `Use este ponto para orientar a evidência: ${prompt}`
+    : `Use this validation point to guide the evidence: ${prompt}`;
+};
+
 const CORE_GUIDED_DISCOVERY_CATALOG: GuidedDiscoveryCatalogQuestion[] =
   CDI_QUESTIONS.filter((item) => item.level === "core").map((item) => ({
     id: item.id,
@@ -95,7 +109,7 @@ const FOLLOW_UP_CATALOG: GuidedDiscoveryCatalogQuestion[] =
     title: item.title.pt,
     question: item.prompt.pt,
     rationale: item.rationale.pt,
-    hint: "Registre uma métrica, sistema, responsável ou decisão verificável.",
+    hint: followUpHint("pt", item.contextPrompt),
     input: {
       kind: "single",
       label: "Confirmação",
@@ -137,7 +151,7 @@ export const GUIDED_DISCOVERY_CATALOG_EN_US: Record<
       title: item.title.en,
       question: item.prompt.en,
       rationale: item.rationale.en,
-      hint: "Record a verifiable metric, system, owner, or decision.",
+      hint: followUpHint("en", item.contextPrompt),
       input: {
         kind: "single" as const,
         label: "Confirmation",

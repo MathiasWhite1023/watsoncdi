@@ -20,10 +20,11 @@ type Props = {
 const copy = {
   "en-US": {
     eyebrow: "Explainable opportunity intelligence",
-    title: "Heatmap and IBM recommendations",
+    title: "Capability heatmap and solution fit",
     subtitle:
-      "Every recommendation is derived from confirmed discovery answers. Propensity and confidence are shown separately.",
-    propensity: "Technology propensity",
+      "Every evaluated solution is linked to specific discovery evidence. Solution fit is deterministic and is not a probability of sale.",
+    propensity: "Solution fit",
+    highestFit: "Highest solution fit",
     confidence: "Evidence confidence",
     answered: "Known answers",
     dontKnow: "Don't know",
@@ -33,8 +34,13 @@ const copy = {
     maturity: "Capability maturity heatmap",
     capability: "Capability",
     journey: "Journey",
-    technologies: "IBM technology recommendations",
+    technologies: "Evaluated IBM & ecosystem solutions",
+    technologiesHelp:
+      "All solutions evaluated for this capability are shown. Solutions without directly linked evidence remain not assessed and are omitted.",
     why: "Why this recommendation",
+    influencingAnswers: "Answers and evidence that influenced this fit",
+    evidenceItems: "Influencing evidence",
+    response: "Response",
     nextQuestion: "Next evidence to validate",
     components: "Score composition",
     evidenceFit: "Evidence fit",
@@ -52,6 +58,10 @@ const copy = {
     chooseNext: "Choose next capability",
     noEvidence:
       "Answer the selected capability questions to activate the heatmap and recommendations.",
+    noSolutions:
+      "No IBM or ecosystem solution has directly linked evidence yet. Continue discovery before assessing solution fit.",
+    maturityLabel: "Maturity",
+    portfolioFit: "IBM & ecosystem portfolio fit",
     additional: "Highest-value questions still open",
     traceability:
       "Question → evidence → capability → journey → technology → Kyndryl practice",
@@ -61,10 +71,11 @@ const copy = {
   },
   "pt-BR": {
     eyebrow: "Inteligência de oportunidade explicável",
-    title: "Heatmap e recomendações IBM",
+    title: "Heatmap de capability e aderência de soluções",
     subtitle:
-      "Toda recomendação é derivada das respostas confirmadas. Propensão e confiança são exibidas separadamente.",
-    propensity: "Propensão tecnológica",
+      "Toda solução avaliada está ligada a evidências específicas da descoberta. A aderência é determinística e não representa probabilidade de venda.",
+    propensity: "Aderência da solução",
+    highestFit: "Maior aderência de solução",
     confidence: "Confiança das evidências",
     answered: "Respostas conhecidas",
     dontKnow: "Não sei",
@@ -74,8 +85,13 @@ const copy = {
     maturity: "Heatmap de maturidade das capacidades",
     capability: "Capacidade",
     journey: "Jornada",
-    technologies: "Recomendações de tecnologias IBM",
+    technologies: "Soluções IBM e do ecossistema avaliadas",
+    technologiesHelp:
+      "Todas as soluções avaliadas para esta capability são exibidas. Soluções sem evidência diretamente vinculada permanecem não avaliadas e são omitidas.",
     why: "Por que esta recomendação",
+    influencingAnswers: "Respostas e evidências que influenciaram a aderência",
+    evidenceItems: "Evidências influentes",
+    response: "Resposta",
     nextQuestion: "Próxima evidência a validar",
     components: "Composição do score",
     evidenceFit: "Aderência da evidência",
@@ -93,6 +109,10 @@ const copy = {
     chooseNext: "Escolher próxima capacidade",
     noEvidence:
       "Responda às perguntas da capacidade selecionada para ativar o heatmap e as recomendações.",
+    noSolutions:
+      "Ainda não há evidência diretamente vinculada a uma solução IBM ou do ecossistema. Continue a descoberta antes de avaliar a aderência.",
+    maturityLabel: "Maturidade",
+    portfolioFit: "Aderência do portfólio IBM e do ecossistema",
     additional: "Perguntas de maior valor ainda abertas",
     traceability:
       "Pergunta → evidência → capacidade → jornada → tecnologia → prática Kyndryl",
@@ -105,13 +125,7 @@ const copy = {
 const actionLabel = (
   action: KyndrylTechnologyScore["action"],
   locale: Locale,
-  propensity = 0,
-  confidence = 0,
 ) => {
-  if (action === "VALIDATE" && propensity >= 80 && confidence < 70)
-    return locale === "pt-BR"
-      ? "Alto potencial · descoberta adicional"
-      : "High potential · additional discovery";
   const labels = {
     "en-US": {
       RECOMMEND_NOW: "Recommend now",
@@ -135,6 +149,27 @@ const actionLabel = (
   return labels[locale][action];
 };
 
+const gateLabel = (
+  gateStatus: KyndrylTechnologyScore["gateStatus"],
+  locale: Locale,
+) => {
+  const labels = {
+    "en-US": {
+      SATISFIED: "Satisfied",
+      PENDING: "Pending",
+      FAILED: "Not satisfied",
+      NOT_REQUIRED: "Not required",
+    },
+    "pt-BR": {
+      SATISFIED: "Atendido",
+      PENDING: "Pendente",
+      FAILED: "Não atendido",
+      NOT_REQUIRED: "Não necessário",
+    },
+  } as const;
+  return labels[locale][gateStatus];
+};
+
 const toneFor = (value: number) =>
   value >= 70 ? styles.green : value >= 40 ? styles.amber : styles.red;
 
@@ -146,6 +181,17 @@ const actionTone = (action: KyndrylTechnologyScore["action"]) => {
   return "red";
 };
 
+const responseLabel = (
+  response: KyndrylTechnologyScore["evidence"][number]["response"],
+  locale: Locale,
+) => {
+  const labels = {
+    "en-US": { YES: "Yes", NO: "No", NOT_APPLICABLE: "N/A", DONT_KNOW: "Don't know" },
+    "pt-BR": { YES: "Sim", NO: "Não", NOT_APPLICABLE: "N/A", DONT_KNOW: "Não sei" },
+  } as const;
+  return labels[locale][response];
+};
+
 export default function KyndrylAssessmentResults({
   assessment,
   locale,
@@ -155,7 +201,8 @@ export default function KyndrylAssessmentResults({
   const c = copy[locale];
   const capabilityAssessment = assessment as CapabilityDrivenAssessment;
   const hasKnownEvidence = assessment.summary.knownAnswers > 0;
-  const leading = assessment.technologies.slice(0, 8);
+  const evaluatedSolutions = assessment.technologies;
+  const highestSolutionFit = evaluatedSolutions[0]?.propensity || 0;
 
   return (
     <section className={styles.results} aria-labelledby="kyndryl-results-title">
@@ -181,12 +228,12 @@ export default function KyndrylAssessmentResults({
 
       <div className={styles.metrics}>
         <article>
-          <span>{c.propensity}</span>
-          <strong>{assessment.pillars[0]?.propensity || 0}%</strong>
+          <span>{c.highestFit}</span>
+          <strong>{highestSolutionFit}%</strong>
           <ProgressBar
-            label={c.propensity}
+            label={c.highestFit}
             hideLabel
-            value={assessment.pillars[0]?.propensity || 0}
+            value={highestSolutionFit}
           />
         </article>
         <article>
@@ -246,7 +293,7 @@ export default function KyndrylAssessmentResults({
               <div className={styles.heatmapHeader} role="row">
                 <span role="columnheader">{c.capability}</span>
                 <span role="columnheader">{c.journey}</span>
-                <span role="columnheader">Maturity</span>
+                <span role="columnheader">{c.maturityLabel}</span>
               </div>
               {assessment.capabilities.map((capability) => (
                 <div
@@ -275,13 +322,15 @@ export default function KyndrylAssessmentResults({
           <section className={styles.section}>
             <div className={styles.sectionHeading}>
               <div>
-                <span>IBM portfolio fit</span>
+                <span>{c.portfolioFit}</span>
                 <h3>{c.technologies}</h3>
+                <p>{c.technologiesHelp}</p>
               </div>
             </div>
-            <div className={styles.technologyList}>
-              {leading.map((technology, index) => (
-                <article className={styles.technology} key={technology.id}>
+            {evaluatedSolutions.length ? (
+              <div className={styles.technologyList}>
+                {evaluatedSolutions.map((technology, index) => (
+                  <article className={styles.technology} key={technology.id}>
                   <div className={styles.technologyHead}>
                     <span className={styles.rank}>{index + 1}</span>
                     <div>
@@ -292,12 +341,7 @@ export default function KyndrylAssessmentResults({
                       </small>
                     </div>
                     <Tag type={actionTone(technology.action)}>
-                      {actionLabel(
-                        technology.action,
-                        locale,
-                        technology.propensity,
-                        technology.confidence,
-                      )}
+                      {actionLabel(technology.action, locale)}
                     </Tag>
                   </div>
                   <div className={styles.propensity}>
@@ -311,9 +355,38 @@ export default function KyndrylAssessmentResults({
                       {c.confidence}: {technology.confidence}%
                     </small>
                   </div>
+                  <div className={styles.solutionMeta}>
+                    <span>
+                      {c.gate}: <strong>{gateLabel(technology.gateStatus, locale)}</strong>
+                    </span>
+                    <span>
+                      {c.evidenceItems}: <strong>{technology.evidence.length}</strong>
+                    </span>
+                  </div>
                   <details>
                     <summary>{c.why}</summary>
                     <p>{technology.explanation}</p>
+                    <div className={styles.evidenceTrace}>
+                      <strong>{c.influencingAnswers}</strong>
+                      <ul>
+                        {technology.evidence.map((evidence) => (
+                          <li key={`${technology.id}-${evidence.id}`}>
+                            <Tag
+                              size="sm"
+                              type={
+                                evidence.polarity === "GAP" ? "red" : "green"
+                              }
+                            >
+                              {c.response}: {responseLabel(evidence.response, locale)}
+                            </Tag>
+                            <div>
+                              <span>{evidence.question}</span>
+                              <small>{evidence.label}</small>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                     <div className={styles.componentGrid}>
                       {(
                         [
@@ -338,9 +411,15 @@ export default function KyndrylAssessmentResults({
                       </div>
                     )}
                   </details>
-                </article>
-              ))}
-            </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.empty}>
+                <Renew size={32} />
+                <p>{c.noSolutions}</p>
+              </div>
+            )}
           </section>
 
           {capabilityAssessment.practices?.length > 0 && (

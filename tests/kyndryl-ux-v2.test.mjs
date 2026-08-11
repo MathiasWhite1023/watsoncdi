@@ -82,6 +82,24 @@ test("keeps the active discovery open when the next question changes", async () 
   assert.match(workspace, /updatedView\?\.nextQuestion/);
 });
 
+test("keeps context editable and clearly explains the read-only demonstration", async () => {
+  const [workspace, styles] = await Promise.all([
+    read("app/GuidedDiscoveryWorkspace.tsx"),
+    read("app/GuidedDiscoveryWorkspace.module.css"),
+  ]);
+
+  assert.match(workspace, /<Accordion/);
+  assert.match(workspace, /<AccordionItem[\s\S]*?open/);
+  assert.match(workspace, /className=\{styles\.contextEditor\}/);
+  assert.match(workspace, /id="guided-context"[\s\S]*?disabled=\{saving\}/);
+  assert.doesNotMatch(workspace, /<details className=\{styles\.contextDetails\}/);
+  assert.match(workspace, /Read-only example/);
+  assert.match(workspace, /Open editable workspace/);
+  assert.match(workspace, /!readOnly && !canConfirmAnswer/);
+  assert.match(styles, /\.contextEditor/);
+  assert.match(styles, /\.readOnlyContext/);
+});
+
 test("opens a capability on the first click with explicit loading feedback", async () => {
   const [workspace, styles] = await Promise.all([
     read("app/GuidedDiscoveryWorkspace.tsx"),

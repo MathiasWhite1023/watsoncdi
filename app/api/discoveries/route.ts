@@ -835,6 +835,76 @@ function scoreActiveDiscoveryAssessment(input: {
   });
 }
 
+type ActiveCdiAnswer = Parameters<
+  typeof scoreCapabilityDrivenAssessment
+>[0]["answers"][number];
+
+const demoCdiAnswer = (
+  questionId: string,
+  value: "YES" | "NO",
+  confidence = 86,
+): ActiveCdiAnswer => ({
+  questionId,
+  status: "confirmed",
+  structured: { value },
+  answerText: "",
+  confidence,
+});
+
+/**
+ * The public portfolio is deliberately synthetic and read-only. These
+ * explicit current-catalog answers keep its capability and solution heatmaps
+ * demonstrable without borrowing legacy scores or manufacturing product fit.
+ */
+const DEMO_CAPABILITY_ANSWERS: Record<string, ActiveCdiAnswer[]> = {
+  "aurora-retail": [
+    demoCdiAnswer("FINOPS_C01", "NO"),
+    demoCdiAnswer("FINOPS_C02", "NO"),
+    demoCdiAnswer("FINOPS_C03", "NO"),
+    demoCdiAnswer("FINOPS_C04", "NO"),
+    demoCdiAnswer("FINOPS_C05", "NO"),
+    demoCdiAnswer("HYBRID_CLOUD_C02", "NO", 82),
+    demoCdiAnswer("HYBRID_CLOUD_C03", "NO", 82),
+    demoCdiAnswer("HYBRID_CLOUD_C04", "NO", 82),
+  ],
+  "banco-horizonte": [
+    demoCdiAnswer("TRUSTED_DATA_C01", "NO"),
+    demoCdiAnswer("TRUSTED_DATA_C02", "NO"),
+    demoCdiAnswer("TRUSTED_DATA_C03", "NO"),
+    demoCdiAnswer("TRUSTED_DATA_C04", "NO"),
+    demoCdiAnswer("TRUSTED_DATA_C05", "NO"),
+    demoCdiAnswer("AI_GOVERNANCE_C01", "NO", 84),
+    demoCdiAnswer("AI_GOVERNANCE_C02", "NO", 84),
+    demoCdiAnswer("AI_GOVERNANCE_C03", "NO", 84),
+  ],
+  novalog: [
+    demoCdiAnswer("AUTOMATION_C01", "NO", 83),
+    demoCdiAnswer("AUTOMATION_C02", "NO", 83),
+    demoCdiAnswer("AUTOMATION_C03", "NO", 83),
+    demoCdiAnswer("AUTOMATION_C05", "NO", 83),
+    demoCdiAnswer("INTEGRATION_C01", "NO", 80),
+    demoCdiAnswer("INTEGRATION_C02", "NO", 80),
+    demoCdiAnswer("INTEGRATION_C03", "NO", 80),
+    demoCdiAnswer("INTEGRATION_C04", "NO", 80),
+  ],
+  "solaris-energia": [
+    demoCdiAnswer("TRUSTED_DATA_C01", "NO", 88),
+    demoCdiAnswer("TRUSTED_DATA_C02", "NO", 88),
+    demoCdiAnswer("TRUSTED_DATA_C03", "NO", 88),
+    demoCdiAnswer("TRUSTED_DATA_C04", "NO", 88),
+    demoCdiAnswer("TRUSTED_DATA_C05", "NO", 88),
+    demoCdiAnswer("DATA_STREAMING_C01", "YES", 82),
+    demoCdiAnswer("DATA_STREAMING_C02", "NO", 82),
+    demoCdiAnswer("DATA_STREAMING_C03", "NO", 82),
+    demoCdiAnswer("DATA_STREAMING_C04", "NO", 82),
+  ],
+};
+
+const demoCapabilityAnswers = (row: Record<string, unknown>) =>
+  String(row.visibility || "demo") === "private"
+    ? []
+    : DEMO_CAPABILITY_ANSWERS[String(row.id)] || [];
+
 function resultFromKyndrylAssessment(
   assessment: KyndrylAssessment,
   answers: Answer[],
@@ -2736,35 +2806,53 @@ function guidedSnapshot(input: {
   const allQuestionById = new Map(
     [...input.questions, ...questions].map((question) => [question.id, question]),
   );
+  const persistedAssessmentAnswers = [...input.answers, ...answers]
+    .filter(
+      (answer, index, collection) =>
+        answer.isCurrent &&
+        collection.findIndex((candidate) => candidate.id === answer.id) ===
+          index,
+    )
+    .flatMap((answer) => {
+      const question = allQuestionById.get(answer.questionId);
+      const catalogQuestionId =
+        question?.catalogQuestionId || answer.questionId;
+      return getQuestionById(catalogQuestionId)
+        ? [
+            {
+              questionId: catalogQuestionId,
+              status: answer.status,
+              structured: answer.structured,
+              answerText: answer.answerText,
+              confidence: answer.confidence,
+            },
+          ]
+        : [];
+    });
+  const syntheticDemoAnswers = demoCapabilityAnswers(input.row);
+  const assessmentAnswers = [
+    ...persistedAssessmentAnswers,
+    ...syntheticDemoAnswers,
+  ];
+  const demoAssessmentPillars = Array.from(
+    new Set(
+      syntheticDemoAnswers.flatMap((answer) => {
+        const question = cdiQuestion(answer.questionId);
+        return question ? [question.capabilityKey] : [];
+      }),
+    ),
+  );
   const assessmentPillars = (
-    effectiveSession?.selectedPillars.length
+    demoAssessmentPillars.length
+      ? demoAssessmentPillars
+      : effectiveSession?.selectedPillars.length
       ? effectiveSession.selectedPillars
       : Array.from(
           new Set(input.questions.map((question) => question.pillar)),
         )
   ).filter(isGuidedDiscoveryPillar);
   const technologyAssessment = scoreActiveDiscoveryAssessment({
-    answers: [...input.answers, ...answers]
-      .filter((answer, index, collection) =>
-        answer.isCurrent &&
-        collection.findIndex((candidate) => candidate.id === answer.id) === index,
-      )
-      .flatMap((answer) => {
-        const question = allQuestionById.get(answer.questionId);
-        const catalogQuestionId =
-          question?.catalogQuestionId || answer.questionId;
-        return getQuestionById(catalogQuestionId)
-          ? [
-              {
-                questionId: catalogQuestionId,
-                status: answer.status,
-                structured: answer.structured,
-                answerText: answer.answerText,
-                confidence: answer.confidence,
-              },
-            ]
-          : [];
-      }),
+    answers: assessmentAnswers,
     capabilityKeys: assessmentPillars,
     locale: input.locale || "en-US",
   });
@@ -2795,6 +2883,9 @@ function guidedSnapshot(input: {
   const pillarAssessments = GUIDED_DISCOVERY_PILLARS.map((pillarKey) => {
     const stored = storedStatusByPillar.get(pillarKey);
     const pillarSession = latestSessionByPillar.get(pillarKey);
+    const syntheticPillarAnswers = syntheticDemoAnswers.filter(
+      (answer) => cdiQuestion(answer.questionId)?.capabilityKey === pillarKey,
+    );
     const pillarQuestions = pillarSession
       ? input.questions.filter(
           (item) =>
@@ -2828,50 +2919,66 @@ function guidedSnapshot(input: {
       (item) => item.status === "confirmed" || item.status === "unknown",
     ).length;
     const derivedStatus: GuidedDiscoveryPillarStatus["status"] = !pillarSession
-      ? "not_started"
+      ? syntheticPillarAnswers.length
+        ? syntheticPillarAnswers.length >= 5
+          ? "reviewed_sufficient"
+          : syntheticPillarAnswers.length >= 4
+            ? "reviewed_gaps"
+            : "in_progress"
+        : "not_started"
       : pillarSession.status === "completed"
         ? pillarMetrics.coveragePercent >= 60
           ? "reviewed_sufficient"
           : "reviewed_gaps"
         : "in_progress";
     const assessment = scoreActiveDiscoveryAssessment({
-      answers: input.answers
-        .filter((answer) => answer.isCurrent)
-        .flatMap((answer) => {
-          const question = allQuestionById.get(answer.questionId);
-          const catalogQuestionId =
-            question?.catalogQuestionId || answer.questionId;
-          const catalog = getQuestionById(catalogQuestionId);
-          return catalog?.pillar === pillarKey
-            ? [
-                {
-                  questionId: catalogQuestionId,
-                  status: answer.status,
-                  structured: answer.structured,
-                  answerText: answer.answerText,
-                  confidence: answer.confidence,
-                },
-              ]
-            : [];
-        }),
+      answers: assessmentAnswers.filter(
+        (answer) => cdiQuestion(answer.questionId)?.capabilityKey === pillarKey,
+      ),
       capabilityKeys: [pillarKey],
       locale: input.locale || "en-US",
     });
+    const syntheticProgress = syntheticPillarAnswers.length
+      ? Math.round(
+          (Math.min(syntheticPillarAnswers.length, 5) / 5) * 100,
+        )
+      : 0;
+    const syntheticConfidence = syntheticPillarAnswers.length
+      ? Math.round(
+          syntheticPillarAnswers.reduce(
+            (sum, answer) => sum + Number(answer.confidence || 0),
+            0,
+          ) / syntheticPillarAnswers.length,
+        )
+      : 0;
     return {
       key: pillarKey,
       ...GUIDED_DISCOVERY_PILLAR_META[pillarKey],
       status: stored?.status || derivedStatus,
       sessionId: stored?.currentSessionId || pillarSession?.id || null,
       progressPercent:
-        stored?.progressPercent || pillarMetrics.progressPercent,
+        stored?.progressPercent ||
+        syntheticProgress ||
+        pillarMetrics.progressPercent,
       coveragePercent:
-        stored?.coveragePercent || pillarMetrics.coveragePercent,
-      confidencePercent: stored?.confidencePercent || confidencePercent,
-      answeredCount: stored?.answeredCount || answeredCount,
+        stored?.coveragePercent ||
+        syntheticProgress ||
+        pillarMetrics.coveragePercent,
+      confidencePercent:
+        stored?.confidencePercent ||
+        syntheticConfidence ||
+        confidencePercent,
+      answeredCount:
+        stored?.answeredCount ||
+        syntheticPillarAnswers.length ||
+        answeredCount,
       requiredCount: stored?.requiredCount || 5,
       completionMinimum: 4,
       notRelevantReason: stored?.notRelevantReason || null,
-      reviewedAt: stored?.reviewedAt || pillarSession?.completedAt || null,
+      reviewedAt:
+        stored?.reviewedAt ||
+        pillarSession?.completedAt ||
+        (syntheticPillarAnswers.length ? String(input.row.updated_at) : null),
       leadingTechnology:
         (assessment.pillars[0]?.propensity || 0) > 0
           ? assessment.pillars[0]?.leadingTechnology || null
@@ -4638,6 +4745,17 @@ async function materializeCdiAnswerImpact(
           input.now,
         ),
     );
+  statements.push(
+    db
+      .prepare(
+        "UPDATE cdi_technology_reviews SET fit_score = 0, confidence = 0, decision_band = 'NOT_ASSESSED', gate_status = 'NOT_REQUIRED', components_json = '{}', trace_json = '[]', computed_at = ? WHERE discovery_id = ? AND catalog_version = ?",
+      )
+      .bind(
+        input.now,
+        input.discoveryId,
+        CDI_CAPABILITY_CATALOG_VERSION,
+      ),
+  );
   for (const technology of afterAssessment.technologies)
     statements.push(
       db
@@ -5401,20 +5519,36 @@ async function accountPayload(
         const assessment = guided?.pillarAssessments.find(
           (item) => item.key === capability.key,
         );
+        const demoDerivedState =
+          String(row.visibility || "demo") !== "private" &&
+          assessment?.status &&
+          assessment.status !== "not_started"
+            ? assessment.status
+            : null;
+        const effectiveState =
+          state === "not_started" && demoDerivedState
+            ? demoDerivedState
+            : state;
         const hasCurrentEvidence = Boolean(
-          current && current.status !== "not_started",
+          (current && current.status !== "not_started") || demoDerivedState,
         );
         return {
           accountId,
           accountName: String(row.customer_name),
-          status: state,
+          status: effectiveState,
           technologyFit: hasCurrentEvidence
             ? Number(assessment?.propensity || 0)
             : null,
           confidence: hasCurrentEvidence
-            ? Number(current?.confidencePercent || 0)
+            ? Number(
+                current?.confidencePercent ||
+                  assessment?.confidencePercent ||
+                  0,
+              )
             : null,
-          reviewedAt: current?.reviewedAt || null,
+          reviewedAt:
+            current?.reviewedAt ||
+            (demoDerivedState ? assessment?.reviewedAt || String(row.updated_at) : null),
           leadingTechnology: hasCurrentEvidence
             ? assessment?.leadingTechnology || null
             : null,

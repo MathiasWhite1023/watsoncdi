@@ -20,6 +20,7 @@ import {
   localizeCdi,
   type CdiCapabilityKey,
   type CdiResponse,
+  type CdiTechnologyProfile,
   type MaturityDimension,
 } from "./capability-driven";
 
@@ -77,6 +78,7 @@ export type CapabilityDrivenAssessment = KyndrylAssessment & {
     capabilityKey: CdiCapabilityKey;
     journeyIds: string[];
     technologyIds: string[];
+    technologyNames: string[];
     practiceIds: string[];
   }>;
 };
@@ -150,12 +152,24 @@ function actionFor(
   propensity: number,
   confidence: number,
   gateStatus: KyndrylTechnologyScore["gateStatus"],
+  profile: Pick<CdiTechnologyProfile, "minimumFit" | "minimumConfidence">,
+  supportingEvidenceCount: number,
+  contradictionOnly: boolean,
 ): KyndrylTechnologyScore["action"] {
+  const recommendNowFit = Math.max(80, profile.minimumFit);
+  const recommendNowConfidence = Math.max(70, profile.minimumConfidence);
+  const validateFit = Math.max(65, profile.minimumFit);
   if (gateStatus === "FAILED") return "GATE_FAILED";
   if (gateStatus === "PENDING") return "GATE_PENDING";
-  if (propensity >= 80 && confidence >= 70) return "RECOMMEND_NOW";
-  if (propensity >= 65) return "VALIDATE";
-  if (propensity >= 45) return "WATCHLIST";
+  if (contradictionOnly) return "DO_NOT_RECOMMEND";
+  if (
+    propensity >= recommendNowFit &&
+    confidence >= recommendNowConfidence &&
+    supportingEvidenceCount >= 2
+  )
+    return "RECOMMEND_NOW";
+  if (propensity >= validateFit) return "VALIDATE";
+  if (propensity >= Math.max(45, validateFit - 20)) return "WATCHLIST";
   if (propensity >= 25) return "LOW_PRIORITY";
   return "DO_NOT_RECOMMEND";
 }
@@ -264,8 +278,40 @@ export function scoreCapabilityDrivenAssessment(input: {
         : requiredKnown.length === profile.requiredEvidence.length
           ? "SATISFIED"
           : "PENDING";
-    const supporting = mapped.evidence.filter((item) => profile.supportingEvidence.includes(item.id));
-    const contradictory = mapped.evidence.filter((item) => profile.contradictoryEvidence.includes(item.id));
+    const distinctEvidence = (items: AssessmentEvidence[]) =>
+      Array.from(
+        items.reduce((byId, item) => {
+          const current = byId.get(item.id);
+          if (!current || item.strength > current.strength) byId.set(item.id, item);
+          return byId;
+        }, new Map<string, AssessmentEvidence>()).values(),
+      );
+    const selectedEvidence = mapped.evidence.filter((item) =>
+      item.capabilityIds.some((key) =>
+        effective.includes(key as CdiCapabilityKey),
+      ),
+    );
+    const supporting = distinctEvidence(
+      selectedEvidence.filter((item) =>
+        profile.supportingEvidence.includes(item.id),
+      ),
+    );
+    const contradictory = distinctEvidence(
+      selectedEvidence.filter((item) =>
+        profile.contradictoryEvidence.includes(item.id),
+      ),
+    );
+    if (!supporting.length && !contradictory.length) return [];
+    const required = distinctEvidence(
+      mapped.evidence.filter((item) =>
+        profile.requiredEvidence.includes(item.id),
+      ),
+    );
+    const influencingEvidence = distinctEvidence([
+      ...supporting,
+      ...contradictory,
+      ...required,
+    ]);
     const relevantCapabilities = capabilities.filter((item) => profile.capabilityKeys.includes(item.id as CdiCapabilityKey));
     const evidenceFit = clamp(average(supporting.map((item) => item.technologyFit), 0));
     const capabilityGap = clamp(average(relevantCapabilities.map((item) => 100 - item.maturity), 0));
@@ -275,17 +321,55 @@ export function scoreCapabilityDrivenAssessment(input: {
     const attachPriority = profile.attach === "LEAD_ATTACH" ? 100 : profile.attach === "OPPORTUNITY_ATTACH" ? 78 : 64;
     const penalties = contradictory.length * 18 + (gateStatus === "FAILED" ? 100 : 0);
     const propensity = clamp(evidenceFit * 0.45 + capabilityGap * 0.25 + businessImpact * 0.15 + journeyFit * 0.1 + attachPriority * 0.05 - penalties);
-    const applicableQuestions = CDI_QUESTIONS.filter((question) => profile.capabilityKeys.includes(question.capabilityKey) && question.level === "core");
-    const knownCount = applicableQuestions.filter((question) => {
+    const profileEvidenceIds = new Set([
+      ...profile.requiredEvidence,
+      ...profile.supportingEvidence,
+      ...profile.contradictoryEvidence,
+    ]);
+    const linkedQuestions = CDI_QUESTIONS.filter(
+      (question) =>
+        question.level === "core" &&
+        effective.includes(question.capabilityKey) &&
+        profile.capabilityKeys.includes(question.capabilityKey) &&
+        (profileEvidenceIds.has(question.mappings.YES.evidenceId) ||
+          profileEvidenceIds.has(question.mappings.NO.evidenceId)),
+    );
+    const applicableQuestions = linkedQuestions.filter((question) => {
+      const answer = answerMap.get(question.id);
+      return !answer || normalizeCdiResponse(answer) !== "NOT_APPLICABLE";
+    });
+    const knownQuestions = applicableQuestions.filter((question) => {
       const response = mapped.responseByQuestion.get(question.id);
       return response === "YES" || response === "NO";
-    }).length;
-    const confidence = clamp((knownCount / Math.max(1, applicableQuestions.length)) * 100);
-    const action = actionFor(propensity, confidence, gateStatus);
-    if (propensity < profile.minimumFit && action === "DO_NOT_RECOMMEND") return [];
+    });
+    const knownEvidenceConfidence = knownQuestions.map(
+      (question) => mapped.confidenceByQuestion.get(question.id) || 70,
+    );
+    const confidence = applicableQuestions.length
+      ? clamp(
+          average(knownEvidenceConfidence, 0) *
+            (knownQuestions.length / applicableQuestions.length),
+        )
+      : 0;
+    const independentEvidenceCount = new Set(
+      supporting.map((item) => item.id),
+    ).size;
+    const action = actionFor(
+      propensity,
+      confidence,
+      gateStatus,
+      profile,
+      independentEvidenceCount,
+      supporting.length === 0 && contradictory.length > 0,
+    );
     const journey = CDI_JOURNEYS.find((item) => item.id === profile.journeyId);
-    const reasonEvidence = supporting[0];
-    const nextQuestion = applicableQuestions.find((item) => !answerMap.has(item.id));
+    const reasonEvidence = (supporting[0] || contradictory[0])!;
+    const nextQuestion = linkedQuestions.find((item) => {
+      const answer = answerMap.get(item.id);
+      if (!answer) return true;
+      const response = normalizeCdiResponse(answer);
+      return response === "DONT_KNOW";
+    });
     return [{
       id: profile.id,
       name: profile.name,
@@ -298,11 +382,15 @@ export function scoreCapabilityDrivenAssessment(input: {
       action,
       gateStatus,
       components: { evidenceFit, capabilityGap, businessImpact, journeyFit, attachPriority, penalties },
-      evidence: [...supporting, ...contradictory],
+      evidence: influencingEvidence,
       capabilities: profile.capabilityKeys,
       explanation: locale === "pt-BR"
-        ? `${profile.name} aparece porque ${reasonEvidence?.label || "há lacunas de capacidade relevantes"}. O score é determinístico e requer validação humana.`
-        : `${profile.name} appears because ${reasonEvidence?.label || "material capability gaps were found"}. The score is deterministic and requires human validation.`,
+        ? supporting.length
+          ? `${profile.name} aparece porque ${reasonEvidence.label.toLowerCase()} foi vinculada diretamente à solução. O percentual representa aderência determinística, não probabilidade de venda, e requer validação humana.`
+          : `${profile.name} permanece visível porque a evidência atual contradiz a necessidade da solução. Não recomendar sem nova evidência.`
+        : supporting.length
+          ? `${profile.name} appears because ${reasonEvidence.label.toLowerCase()} was linked directly to the solution. The percentage is deterministic fit, not probability of sale, and requires human validation.`
+          : `${profile.name} remains visible because current evidence contradicts the need for the solution. Do not recommend without new evidence.`,
       nextQuestion: nextQuestion ? localizeCdi(nextQuestion.prompt, locale) : null,
     } satisfies KyndrylTechnologyScore];
   }).sort((a, b) => b.propensity - a.propensity);
@@ -326,7 +414,7 @@ export function scoreCapabilityDrivenAssessment(input: {
       label: localizeCdi(capability.label, locale),
       objective: localizeCdi(capability.outcome, locale),
       workshop: locale === "pt-BR" ? `Workshop de ${localizeCdi(capability.label, locale)}` : `${localizeCdi(capability.label, locale)} workshop`,
-      propensity: leading?.propensity || clamp(100 - scored.maturity),
+      propensity: leading?.propensity || 0,
       confidence: review.confidence,
       maturity: scored.maturity,
       answered: review.coreAnswered + review.deepAnswered,
@@ -341,13 +429,28 @@ export function scoreCapabilityDrivenAssessment(input: {
     const response = normalizeCdiResponse(answer);
     const evidenceId = response === "YES" || response === "NO" ? question.mappings[response].evidenceId : null;
     const capability = cdiCapability(question.capabilityKey)!;
+    const technologyIds = evidenceId
+      ? CDI_TECHNOLOGIES.filter((item) =>
+          [
+            ...item.requiredEvidence,
+            ...item.supportingEvidence,
+            ...item.contradictoryEvidence,
+          ].includes(evidenceId),
+        ).map((item) => item.id)
+      : [];
     return [{
       questionId: question.id,
       response,
       evidenceId,
       capabilityKey: question.capabilityKey,
       journeyIds: capability.journeyIds,
-      technologyIds: evidenceId ? CDI_TECHNOLOGIES.filter((item) => [...item.requiredEvidence, ...item.supportingEvidence, ...item.contradictoryEvidence].includes(evidenceId)).map((item) => item.id) : [],
+      technologyIds,
+      technologyNames: technologyIds.flatMap((technologyId) => {
+        const profile = CDI_TECHNOLOGIES.find(
+          (item) => item.id === technologyId,
+        );
+        return profile ? [profile.name] : [];
+      }),
       practiceIds: capability.practiceIds,
     }];
   });

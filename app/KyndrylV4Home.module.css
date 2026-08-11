@@ -17,7 +17,6 @@
   border: 1px solid var(--v4-border);
 }
 
-.hero,
 .sectionHeader {
   min-height: 10rem;
   padding: 2rem;
@@ -28,13 +27,17 @@
   border-bottom: 1px solid var(--v4-border);
 }
 
-.hero {
-  display: block;
+.homeIntro {
+  min-height: 7.5rem;
+  padding: 1.5rem 2rem;
+  display: grid;
+  align-content: center;
   color: #ffffff;
   background: #161616;
+  border: 1px solid #393939;
 }
 
-.hero > span,
+.homeIntro > span,
 .sectionHeader > div > span {
   display: block;
   margin-bottom: .55rem;
@@ -50,7 +53,7 @@
   color: #0f62fe;
 }
 
-.hero h1,
+.homeIntro h1,
 .sectionHeader h1,
 .sectionHeader h2 {
   max-width: 54rem;
@@ -66,7 +69,7 @@
   font-size: clamp(1.5rem, 2.5vw, 2.25rem);
 }
 
-.hero p,
+.homeIntro p,
 .sectionHeader p {
   max-width: 48rem;
   margin: .9rem 0 0;
@@ -85,130 +88,139 @@
   gap: .75rem;
 }
 
-.capabilityGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: var(--v4-border);
-  gap: 1px;
-}
-
-.capabilityCard {
-  min-width: 0;
-  min-height: 22rem;
-  padding: 1.25rem !important;
-  display: flex !important;
-  flex-direction: column;
-  color: var(--v4-text) !important;
-  background: #ffffff !important;
-  text-decoration: none !important;
-}
-
-.capabilityCard:hover {
-  background: #edf5ff !important;
-}
-
-.capabilityCard:focus-visible {
-  outline: 3px solid #0f62fe;
-  outline-offset: -3px;
-}
-
-.cardHeading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.cardHeading span {
-  color: #525252;
-  font-size: .65rem;
-  font-weight: 600;
-  letter-spacing: .07em;
-}
-
-.cardHeading strong {
-  color: #0f62fe;
-  font-size: 1.75rem;
-  font-weight: 300;
-  letter-spacing: -.04em;
-}
-
-.capabilityCard h3 {
-  min-height: 3.2rem;
-  margin: 1rem 0 0;
-  font-size: 1.25rem;
-  font-weight: 400;
-  line-height: 1.25;
-}
-
-.capabilityCard > p {
+.explorerToolbar {
   min-height: 4.5rem;
-  margin: .6rem 0 1.25rem;
-  color: var(--v4-muted);
-  font-size: .8rem;
-  line-height: 1.45;
-}
-
-.coverageLine {
-  margin-top: .65rem;
-  display: flex;
-  align-items: baseline;
+  padding: .75rem 1rem;
+  display: grid;
+  grid-template-columns: minmax(16rem, 28rem) auto;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  font-size: .72rem;
-}
-
-.coverageLine strong {
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.coverageLine span {
-  color: var(--v4-muted);
-}
-
-.cardStatuses {
-  margin: 1rem 0 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--v4-border);
+  background: #f4f4f4;
   border-bottom: 1px solid var(--v4-border);
 }
 
-.cardStatuses > div {
-  padding: .75rem .5rem .75rem 0;
-}
-
-.cardStatuses dt {
-  min-height: 2rem;
+.explorerToolbar > span {
   color: var(--v4-muted);
-  font-size: .62rem;
-  line-height: 1.25;
+  font-size: .75rem;
 }
 
-.cardStatuses dd {
-  margin: .35rem 0 0;
-  font-size: 1rem;
+.explorerRegion {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.capabilityList {
+  margin: 0 !important;
+}
+
+.capabilityListHead,
+.capabilityListRow {
+  display: grid !important;
+  grid-template-columns: minmax(17rem, 1.65fr) minmax(14rem, 1.25fr) minmax(9rem, .7fr) minmax(10rem, .75fr) minmax(9rem, auto);
+  align-items: stretch;
+}
+
+.capabilityListHead > *,
+.capabilityListRow > * {
+  min-width: 0;
+  padding: 1rem !important;
+  display: flex !important;
+  align-items: center;
+  border-right: 1px solid var(--v4-border);
+}
+
+.capabilityListHead > * {
+  padding-top: .65rem !important;
+  padding-bottom: .65rem !important;
+  color: var(--v4-muted);
+  background: #f4f4f4;
+  font-size: .68rem;
+}
+
+.capabilityIdentity {
+  display: grid !important;
+  align-content: center;
+  gap: .25rem;
+}
+
+.capabilityIdentity small {
+  color: #0f62fe;
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+
+.capabilityIdentity strong {
+  font-size: .95rem;
+  font-weight: 500;
+}
+
+.capabilityIdentity span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--v4-muted);
+  font-size: .72rem;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.relatedSolutions {
+  align-content: center;
+  align-items: flex-start !important;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.explorerCoverage {
+  display: grid !important;
+  align-content: center;
+  gap: .55rem;
+}
+
+.explorerCoverage > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+}
+
+.explorerCoverage strong {
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+
+.explorerCoverage span,
+.explorerActivity span {
+  color: var(--v4-muted);
+  font-size: .68rem;
+}
+
+.explorerActivity {
+  display: grid !important;
+  align-content: center;
+  align-items: start !important;
+  gap: .35rem;
 }
 
 .needsReview {
-  min-height: 2.1rem;
-  padding-top: .65rem;
   display: flex;
   align-items: center;
-  gap: .45rem;
-  color: #6929c4;
-  font-size: .72rem;
+  gap: .35rem;
+  color: #6929c4 !important;
 }
 
-.cardAction {
-  margin-top: auto;
-  padding-top: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #0f62fe;
-  font-size: .78rem;
+.explorerAction {
+  justify-content: flex-end;
+}
+
+.explorerAccountHint {
+  padding: .75rem 1rem;
+  color: var(--v4-muted);
+  background: #fff1f1;
+  border-top: 1px solid var(--v4-border);
+  font-size: .75rem;
 }
 
 .modalHelp {
@@ -260,6 +272,30 @@
   gap: .25rem;
 }
 
+.heatmapToolbar {
+  min-height: 4rem;
+  padding: .65rem 1rem;
+  display: grid;
+  grid-template-columns: auto minmax(18rem, 32rem);
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: #ffffff;
+  border-bottom: 1px solid var(--v4-border);
+}
+
+.heatmapToolbar > span {
+  color: var(--v4-muted);
+  font-size: .75rem;
+}
+
+.heatmapControls {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(12rem, 16rem);
+  align-items: end;
+  gap: .75rem;
+}
+
 .heatmapLegend {
   min-height: 3rem;
   padding: .65rem 1rem;
@@ -307,6 +343,24 @@
   background: #a56eff;
 }
 
+.heatmapLegend span[data-band="none"]::before {
+  background: #e0e0e0;
+}
+
+.heatmapLegend span[data-band="low"]::before {
+  background: #fff1f1;
+  border: 1px solid #da1e28;
+}
+
+.heatmapLegend span[data-band="medium"]::before {
+  background: #d0e2ff;
+  border: 1px solid #0f62fe;
+}
+
+.heatmapLegend span[data-band="high"]::before {
+  background: #0f62fe;
+}
+
 .heatmapRegion,
 .accountTableRegion {
   max-width: 100%;
@@ -326,6 +380,15 @@
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
+}
+
+.solutionHeatmapTable {
+  min-width: 21rem;
+}
+
+.solutionHeatmapTable thead th:not(:first-child) {
+  width: 7rem;
+  overflow-wrap: anywhere;
 }
 
 .heatmapTable th,
@@ -408,6 +471,10 @@
   cursor: pointer;
 }
 
+.heatmapCell:disabled {
+  cursor: default;
+}
+
 .heatmapCell::after {
   width: .45rem;
   height: .45rem;
@@ -464,7 +531,7 @@
   background: #e8daff;
 }
 
-.heatmapCell:hover,
+.heatmapCell:hover:not(:disabled),
 .heatmapAccount:hover:not(:disabled) {
   box-shadow: inset 0 0 0 2px #0f62fe;
 }
@@ -483,6 +550,46 @@
 
 .heatmapCell small {
   font-size: .6rem;
+  opacity: .82;
+}
+
+.technologyCell {
+  min-height: 7.25rem;
+  padding: .45rem .3rem;
+  align-content: center;
+}
+
+.technologyCell::after {
+  display: none;
+}
+
+.technologyCell strong {
+  font-size: 1.05rem;
+}
+
+.notAssessed {
+  max-width: 5.5rem;
+  color: #525252;
+  font-size: .66rem;
+  line-height: 1.25;
+}
+
+.decisionLabel,
+.gateLabel {
+  max-width: 6rem;
+  overflow: hidden;
+  font-size: .58rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decisionLabel {
+  margin-top: .2rem;
+  font-weight: 600;
+}
+
+.gateLabel {
   opacity: .82;
 }
 
@@ -561,8 +668,22 @@
 }
 
 @media (max-width: 78rem) {
-  .capabilityGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .capabilityListHead {
+    display: none !important;
+  }
+
+  .capabilityListRow {
+    grid-template-columns: minmax(16rem, 1.4fr) minmax(13rem, 1fr) minmax(9rem, .7fr) auto;
+  }
+
+  .explorerActivity {
+    grid-column: 1 / -1;
+    padding-top: .6rem !important;
+    padding-bottom: .6rem !important;
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    border-top: 1px solid var(--v4-border);
   }
 
   .accountChoice {
@@ -576,30 +697,76 @@
 }
 
 @media (max-width: 62rem) {
-  .capabilityGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero,
+  .homeIntro,
   .sectionHeader {
     min-height: auto;
     padding: 1.5rem;
   }
-}
 
-@media (max-width: 42rem) {
-  .capabilityGrid,
-  .accountFilters {
+  .capabilityListRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .capabilityIdentity {
+    grid-column: 1 / -1;
+  }
+
+  .relatedSolutions,
+  .explorerActivity {
+    grid-column: 1;
+  }
+
+  .explorerCoverage,
+  .explorerAction {
+    grid-column: 2;
+  }
+
+  .heatmapToolbar {
     grid-template-columns: 1fr;
   }
 
-  .capabilityCard {
-    min-height: 20rem;
+  .heatmapToolbar > span {
+    display: none;
   }
 
-  .capabilityCard h3,
-  .capabilityCard > p {
-    min-height: 0;
+  .heatmapControls {
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 15rem);
+  }
+}
+
+@media (max-width: 42rem) {
+  .accountFilters,
+  .explorerToolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .homeIntro {
+    padding: 1.25rem;
+  }
+
+  .homeIntro h1 {
+    font-size: 1.75rem;
+  }
+
+  .capabilityListRow {
+    grid-template-columns: 1fr;
+  }
+
+  .capabilityIdentity,
+  .relatedSolutions,
+  .explorerCoverage,
+  .explorerActivity,
+  .explorerAction {
+    grid-column: 1;
+  }
+
+  .explorerAction {
+    justify-content: stretch;
+  }
+
+  .explorerAction :global(.cds--btn) {
+    width: 100%;
+    max-width: none;
   }
 
   .accountChoice {
@@ -615,6 +782,18 @@
     justify-content: flex-start;
   }
 
+  .heatmapToolbar {
+    padding: .75rem;
+  }
+
+  .heatmapControls {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmapTable th:first-child {
+    width: 10rem;
+  }
+
   .sectionHeader {
     flex-direction: column;
   }
@@ -626,7 +805,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .capabilityCard,
   .heatmapCell {
     scroll-behavior: auto;
     transition: none;

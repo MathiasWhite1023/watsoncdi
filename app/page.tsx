@@ -106,6 +106,7 @@ import { type KyndrylAssessment } from "@/lib/kyndryl-discovery";
 import {
   CDI_CAPABILITIES,
   CDI_CAPABILITY_CATALOG_VERSION,
+  CDI_TECHNOLOGIES,
   localizeCdi,
 } from "@/lib/cdi/capability-driven";
 
@@ -1294,6 +1295,50 @@ export default function Home({
           (left, right) =>
             Number(right.technologyFit || 0) - Number(left.technologyFit || 0),
         )[0];
+      const storedTechnologyReviews = data.cdiTechnologyReviews.filter(
+        (review) =>
+          review.discoveryId === account.id &&
+          review.catalogVersion === CDI_CAPABILITY_CATALOG_VERSION,
+      );
+      const technologySignals = CDI_TECHNOLOGIES.map((technology) => {
+        const live = guided?.technologyAssessment.technologies.find(
+          (item) => item.id === technology.id,
+        );
+        const stored = storedTechnologyReviews.find(
+          (item) => item.technologyId === technology.id,
+        );
+        const hasCurrentCapabilityReview = capabilities.some(
+          (signal) =>
+            technology.capabilityKeys.includes(signal.capabilityKey) &&
+            (signal.status === "in_progress" ||
+              signal.status === "reviewed_sufficient" ||
+              signal.status === "reviewed_gaps"),
+        );
+        const hasProductEvidence = Boolean(
+          live?.evidence.length || stored?.trace.length,
+        );
+        const assessed = hasCurrentCapabilityReview && hasProductEvidence;
+        return {
+          technologyId: technology.id,
+          catalogVersion: CDI_CAPABILITY_CATALOG_VERSION,
+          fitScore: assessed ? (live?.propensity ?? stored?.fitScore ?? null) : null,
+          confidence: assessed
+            ? (live?.confidence ?? stored?.confidence ?? null)
+            : null,
+          decisionBand: assessed
+            ? (live?.action ?? stored?.decisionBand ?? null)
+            : null,
+          gateStatus: assessed
+            ? (live?.gateStatus ?? stored?.gateStatus ?? null)
+            : null,
+          computedAt:
+            stored?.computedAt ||
+            capabilities.find((signal) =>
+              technology.capabilityKeys.includes(signal.capabilityKey),
+            )?.updatedAt ||
+            null,
+        };
+      });
       return {
         id: account.id,
         name: account.customerName,
@@ -1305,6 +1350,7 @@ export default function Home({
           guided?.recommendedNextPillar?.label || account.nextEngagement || null,
         leadingCapabilityKey: leading?.capabilityKey || null,
         capabilities,
+        technologySignals,
       };
     });
   }, [
@@ -1313,6 +1359,7 @@ export default function Home({
     data.discoveries,
     data.guidedDiscoveries,
     data.meetings,
+    data.cdiTechnologyReviews,
   ]);
   const relationshipCapabilities = CDI_CAPABILITIES.map((capability) => ({
     key: capability.key,
@@ -1601,14 +1648,20 @@ export default function Home({
       return null;
     }
     setSaving(true);
-    const response = await post(body);
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (response.ok) {
-      await load();
-      notify(success);
-    } else notify(String(payload.error || copy.notifications.genericError));
-    setSaving(false);
-    return response.ok ? payload : null;
+    try {
+      const response = await post(body);
+      const payload = (await response.json()) as Record<string, unknown>;
+      if (response.ok) {
+        await load();
+        notify(success);
+      } else notify(String(payload.error || copy.notifications.genericError));
+      return response.ok ? payload : null;
+    } catch {
+      notify(copy.notifications.genericError);
+      return null;
+    } finally {
+      setSaving(false);
+    }
   };
   const guidedMutation = async (
     path: string,
@@ -1622,41 +1675,47 @@ export default function Home({
       return null;
     }
     setSaving(true);
-    const response = await apiFetch(
-      `/api/accounts/${selected.id}/guided-discovery${path}`,
-      {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, responseLocale: locale }),
-      },
-    );
-    const payload = (await response.json()) as {
-      guidedDiscovery?: GuidedDiscovery;
-      error?: string;
-      message?: string;
-      scoreDeltas?: Array<{
-        label: string;
-        before: number;
-        after: number;
-        delta: number;
-      }>;
-      answerImpact?: AnswerImpactRecord | null;
-      checkpointAvailable?: boolean;
-    };
-    if (response.ok && payload.guidedDiscovery) {
-      setData((current) => ({
-        ...current,
-        guidedDiscoveries: [
-          ...current.guidedDiscoveries.filter(
-            (item) => item.discoveryId !== selected.id,
-          ),
-          payload.guidedDiscovery!,
-        ],
-      }));
-      notify(payload.message || success);
-    } else notify(payload.error || copy.notifications.discoveryError);
-    setSaving(false);
-    return response.ok ? payload : null;
+    try {
+      const response = await apiFetch(
+        `/api/accounts/${selected.id}/guided-discovery${path}`,
+        {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, responseLocale: locale }),
+        },
+      );
+      const payload = (await response.json()) as {
+        guidedDiscovery?: GuidedDiscovery;
+        error?: string;
+        message?: string;
+        scoreDeltas?: Array<{
+          label: string;
+          before: number;
+          after: number;
+          delta: number;
+        }>;
+        answerImpact?: AnswerImpactRecord | null;
+        checkpointAvailable?: boolean;
+      };
+      if (response.ok && payload.guidedDiscovery) {
+        setData((current) => ({
+          ...current,
+          guidedDiscoveries: [
+            ...current.guidedDiscoveries.filter(
+              (item) => item.discoveryId !== selected.id,
+            ),
+            payload.guidedDiscovery!,
+          ],
+        }));
+        notify(payload.message || success);
+      } else notify(payload.error || copy.notifications.discoveryError);
+      return response.ok ? payload : null;
+    } catch {
+      notify(copy.notifications.discoveryError);
+      return null;
+    } finally {
+      setSaving(false);
+    }
   };
   const openAccount = useCallback(
     (
@@ -2289,6 +2348,7 @@ export default function Home({
             accounts={v4Accounts}
             locale={locale}
             onOpenAccount={(accountId) => openAccount(accountId, "discovery")}
+            onOpenStrategy={(accountId) => openAccount(accountId, "strategy")}
             onStartDiscovery={(accountId, capabilityKey) =>
               void startCapabilityForAccount(accountId, capabilityKey)
             }

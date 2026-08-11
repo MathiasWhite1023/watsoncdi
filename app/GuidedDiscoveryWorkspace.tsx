@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Accordion,
+  AccordionItem,
   Button,
   InlineLoading,
   InlineNotification,
@@ -30,7 +32,10 @@ import {
 import type { KyndrylAssessment } from "@/lib/kyndryl-discovery";
 import type { Locale, Messages } from "@/lib/i18n";
 import KyndrylAssessmentResults from "./KyndrylAssessmentResults";
-import { CDI_CONTEXT_QUESTIONS } from "@/lib/cdi/capability-driven";
+import {
+  CDI_CONTEXT_QUESTIONS,
+  CDI_TECHNOLOGIES,
+} from "@/lib/cdi/capability-driven";
 import styles from "./GuidedDiscoveryWorkspace.module.css";
 
 export type GuidedQuestion = {
@@ -282,7 +287,11 @@ function normalizedAnswerImpact(
       locale === "pt-BR" ? "Gate" : "Gate",
     ),
     penalties,
-    technologies: persisted.technologyIds || [],
+    technologies: (persisted.technologyIds || []).map(
+      (technologyId) =>
+        CDI_TECHNOLOGIES.find((technology) => technology.id === technologyId)
+          ?.name || technologyId,
+    ),
     recommendations: describe(
       persisted.recommendationChanges,
       locale === "pt-BR" ? "Recomendação" : "Recommendation",
@@ -576,7 +585,10 @@ export default function GuidedDiscoveryWorkspace({
     Array.isArray(structured.value)
       ? structured.value.map(String).includes(String(value))
       : String(structured.value ?? "") === String(value);
-  const canConfirmAnswer = hasGuidedDiscoveryAnswerInput(structured, context);
+  // Confirmed answers must always contain the explicit binary response used by
+  // the deterministic engine. Context can enrich that response, but must not
+  // silently become a DONT_KNOW answer when submitted on its own.
+  const canConfirmAnswer = hasGuidedDiscoveryAnswerInput(structured, "");
   const save = async (status: "draft" | "confirmed" | "unknown") => {
     if (!currentQuestion || !sessionId || virtualSession) return;
     if (status === "confirmed" && !canConfirmAnswer) return;
@@ -995,113 +1007,183 @@ export default function GuidedDiscoveryWorkspace({
                     selected={isSelected}
                     disabled={readOnly || saving}
                   />
-                  <details className={styles.contextDetails}>
-                    <summary>
-                      {locale === "pt-BR"
-                        ? "Adicionar contexto e evidência"
-                        : "Add context and evidence"}
-                    </summary>
-                    <TextArea
-                      id="guided-context"
-                      labelText={d.guided.contextLabel}
-                      helperText={d.guided.contextHelp}
-                      rows={5}
-                      value={context}
-                      onChange={(event) => setContext(event.target.value)}
-                      disabled={readOnly || saving}
-                    />
-                    <div className={styles.evidenceGrid}>
-                    <Select
-                      id="guided-evidence"
-                      labelText={d.guided.evidenceNature}
-                      value={evidenceStatus}
-                      onChange={(event) =>
-                        setEvidenceStatus(event.target.value)
-                      }
-                      disabled={readOnly || saving}
-                    >
-                      {evidenceOptions.map(([value, label]) => (
-                        <SelectItem key={value} value={value} text={label} />
-                      ))}
-                    </Select>
-                    <Select
-                      id="guided-stakeholder"
-                      labelText={d.guided.relatedStakeholder}
-                      value={stakeholderId}
-                      onChange={(event) => setStakeholderId(event.target.value)}
-                      disabled={readOnly || saving}
-                    >
-                      <SelectItem
-                        value=""
-                        text={d.guided.stakeholderUnlinked}
-                      />
-                      {stakeholders.map((person) => (
-                        <SelectItem
-                          key={person.id}
-                          value={person.id}
-                          text={`${person.name} · ${person.role}`}
-                        />
-                      ))}
-                    </Select>
-                    <Select
-                      id="guided-source-type"
-                      labelText={d.guided.sourceType}
-                      value={sourceType}
-                      onChange={(event) => setSourceType(event.target.value)}
-                      disabled={readOnly || saving}
-                    >
-                      <SelectItem
-                        value="meeting"
-                        text={d.guided.sourceMeeting}
-                      />
-                      <SelectItem
-                        value="document"
-                        text={d.guided.sourceDocument}
-                      />
-                      <SelectItem
-                        value="customer"
-                        text={d.guided.sourceCustomer}
-                      />
-                      <SelectItem
-                        value="research"
-                        text={d.guided.sourceResearch}
-                      />
-                      <SelectItem value="other" text={d.guided.sourceOther} />
-                    </Select>
-                    <TextInput
-                      id="guided-source"
-                      labelText={d.guided.sourceReference}
-                      value={sourceId}
-                      onChange={(event) => setSourceId(event.target.value)}
-                      placeholder={d.guided.sourcePlaceholder}
-                      disabled={readOnly || saving}
-                    />
-                    <TextInput
-                      id="guided-date"
-                      type="date"
-                      labelText={d.guided.evidenceDate}
-                      value={sourceDate}
-                      onChange={(event) => setSourceDate(event.target.value)}
-                      disabled={readOnly || saving}
-                    />
-                    <label className={styles.confidence}>
-                      <span>
-                        {d.common.confidence} <strong>{confidence}%</strong>
-                      </span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={confidence}
-                        onChange={(event) =>
-                          setConfidence(Number(event.target.value))
+                  {readOnly ? (
+                    <section className={styles.readOnlyContext}>
+                      <InlineNotification
+                        kind="info"
+                        lowContrast
+                        hideCloseButton
+                        title={
+                          locale === "pt-BR"
+                            ? "Exemplo somente para visualização"
+                            : "Read-only example"
                         }
-                        disabled={readOnly || saving}
+                        subtitle={
+                          locale === "pt-BR"
+                            ? "Esta demonstração não salva respostas. Abra um workspace editável para registrar contexto, fontes e evidências."
+                            : "This demonstration does not save answers. Open an editable workspace to record context, sources, and evidence."
+                        }
                       />
-                    </label>
-                    </div>
-                  </details>
+                      <Button
+                        kind="tertiary"
+                        size="sm"
+                        href="/workspace"
+                      >
+                        {locale === "pt-BR"
+                          ? "Abrir workspace editável"
+                          : "Open editable workspace"}
+                      </Button>
+                    </section>
+                  ) : (
+                    <section
+                      className={styles.contextEditor}
+                      aria-labelledby="guided-context-heading"
+                    >
+                      <header>
+                        <h3 id="guided-context-heading">
+                          {locale === "pt-BR"
+                            ? "Adicionar contexto e evidência"
+                            : "Add context and evidence"}
+                        </h3>
+                        <p>
+                          {locale === "pt-BR"
+                            ? "Registre o que sustenta a resposta. O texto permanece editável até a confirmação."
+                            : "Record what supports the answer. The text remains editable until you confirm."}
+                        </p>
+                      </header>
+                      <TextArea
+                        id="guided-context"
+                        labelText={d.guided.contextLabel}
+                        helperText={d.guided.contextHelp}
+                        rows={5}
+                        value={context}
+                        onChange={(event) => setContext(event.target.value)}
+                        disabled={saving}
+                      />
+                      <Accordion
+                        align="start"
+                        size="sm"
+                        className={styles.evidenceAccordion}
+                      >
+                        <AccordionItem
+                          open
+                          title={
+                            locale === "pt-BR"
+                              ? "Detalhes da evidência"
+                              : "Evidence details"
+                          }
+                        >
+                          <div className={styles.evidenceGrid}>
+                            <Select
+                              id="guided-evidence"
+                              labelText={d.guided.evidenceNature}
+                              value={evidenceStatus}
+                              onChange={(event) =>
+                                setEvidenceStatus(event.target.value)
+                              }
+                              disabled={saving}
+                            >
+                              {evidenceOptions.map(([value, label]) => (
+                                <SelectItem
+                                  key={value}
+                                  value={value}
+                                  text={label}
+                                />
+                              ))}
+                            </Select>
+                            <Select
+                              id="guided-stakeholder"
+                              labelText={d.guided.relatedStakeholder}
+                              value={stakeholderId}
+                              onChange={(event) =>
+                                setStakeholderId(event.target.value)
+                              }
+                              disabled={saving}
+                            >
+                              <SelectItem
+                                value=""
+                                text={d.guided.stakeholderUnlinked}
+                              />
+                              {stakeholders.map((person) => (
+                                <SelectItem
+                                  key={person.id}
+                                  value={person.id}
+                                  text={`${person.name} · ${person.role}`}
+                                />
+                              ))}
+                            </Select>
+                            <Select
+                              id="guided-source-type"
+                              labelText={d.guided.sourceType}
+                              value={sourceType}
+                              onChange={(event) =>
+                                setSourceType(event.target.value)
+                              }
+                              disabled={saving}
+                            >
+                              <SelectItem
+                                value="meeting"
+                                text={d.guided.sourceMeeting}
+                              />
+                              <SelectItem
+                                value="document"
+                                text={d.guided.sourceDocument}
+                              />
+                              <SelectItem
+                                value="customer"
+                                text={d.guided.sourceCustomer}
+                              />
+                              <SelectItem
+                                value="research"
+                                text={d.guided.sourceResearch}
+                              />
+                              <SelectItem
+                                value="other"
+                                text={d.guided.sourceOther}
+                              />
+                            </Select>
+                            <TextInput
+                              id="guided-source"
+                              labelText={d.guided.sourceReference}
+                              value={sourceId}
+                              onChange={(event) =>
+                                setSourceId(event.target.value)
+                              }
+                              placeholder={d.guided.sourcePlaceholder}
+                              disabled={saving}
+                            />
+                            <TextInput
+                              id="guided-date"
+                              type="date"
+                              labelText={d.guided.evidenceDate}
+                              value={sourceDate}
+                              onChange={(event) =>
+                                setSourceDate(event.target.value)
+                              }
+                              disabled={saving}
+                            />
+                            <label className={styles.confidence}>
+                              <span>
+                                {d.common.confidence}{" "}
+                                <strong>{confidence}%</strong>
+                              </span>
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={confidence}
+                                onChange={(event) =>
+                                  setConfidence(Number(event.target.value))
+                                }
+                                disabled={saving}
+                              />
+                            </label>
+                          </div>
+                        </AccordionItem>
+                      </Accordion>
+                    </section>
+                  )}
                   {!readOnly && !canConfirmAnswer && (
                     <p
                       id="guided-confirm-requirement"
@@ -1109,8 +1191,8 @@ export default function GuidedDiscoveryWorkspace({
                       role="status"
                     >
                       {locale === "pt-BR"
-                        ? "Selecione uma resposta ou adicione contexto antes de confirmar. Você também pode marcar ‘Não sei ainda’."
-                        : "Select an answer or add context before confirming. You can also choose ‘I don't know yet’."}
+                        ? "Selecione uma resposta antes de confirmar. Adicione contexto quando ele fortalecer a evidência ou marque ‘Não sei ainda’."
+                        : "Select an answer before confirming. Add context when it strengthens the evidence, or choose ‘I don't know yet’."}
                     </p>
                   )}
                   <div className={styles.actions}>
