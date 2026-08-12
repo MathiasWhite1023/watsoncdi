@@ -2,10 +2,11 @@
 
 ## Kyndryl CDI V4.1 — solution-led discovery
 
-Status: validated locally; awaiting approval for Kyndryl Sites version `7`
+Status: published as Kyndryl Sites version `7` on 2026-08-12
 Branch: `codex/kyndryl-account-centric-v4`
 Rollback: Kyndryl Sites version `6` / commit `94378b6532f1a9a7839f01e8702b6ea47fa17f53`
-Target URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+Production URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
+Deployment commit: `fc98359e0fc0dc3dd229fa723c7f4226d6b54893`
 
 ### Changed
 
@@ -21,6 +22,7 @@ Target URL: https://watson-cdi-kyndryl.matheus68747.chatgpt.site
 
 - TypeScript, ESLint, all 89 automated tests, and the Vinext production build pass.
 - No destructive migration was added; stale materialized solution reviews are reset to `Not assessed` and recalculated from current evidence.
+- Kyndryl Sites version `7` is live; version `6` remains available for application rollback.
 
 ## Kyndryl CDI V4 — account-centric capability intelligence
 
