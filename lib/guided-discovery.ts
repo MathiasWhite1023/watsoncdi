@@ -68,6 +68,19 @@ export type GuidedDiscoveryQuestionDelta = {
   delta: number;
 };
 
+export type GuidedPillarCompletion = {
+  allEssentialAddressed: boolean;
+  shouldComplete: boolean;
+  reviewedStatus: "reviewed_sufficient" | "reviewed_gaps";
+  pillarStatus:
+    | "in_progress"
+    | "reviewed_sufficient"
+    | "reviewed_gaps";
+  addressedCount: number;
+  requiredCount: number;
+  unknownCount: number;
+};
+
 const responseOptionsPt = ["Sim", "Não", "Não se aplica", "Não sei"];
 const responseOptionsEn = ["Yes", "No", "Not applicable", "Don't know"];
 
@@ -279,6 +292,79 @@ const answerText = (answer: GuidedDiscoveryAnswerLike) =>
   `${answer.answerText || ""} ${JSON.stringify(answer.structured || {})}`.toLowerCase();
 const addressed = (answer?: GuidedDiscoveryAnswerLike) =>
   answer?.status === "confirmed" || answer?.status === "unknown";
+
+export const isEssentialGuidedCatalogQuestion = (
+  question: Pick<GuidedDiscoveryCatalogQuestion, "essential"> | null | undefined,
+) => question?.essential === true;
+
+/**
+ * Decides when a capability review should close without conflating its five
+ * essential questions with optional/deep or AI-authored questions.
+ *
+ * The fifth essential answer opens a preliminary result immediately. After a
+ * user reopens discovery, optional answers keep the route open while another
+ * optional question remains and close it only after the last one.
+ */
+export function evaluateGuidedPillarCompletion(input: {
+  essentialQuestionIds: string[];
+  answers: GuidedDiscoveryAnswerLike[];
+  submittedQuestionId?: string | null;
+  hasRemainingQuestions: boolean;
+  coveragePercent: number;
+  confidencePercent: number;
+  conflictCount?: number;
+  previousStatus?: string | null;
+}): GuidedPillarCompletion {
+  const essentialIds = new Set(input.essentialQuestionIds);
+  const currentAnswers = new Map(
+    input.answers.map((answer) => [answer.questionId, answer]),
+  );
+  const essentialAnswers = input.essentialQuestionIds
+    .map((questionId) => currentAnswers.get(questionId))
+    .filter(Boolean) as GuidedDiscoveryAnswerLike[];
+  const addressedCount = essentialAnswers.filter(addressed).length;
+  const unknownCount = essentialAnswers.filter(
+    (answer) => answer.status === "unknown",
+  ).length;
+  const allEssentialAddressed =
+    input.essentialQuestionIds.length > 0 &&
+    addressedCount >= input.essentialQuestionIds.length;
+  const submittedQuestionIsEssential = Boolean(
+    input.submittedQuestionId && essentialIds.has(input.submittedQuestionId),
+  );
+  const shouldComplete = Boolean(
+    input.submittedQuestionId &&
+      allEssentialAddressed &&
+      (submittedQuestionIsEssential || !input.hasRemainingQuestions),
+  );
+  const reviewedStatus =
+    input.coveragePercent >= 70 &&
+    input.confidencePercent >= 70 &&
+    unknownCount === 0 &&
+    Number(input.conflictCount || 0) === 0
+      ? "reviewed_sufficient"
+      : "reviewed_gaps";
+  const previousReviewedStatus =
+    input.previousStatus === "reviewed_sufficient" ||
+    input.previousStatus === "reviewed_gaps"
+      ? input.previousStatus
+      : null;
+  const pillarStatus = shouldComplete
+    ? reviewedStatus
+    : allEssentialAddressed && previousReviewedStatus
+      ? previousReviewedStatus
+      : "in_progress";
+
+  return {
+    allEssentialAddressed,
+    shouldComplete,
+    reviewedStatus,
+    pillarStatus,
+    addressedCount,
+    requiredCount: input.essentialQuestionIds.length,
+    unknownCount,
+  };
+}
 
 export function rankPillarsFromAnswers(
   answers: GuidedDiscoveryAnswerLike[],

@@ -46,8 +46,10 @@ import {
   calculateDeterministicDeltas,
   calculateDiscoveryMetrics,
   checkpointForRoute,
+  evaluateGuidedPillarCompletion,
   getQuestionById,
   humanizeStructuredAnswer,
+  isEssentialGuidedCatalogQuestion,
   isGuidedDiscoveryPillar,
   legacyQuestionId,
   materializeQuestionRoute,
@@ -2778,12 +2780,14 @@ function guidedSnapshot(input: {
   });
   const nextRanked = ranked[0];
   const currentQuestion =
-    routeQuestions.find(
-      (item) => item.id === effectiveSession?.currentQuestionId,
-    ) ||
-    routeQuestions.find((item) => item.id === nextRanked?.question.id) ||
-    routeQuestions.find((item) => item.status === "active") ||
-    null;
+    effectiveSession?.status === "completed"
+      ? null
+      : routeQuestions.find(
+          (item) => item.id === effectiveSession?.currentQuestionId,
+        ) ||
+        routeQuestions.find((item) => item.id === nextRanked?.question.id) ||
+        routeQuestions.find((item) => item.status === "active") ||
+        null;
   const checkpoint = checkpointForRoute(
     routeQuestions.map((item) => item.catalogQuestionId || item.id),
     answers.map((answer) => {
@@ -2893,8 +2897,11 @@ function guidedSnapshot(input: {
             item.pillar === pillarKey &&
             item.status !== "dismissed" &&
             item.status !== "proposed" &&
-            (!item.catalogQuestionId ||
-              getQuestionById(item.catalogQuestionId)?.essential !== false),
+            isEssentialGuidedCatalogQuestion(
+              item.catalogQuestionId
+                ? getQuestionById(item.catalogQuestionId)
+                : null,
+            ),
         )
       : [];
     const pillarAnswers = pillarSession
@@ -2979,10 +2986,10 @@ function guidedSnapshot(input: {
         stored?.reviewedAt ||
         pillarSession?.completedAt ||
         (syntheticPillarAnswers.length ? String(input.row.updated_at) : null),
-      leadingTechnology:
-        (assessment.pillars[0]?.propensity || 0) > 0
-          ? assessment.pillars[0]?.leadingTechnology || null
-          : null,
+      // A zero-fit result is still a calculated result. The engine can link a
+      // fully answered, mature capability to a solution with a deliberate
+      // "do not recommend" outcome, so do not hide that solution at 0%.
+      leadingTechnology: assessment.pillars[0]?.leadingTechnology || null,
       propensity: assessment.pillars[0]?.propensity || 0,
     };
   });
@@ -4874,6 +4881,7 @@ async function refreshGuidedSession(
   row: Record<string, unknown>,
   sessionId: string,
   now = new Date().toISOString(),
+  options: { submittedQuestionId?: string | null } = {},
 ) {
   const discoveryId = String(row.id);
   const sessionRow = await db
@@ -4975,6 +4983,56 @@ async function refreshGuidedSession(
     activeRoute.map((question) => question.id),
     refreshedAnswers,
   );
+  const pillarKey = route.selectedPillars.find(isGuidedDiscoveryPillar);
+  const existingPillarStatusRow = pillarKey
+    ? await db
+        .prepare(
+          "SELECT * FROM guided_discovery_pillar_status WHERE discovery_id = ? AND owner_email = ? AND pillar_key = ? AND catalog_version = ? LIMIT 1",
+        )
+        .bind(
+          discoveryId,
+          session.ownerEmail,
+          pillarKey,
+          GUIDED_DISCOVERY_CATALOG_VERSION,
+        )
+        .first<Record<string, unknown>>()
+    : null;
+  const existingPillarStatus = existingPillarStatusRow
+    ? mapGuidedPillarStatus(existingPillarStatusRow)
+    : null;
+  const essentialQuestions = pillarKey
+    ? activeRoute.filter((question) => {
+        const catalog = question.catalogQuestionId
+          ? getQuestionById(question.catalogQuestionId)
+          : null;
+        return (
+          isEssentialGuidedCatalogQuestion(catalog) &&
+          question.pillar === pillarKey
+        );
+      })
+    : [];
+  const essentialQuestionIds = new Set(
+    essentialQuestions.map((question) => question.id),
+  );
+  const essentialAnswers = refreshedAnswers.filter((answer) =>
+    essentialQuestionIds.has(answer.questionId),
+  );
+  const essentialMetrics = calculateDiscoveryMetrics(
+    essentialQuestions.map((question) => question.id),
+    essentialAnswers,
+  );
+  const knownConfidence = essentialAnswers
+    .filter((answer) => answer.status === "confirmed")
+    .map((answer) => answer.confidence);
+  const confidencePercent = knownConfidence.length
+    ? Math.round(
+        knownConfidence.reduce((sum, value) => sum + value, 0) /
+          knownConfidence.length,
+      )
+    : 0;
+  const conflictCount = essentialAnswers.filter((answer) =>
+    Boolean(answer.structured.contradiction),
+  ).length;
   const answerByQuestion = new Map(
     refreshedAnswers.map((answer) => [answer.questionId, answer]),
   );
@@ -5001,8 +5059,21 @@ async function refreshGuidedSession(
       question.status === "accepted" &&
       !answerByQuestion.has(question.id),
   );
+  const completion = evaluateGuidedPillarCompletion({
+    essentialQuestionIds: essentialQuestions.map((question) => question.id),
+    answers: essentialAnswers,
+    submittedQuestionId: options.submittedQuestionId,
+    hasRemainingQuestions: Boolean(rankedId || acceptedAI),
+    coveragePercent: essentialMetrics.coveragePercent,
+    confidencePercent,
+    conflictCount,
+    previousStatus: existingPillarStatus?.status,
+  });
+  const completedAllEssential = completion.shouldComplete;
   const nextQuestionId =
-    session.status === "completed" ? null : rankedId || acceptedAI?.id || null;
+    session.status === "completed" || completedAllEssential
+      ? null
+      : rankedId || acceptedAI?.id || null;
   const updates = activeRoute
     .filter(
       (question) =>
@@ -5026,59 +5097,38 @@ async function refreshGuidedSession(
   if (updates.length) await db.batch(updates);
   await db
     .prepare(
-      "UPDATE guided_discovery_sessions SET selected_pillars_json = ?, progress_percent = ?, coverage_percent = ?, current_question_id = ?, updated_at = ? WHERE id = ? AND discovery_id = ?",
+      "UPDATE guided_discovery_sessions SET selected_pillars_json = ?, status = CASE WHEN ? = 1 THEN 'completed' ELSE status END, progress_percent = ?, coverage_percent = ?, current_question_id = ?, completed_at = CASE WHEN ? = 1 THEN COALESCE(completed_at, ?) ELSE completed_at END, updated_at = ? WHERE id = ? AND discovery_id = ?",
     )
     .bind(
       JSON.stringify(route.selectedPillars),
+      completedAllEssential ? 1 : 0,
       metrics.progressPercent,
       metrics.coveragePercent,
       nextQuestionId,
+      completedAllEssential ? 1 : 0,
+      now,
       now,
       sessionId,
       discoveryId,
     )
     .run();
-  const pillarKey = route.selectedPillars.find(isGuidedDiscoveryPillar);
   if (pillarKey) {
-    const essentialQuestions = activeRoute.filter((question) => {
-      const catalog = question.catalogQuestionId
-        ? getQuestionById(question.catalogQuestionId)
-        : null;
-      return catalog?.essential !== false && question.pillar === pillarKey;
-    });
-    const essentialQuestionIds = new Set(
-      essentialQuestions.map((question) => question.id),
-    );
-    const essentialAnswers = refreshedAnswers.filter((answer) =>
-      essentialQuestionIds.has(answer.questionId),
-    );
-    const essentialMetrics = calculateDiscoveryMetrics(
-      essentialQuestions.map((question) => question.id),
-      essentialAnswers,
-    );
-    const knownConfidence = essentialAnswers
-      .filter((answer) => answer.status === "confirmed")
-      .map((answer) => answer.confidence);
-    const confidencePercent = knownConfidence.length
-      ? Math.round(
-          knownConfidence.reduce((sum, value) => sum + value, 0) /
-            knownConfidence.length,
-        )
-      : 0;
     await upsertGuidedPillarStatus(db, {
       discoveryId,
       ownerEmail: session.ownerEmail,
       pillarKey,
-      status: "in_progress",
+      status: completion.pillarStatus,
       sessionId,
       progressPercent: essentialMetrics.progressPercent,
       coveragePercent: essentialMetrics.coveragePercent,
       confidencePercent,
-      answeredCount: essentialAnswers.filter(
-        (answer) =>
-          answer.status === "confirmed" || answer.status === "unknown",
-      ).length,
+      answeredCount: completion.addressedCount,
       requiredCount: essentialQuestions.length || 5,
+      reviewedAt: completedAllEssential
+        ? now
+        : completion.pillarStatus.startsWith("reviewed")
+          ? existingPillarStatus?.reviewedAt || now
+          : undefined,
       now,
     });
   }
@@ -5087,6 +5137,7 @@ async function refreshGuidedSession(
     metrics,
     currentQuestionId: nextQuestionId,
     selectedPillars: route.selectedPillars,
+    completedPillar: completedAllEssential,
   };
 }
 
@@ -7099,6 +7150,12 @@ async function handlePOST(request: Request) {
       updatedRow,
       input.sessionId,
       now,
+      {
+        // The fifth essential answer opens a preliminary result. Optional and
+        // deep answers keep advancing until the final optional item is saved.
+        submittedQuestionId:
+          answerStatus === "draft" ? null : input.questionId,
+      },
     );
     if (sessionUpdate && answerStatus !== "draft") {
       const accountProgress = Math.max(
@@ -7247,7 +7304,7 @@ async function handlePOST(request: Request) {
               ? getQuestionById(question.catalogQuestionId)
               : null;
             return (
-              catalog?.essential !== false &&
+              isEssentialGuidedCatalogQuestion(catalog) &&
               (!pillarKey || catalog?.pillar === pillarKey)
             );
           });

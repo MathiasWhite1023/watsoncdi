@@ -15,6 +15,7 @@ type Props = {
   locale: Locale;
   onContinue?: () => void;
   onChooseNext?: () => void;
+  continueDeeper?: boolean;
 };
 
 const copy = {
@@ -55,6 +56,7 @@ const copy = {
     gateSatisfied: "Satisfied",
     gateNotRequired: "Not required",
     continue: "Continue discovery",
+    continueDeeper: "Continue deeper discovery",
     chooseNext: "Choose next capability",
     noEvidence:
       "Answer the selected capability questions to activate the heatmap and recommendations.",
@@ -106,6 +108,7 @@ const copy = {
     gateSatisfied: "Atendido",
     gateNotRequired: "Não necessário",
     continue: "Continuar descoberta",
+    continueDeeper: "Aprofundar descoberta",
     chooseNext: "Escolher próxima capacidade",
     noEvidence:
       "Responda às perguntas da capacidade selecionada para ativar o heatmap e as recomendações.",
@@ -197,6 +200,7 @@ export default function KyndrylAssessmentResults({
   locale,
   onContinue,
   onChooseNext,
+  continueDeeper = false,
 }: Props) {
   const c = copy[locale];
   const capabilityAssessment = assessment as CapabilityDrivenAssessment;
@@ -215,7 +219,7 @@ export default function KyndrylAssessmentResults({
         <div>
           {onContinue && (
             <Button kind="tertiary" onClick={onContinue}>
-              {c.continue}
+              {continueDeeper ? c.continueDeeper : c.continue}
             </Button>
           )}
           {onChooseNext && (

@@ -24,8 +24,10 @@ import {
 import { useI18n } from "./I18nProvider";
 import {
   canonicalizeGuidedDiscoveryOption,
+  getQuestionById,
   getLocalizedPillarMeta,
   getLocalizedQuestionById,
+  isEssentialGuidedCatalogQuestion,
   isGuidedDiscoveryPillar,
   localizeGuidedDiscoveryOption,
 } from "@/lib/guided-discovery";
@@ -613,11 +615,20 @@ export default function GuidedDiscoveryWorkspace({
       result.guidedDiscovery || null,
       locale,
     );
+    const completedPillar = updatedView?.pillarAssessments.find(
+      (pillar) => pillar.key === currentQuestion.pillar,
+    );
+    const completedReview = Boolean(
+      updatedView?.session?.status === "completed" &&
+        (completedPillar?.status === "reviewed_sufficient" ||
+          completedPillar?.status === "reviewed_gaps"),
+    );
     const nextQuestion =
       updatedView?.nextQuestion || updatedView?.currentQuestion || null;
-    if (nextQuestion) setActiveQuestionId(nextQuestion.id);
+    if (completedReview) setActiveQuestionId("");
+    else if (nextQuestion) setActiveQuestionId(nextQuestion.id);
     setShowPillarHub(false);
-    setShowResults(false);
+    setShowResults(completedReview);
     setShowHistory(false);
   };
   const openPillar = async (
@@ -630,7 +641,10 @@ export default function GuidedDiscoveryWorkspace({
         view.questions.some((question) => question.pillar === pillar.key)
       ) {
         setShowPillarHub(false);
-        setShowResults(pillar.status.startsWith("reviewed"));
+        setShowResults(
+          pillar.status.startsWith("reviewed") ||
+            pillar.answeredCount >= pillar.requiredCount,
+        );
       }
       return;
     }
@@ -646,10 +660,18 @@ export default function GuidedDiscoveryWorkspace({
     setShowHistory(false);
     setOpeningPillar(pillar.key);
     try {
+      const hasAllEssentialAnswers =
+        pillar.status === "in_progress" &&
+        pillar.answeredCount >= pillar.requiredCount;
       const result = pillar.sessionId
         ? await onPatch({
             sessionId: pillar.sessionId,
-            operation: "reopen_pillar",
+            // Older sessions could reach 5/5 before automatic completion was
+            // available. Opening one now finalizes it idempotently and takes
+            // the user to the already-calculated result.
+            operation: hasAllEssentialAnswers
+              ? "complete_pillar"
+              : "reopen_pillar",
             responseLocale: locale,
           })
         : await onStart("direct", [pillar.key]);
@@ -661,7 +683,19 @@ export default function GuidedDiscoveryWorkspace({
         result.guidedDiscovery || null,
         locale,
       );
+      const updatedPillar = updatedView?.pillarAssessments.find(
+        (item) => item.key === pillar.key,
+      );
+      const completedReview = Boolean(
+        updatedView?.session?.status === "completed" &&
+          (updatedPillar?.status === "reviewed_sufficient" ||
+            updatedPillar?.status === "reviewed_gaps"),
+      );
       const updatedQuestion =
+        [updatedView?.nextQuestion, updatedView?.currentQuestion].find(
+          (question) =>
+            question?.pillar === pillar.key && question.status !== "answered",
+        ) ||
         updatedView?.questions.find(
           (question) =>
             question.pillar === pillar.key && question.status !== "answered",
@@ -669,10 +703,11 @@ export default function GuidedDiscoveryWorkspace({
         updatedView?.questions.find(
           (question) => question.pillar === pillar.key,
         ) ||
-        updatedView?.nextQuestion ||
-        updatedView?.currentQuestion ||
         null;
-      if (updatedQuestion) setActiveQuestionId(updatedQuestion.id);
+      if (completedReview) {
+        setActiveQuestionId("");
+        setShowResults(true);
+      } else if (updatedQuestion) setActiveQuestionId(updatedQuestion.id);
     } finally {
       setOpeningPillar("");
     }
@@ -701,6 +736,58 @@ export default function GuidedDiscoveryWorkspace({
       pillar.key ===
       (currentQuestion?.pillar || view.session?.selectedPillars[0]),
   );
+  const isPendingQuestion = (question: GuidedQuestion | null | undefined) =>
+    Boolean(
+      question &&
+        question.pillar === activePillarKey &&
+        question.status !== "answered" &&
+        question.status !== "dismissed" &&
+        question.status !== "proposed",
+    );
+  const isEssentialQuestion = (question: GuidedQuestion) =>
+    isEssentialGuidedCatalogQuestion(
+      question.catalogQuestionId
+        ? getQuestionById(question.catalogQuestionId)
+        : null,
+    );
+  const pendingQuestions = view.questions.filter(isPendingQuestion);
+  const pendingEssentialQuestion = pendingQuestions.find(isEssentialQuestion);
+  const pendingOptionalQuestion = pendingQuestions.find(
+    (question) => !isEssentialQuestion(question),
+  );
+  const pendingQuestion =
+    pendingEssentialQuestion || pendingOptionalQuestion || null;
+  const continuePendingDiscovery = async () => {
+    if (!pendingQuestion) {
+      setShowResults(false);
+      return;
+    }
+    if (readOnly || view.session?.status !== "completed") {
+      setActiveQuestionId(pendingQuestion.id);
+      setShowResults(false);
+      return;
+    }
+    const result = await onPatch({
+      sessionId,
+      operation: "reopen_pillar",
+      responseLocale: locale,
+    });
+    if (!result) return;
+    const updatedView = localizeDiscovery(
+      result.guidedDiscovery || null,
+      locale,
+    );
+    const nextPending =
+      [updatedView?.nextQuestion, updatedView?.currentQuestion].find(
+        isPendingQuestion,
+      ) ||
+      updatedView?.questions.find(isPendingQuestion) ||
+      null;
+    if (nextPending) {
+      setActiveQuestionId(nextPending.id);
+      setShowResults(false);
+    }
+  };
   const currentPillarQuestionIds = new Set(
     view.questions
       .filter((question) => question.pillar === activePillarKey)
@@ -762,16 +849,30 @@ export default function GuidedDiscoveryWorkspace({
                 {locale === "pt-BR" ? "Voltar às capacidades" : "Back to capabilities"}
               </Button>
             )}
-            {canViewResults && !showPillarHub && (
+            {canViewResults &&
+              !showPillarHub &&
+              (!showResults || Boolean(pendingQuestion)) && (
               <Button
                 size="sm"
                 kind="ghost"
-                onClick={() => setShowResults((current) => !current)}
+                onClick={() => {
+                  if (showResults && pendingQuestion)
+                    void continuePendingDiscovery();
+                  else setShowResults((current) => !current);
+                }}
               >
                 {showResults
-                  ? locale === "pt-BR"
-                    ? "Voltar às perguntas"
-                    : "Back to questions"
+                  ? pendingQuestion
+                    ? pendingEssentialQuestion
+                      ? locale === "pt-BR"
+                        ? "Continuar descoberta"
+                        : "Continue discovery"
+                      : locale === "pt-BR"
+                        ? "Aprofundar descoberta"
+                        : "Continue deeper discovery"
+                    : locale === "pt-BR"
+                      ? "Voltar às perguntas"
+                      : "Back to questions"
                   : locale === "pt-BR"
                     ? "Ver heatmap e recomendações"
                     : "View heatmap and recommendations"}
@@ -946,8 +1047,13 @@ export default function GuidedDiscoveryWorkspace({
                     setShowResults(false);
                   }}
                   onContinue={
-                    currentQuestion ? () => setShowResults(false) : undefined
+                    pendingQuestion
+                      ? () => void continuePendingDiscovery()
+                      : undefined
                   }
+                  continueDeeper={Boolean(
+                    !pendingEssentialQuestion && pendingOptionalQuestion,
+                  )}
                 />
               ) : showHistory ? (
                 <History
@@ -1491,6 +1597,8 @@ function PillarHub({
           confirm: "Confirmar",
           questions: "perguntas essenciais",
           noTechnology: "Resultado ainda não calculado",
+          noEvidenceOpportunity:
+            "Nenhuma oportunidade sustentada por evidências",
         }
       : {
           eyebrow: "Capability-driven discovery",
@@ -1513,6 +1621,7 @@ function PillarHub({
           confirm: "Confirm",
           questions: "essential questions",
           noTechnology: "Result not calculated yet",
+          noEvidenceOpportunity: "No evidence-backed opportunity",
         };
   const statusCopy = {
     not_started: locale === "pt-BR" ? "Não iniciado" : "Not started",
@@ -1636,8 +1745,14 @@ function PillarHub({
                   pillar.status === "not_relevant"
                 ? c.start
                 : pillar.status === "in_progress"
-                  ? c.continue
+                  ? pillar.answeredCount >= pillar.requiredCount
+                    ? c.review
+                    : c.continue
                   : c.review;
+          const resultCalculated =
+            pillar.answeredCount >= pillar.requiredCount ||
+            pillar.status === "reviewed_sufficient" ||
+            pillar.status === "reviewed_gaps";
           const accessibleInDemo =
             !readOnly || pillar.key === demoPillarKey;
           return (
@@ -1668,7 +1783,12 @@ function PillarHub({
                 />
               </div>
               <div role="cell">
-                <strong>{pillar.leadingTechnology || c.noTechnology}</strong>
+                <strong>
+                  {pillar.leadingTechnology ||
+                    (resultCalculated
+                      ? c.noEvidenceOpportunity
+                      : c.noTechnology)}
+                </strong>
                 <small>
                   {c.coverage}: {pillar.coveragePercent}% · {c.confidence}:{" "}
                   {pillar.confidencePercent}%
